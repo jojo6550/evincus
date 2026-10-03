@@ -48,7 +48,7 @@ function render() {
   body.innerHTML = `
     <div class="pdp__gallery" id="pdpGallery">${galleryHtml()}</div>
     <div class="pdp__info">
-      <span class="mono u-hazard">${esc(eraName(p.era))} collection</span>
+      <a class="mono u-hazard pdp__era" href="#era-${esc(p.era)}">${esc(eraName(p.era))} collection</a>
       <h2 id="pdpName">${esc(p.name)}</h2>
       <p class="pdp__price"><span>${money(p.priceCents)}</span> <span class="mono u-smoke">USD</span></p>
 
@@ -109,6 +109,14 @@ function onChange(e) {
 }
 
 function onClick(e) {
+  const era = e.target.closest('.pdp__era');
+  if (era) {
+    e.preventDefault();
+    const hash = era.getAttribute('href');
+    dialog.close();
+    location.hash = hash;
+    return;
+  }
   const thumb = e.target.closest('.pdp__thumb');
   if (thumb) {
     body.querySelector('#pdpMain').src = thumb.dataset.src;
@@ -149,5 +157,5 @@ export function initProductView() {
     const r = dialog.getBoundingClientRect();
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
   });
-  dialog.addEventListener('close', () => history.replaceState(null, '', '#shop'));
+  dialog.addEventListener('close', () => { if (location.hash.startsWith('#p-')) history.replaceState(null, '', '#shop'); });
 }

@@ -473,3 +473,32 @@ button.btn--line:disabled { background: transparent; color: var(--bone); }
   .pdp__info h2 { margin: 0; font-size: clamp(30px, 10vw, 44px); }
   .pdp__thumb { width: 56px; height: 56px; }
 }
+
+/* ---------- eras ---------- */
+.card[hidden] { display: none; }
+.eras { display: flex; gap: 8px; margin-bottom: 22px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 6px; }
+.era-btn { flex: none; display: inline-flex; align-items: center; gap: 10px; background: none; color: var(--smoke); border: 1px solid var(--char); padding: 9px 14px; cursor: pointer; transition: color .2s, border-color .2s; }
+.era-btn span { color: var(--smoke); font-weight: 500; }
+.era-btn:hover { color: var(--bone); border-color: var(--smoke); }
+.era-btn[aria-pressed="true"] { color: var(--hazard); border-color: var(--hazard); }
+.era-btn[aria-pressed="true"] span { color: var(--hazard); }
+.era-intro:empty { display: none; }
+.era-intro { margin-bottom: 26px; max-width: 64ch; display: grid; gap: 10px; border-left: 2px solid var(--hazard); padding-left: 16px; }
+.era-intro h3 { margin: 0; font-weight: 900; font-variation-settings: "wdth" 125; text-transform: uppercase; font-size: 20px; letter-spacing: .02em; }
+.era-intro p { margin: 0; color: var(--smoke); }
+.era-intro .era-intro__tag { color: var(--bone); font-family: var(--marker); font-size: 18px; }
+.era-intro .era-intro__ended { color: var(--hazard); }
+.teasers:empty { display: none; }
+.teasers { display: grid; gap: 22px; margin-top: clamp(28px, 4vw, 48px); }
+.teaser { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); border: 1px solid var(--char); background: var(--ash); }
+.teaser:not(:has(img)) { grid-template-columns: minmax(0, 1fr); }
+.teaser img { width: 100%; height: 100%; max-height: 320px; object-fit: cover; filter: grayscale(.6) contrast(1.1); }
+.teaser__copy { display: grid; align-content: center; gap: 10px; padding: clamp(18px, 3vw, 36px); min-width: 0; }
+.teaser h3 { margin: 0; font-weight: 900; font-variation-settings: "wdth" 125; text-transform: uppercase; font-size: clamp(26px, 4vw, 44px); line-height: .95; overflow-wrap: anywhere; }
+.teaser p { margin: 0; color: var(--smoke); }
+.teaser p a { color: var(--bone); }
+.pdp__era { text-decoration: none; justify-self: start; border-bottom: 1px solid currentColor; }
+@media (max-width: 720px) {
+  .teaser { grid-template-columns: minmax(0, 1fr); }
+  .teaser img { max-height: 220px; }
+}
