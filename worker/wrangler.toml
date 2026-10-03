@@ -19,3 +19,6 @@ enabled = true
 [[kv_namespaces]]
 binding = "ORDERS"
 id = "local-orders"
+
+[triggers]
+crons = ["*/15 * * * *"]

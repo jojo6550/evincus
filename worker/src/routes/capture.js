@@ -3,6 +3,7 @@ import { CURRENCY, PaypalError, captureOrder, getOrder, verifyTag } from '../lib
 import { CartError, COUNTED, itemsFromUnit, quote, shippingCents, unitMatchesQuote } from '../lib/pricing.js';
 import { buildRecord, findOrder, recordRows, saveOrder } from '../lib/orders.js';
 import { alert } from '../lib/alerts.js';
+import { sendOrderEmails } from '../lib/delivery.js';
 import { paypalFailure } from './orders.js';
 
 const ORDER_ID = /^[A-Za-z0-9]{8,32}$/;
@@ -16,8 +17,9 @@ function refuse(c, orderId, code) {
   return fail(c, 'capture-refused', 409);
 }
 
-// Replaced in Task 8 with receipt and owner emails.
-export async function afterCapture(c, record, persisted) {}
+export function afterCapture(c, record, persisted) {
+  return sendOrderEmails(c, record, { persisted });
+}
 
 // Verifies the captured amount, then logs the order and starts the follow-ups. Shared by fresh captures and recoveries.
 async function finish(c, orderId, done, q, amount) {

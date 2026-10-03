@@ -2,6 +2,7 @@ import { CATALOG } from './lib/catalog.js';
 import { createLogger } from './lib/log.js';
 import { HttpError, corsHeaders, fail } from './lib/http.js';
 import { alert } from './lib/alerts.js';
+import { retryEmails } from './lib/delivery.js';
 import { health } from './routes/health.js';
 import { listEras, getEra } from './routes/eras.js';
 import { getProduct } from './routes/products.js';
@@ -57,6 +58,12 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
       const level = res.status >= 500 ? 'error' : res.status >= 400 ? 'warn' : 'info';
       log[level]('request', { status: res.status, ms: Date.now() - started });
       return res;
+    },
+    async scheduled(event, env, ctx) {
+      const log = createLogger({ route: 'cron' });
+      const now = clock();
+      const c = { env, data, now: new Date(now), reqId: `cron-${now}`, log, waitUntil: p => ctx.waitUntil(p), params: [] };
+      ctx.waitUntil(retryEmails(c).catch(err => log.error('unhandled', { message: String(err?.message ?? err) })));
     },
   };
 }
