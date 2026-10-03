@@ -6,6 +6,7 @@ import { health } from './routes/health.js';
 import { listEras, getEra } from './routes/eras.js';
 import { getProduct } from './routes/products.js';
 import { quoteRoute } from './routes/quote.js';
+import { createOrderRoute } from './routes/orders.js';
 
 const ROUTES = [
   ['GET', /^\/api\/health$/, health],
@@ -13,6 +14,7 @@ const ROUTES = [
   ['GET', /^\/api\/eras\/([a-z0-9-]+)$/, getEra],
   ['GET', /^\/api\/products\/([a-z0-9-]+)$/, getProduct],
   ['POST', /^\/api\/bag\/quote$/, quoteRoute],
+  ['POST', /^\/api\/orders$/, createOrderRoute],
 ];
 
 export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
