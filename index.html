@@ -24,7 +24,7 @@
       <li><a href="#lookbook">Lookbook</a></li>
       <li><a href="#about">About</a></li>
     </ul>
-    <button class="cart mono" id="cart" type="button">Bag <output id="count">0</output></button>
+    <button class="cart mono" id="cart" type="button" aria-controls="bag" aria-haspopup="dialog">Bag <output id="count">0</output></button>
   </nav>
 </header>
 
@@ -142,5 +142,19 @@
     <div class="legal mono"><span>© 2026 Evincus. All rights reserved.</span><span>Redesign concept — demo only</span></div>
   </div>
 </footer>
+
+<dialog class="drawer" id="bag" aria-labelledby="bagTitle">
+  <div class="drawer__head">
+    <h2 id="bagTitle">Your bag</h2>
+    <button class="x mono" id="bagClose" type="button" aria-label="Close bag" autofocus>Close <span aria-hidden="true">✕</span></button>
+  </div>
+  <div class="drawer__body" id="bagBody"></div>
+  <div class="drawer__foot" id="bagFoot"></div>
+</dialog>
+
+<dialog class="pdp" id="pdp" aria-labelledby="pdpName">
+  <button class="x mono pdp__close" id="pdpClose" type="button">Close <span aria-hidden="true">✕</span></button>
+  <div class="pdp__body" id="pdpBody"></div>
+</dialog>
 
 <script type="module" src="assets/js/index.js"></script>

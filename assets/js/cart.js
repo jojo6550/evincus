@@ -30,7 +30,14 @@ export function lines() {
     .filter(Boolean);
 }
 
-export function count()    { return lines().reduce((n, l) => n + l.qty, 0); }
+export function count()    { return rawItems().reduce((n, l) => n + l.qty, 0); }
+
+// Every stored line, valid or not, so the server can say what's wrong with each one.
+export function rawItems() {
+  return items
+    .filter(i => typeof i.id === 'string' && typeof i.color === 'string' && typeof i.size === 'string' && Number.isInteger(i.qty) && i.qty >= 1)
+    .map(({ key, id, color, size, qty }) => ({ key, id, color, size, qty }));
+}
 export function subtotal() { return lines().reduce((n, l) => n + l.totalCents, 0); }
 
 export function add(id, color, size, qty = 1) {
@@ -50,5 +57,6 @@ export function setQty(key, qty) {
 }
 
 export function remove(key) { items = items.filter(i => i.key !== key); save(); }
+export function removeMany(keys) { const drop = new Set(keys); items = items.filter(i => !drop.has(i.key)); save(); }
 export function clear()     { items = []; save(); }
 export function onChange(fn) { listeners.add(fn); }
