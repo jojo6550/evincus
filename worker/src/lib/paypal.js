@@ -15,24 +15,35 @@ const apiBase = env => (env.PAYPAL_ENV === 'live' ? 'https://api-m.paypal.com' :
 
 async function accessToken(env) {
   if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) throw new Error('PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET not set');
-  const res = await fetch(`${apiBase(env)}/v1/oauth2/token`, {
-    method: 'POST',
-    headers: {
-      Authorization: 'Basic ' + btoa(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: 'grant_type=client_credentials',
-  });
+  let res;
+  try {
+    res = await fetch(`${apiBase(env)}/v1/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Basic ' + btoa(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials',
+    });
+  } catch {
+    throw new PaypalError('auth', 0, 'network');
+  }
   if (!res.ok) throw new PaypalError('auth', res.status);
   return (await res.json()).access_token;
 }
 
 async function api(env, op, path, { method = 'GET', body, headers = {} } = {}) {
-  const res = await fetch(apiBase(env) + path, {
-    method,
-    headers: { Authorization: `Bearer ${await accessToken(env)}`, 'Content-Type': 'application/json', ...headers },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const token = await accessToken(env);
+  let res;
+  try {
+    res = await fetch(apiBase(env) + path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new PaypalError(op, 0, 'network');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new PaypalError(op, res.status, data.name);
   return data;

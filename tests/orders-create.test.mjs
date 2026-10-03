@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, fakeUpstreams, captureLogs } from './helpers/fake-env.mjs';
 import { verifyTag } from '../worker/src/lib/paypal.js';
+import { FIXTURE, NOW } from './helpers/fixture.mjs';
 
 const item = (over = {}) => ({ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2, ...over });
 const create = (items, env = makeEnv()) => call('POST', '/api/orders', { body: { items }, env });
@@ -54,6 +55,11 @@ test('PayPal outage is 502 paypal-error and is logged without PII', async () => 
   const e = logs.lines.find(l => l.event === 'paypal.error');
   assert.equal(e.op, 'auth');
   assert.equal(e.upstreamStatus, 500);
+  // Verify no PII in logs
+  const logsStr = JSON.stringify(logs.lines);
+  assert.equal(logsStr.includes('"payer"'), false);
+  assert.equal(logsStr.includes('"email"'), false);
+  assert.equal(logsStr.includes('"name"'), false);
 });
 
 test('five PayPal failures in ten minutes alert the owner once', async () => {
@@ -63,4 +69,52 @@ test('five PayPal failures in ten minutes alert the owner once', async () => {
   try { for (let i = 0; i < 6; i++) await create([item()], env); } finally { logs.restore(); }
   assert.equal(up.emails.length, 1);
   assert.match(up.emails[0].subject, /PayPal errors/);
+});
+
+test('create-time 422 from PayPal is 502 paypal-error and is counted', async () => {
+  const up = fakeUpstreams();
+  const env = makeEnv();
+  const original = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const u = new URL(typeof input === 'string' ? input : input.url);
+    if (u.host.includes('paypal') && u.pathname === '/v2/checkout/orders' && init.method === 'POST') {
+      return new Response(JSON.stringify({ name: 'UNPROCESSABLE_ENTITY' }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+    }
+    return original(input, init);
+  };
+  try {
+    const { status, json } = await call('POST', '/api/orders', { body: { items: [item()] }, env, clock: () => NOW });
+    assert.equal(status, 502);
+    assert.equal(json.error.code, 'paypal-error');
+    // Verify counter was incremented
+    const key = `paypal-errors:${Math.floor(NOW / 600000)}`;
+    const count = await env.ORDERS.get(key);
+    assert.ok(count);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('network failure to PayPal is 502 paypal-error', async () => {
+  const up = fakeUpstreams();
+  const env = makeEnv();
+  const original = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const u = new URL(typeof input === 'string' ? input : input.url);
+    if (u.host.includes('paypal')) {
+      throw new Error('Network error');
+    }
+    return original(input, init);
+  };
+  try {
+    const logs = captureLogs();
+    let r;
+    try { r = await create([item()], env); } finally { logs.restore(); }
+    assert.equal(r.status, 502);
+    assert.equal(r.json.error.code, 'paypal-error');
+    const e = logs.lines.find(l => l.event === 'paypal.error');
+    assert.equal(e.upstreamStatus, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
 });
