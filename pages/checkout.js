@@ -1,4 +1,4 @@
-import { money } from '../data/products.js';
+import { money } from '../data/catalog.js';
 import { esc } from '../assets/js/ui.js';
 import * as cart from '../assets/js/cart.js';
 import { orderTotals } from '../assets/js/totals.js';
@@ -16,7 +16,7 @@ function summary() {
             <span class="line-name">${esc(l.name)}</span>
             <span class="line-meta">${esc(l.color)}, size ${esc(l.size)}</span>
           </span>
-          <span>${money(l.total)}</span>
+          <span>${money(l.totalCents)}</span>
         </li>`).join('')}
     </ul>
     <div class="sum-row"><span>Subtotal</span><span>${money(subtotal)}</span></div>

@@ -1,8 +1,10 @@
-import { PRODUCTS, CATEGORIES } from '../data/products.js';
+import { products, site } from '../assets/js/store.js';
 import { card } from '../assets/js/ui.js';
 
 export const shop = {
   render({ query }) {
+    const PRODUCTS = products();
+    const CATEGORIES = site().categories;
     const active = CATEGORIES.some(c => c.id === query.get('c')) ? query.get('c') : 'all';
     return /* html */`
 <section class="page-head">

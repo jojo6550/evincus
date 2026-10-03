@@ -1,4 +1,5 @@
-import { findProduct, imagesFor } from '../../data/products.js';
+import { imagesFor } from '../../data/catalog.js';
+import { findProduct } from './store.js';
 
 const KEY = 'evincus_bag';
 const listeners = new Set();
@@ -24,13 +25,13 @@ export function lines() {
       const p = findProduct(i.id);
       if (!p || !p.sizes.includes(i.size) || !p.colors.some(c => c.name === i.color)) return null;
       if (!Number.isInteger(i.qty) || i.qty < 1 || i.key !== lineId(i.id, i.color, i.size)) return null;
-      return { ...i, name: p.name, price: p.price, image: imagesFor(p, i.color)[0], total: p.price * i.qty };
+      return { ...i, name: p.name, priceCents: p.priceCents, image: imagesFor(p, i.color)[0], totalCents: p.priceCents * i.qty };
     })
     .filter(Boolean);
 }
 
 export function count()    { return lines().reduce((n, l) => n + l.qty, 0); }
-export function subtotal() { return lines().reduce((n, l) => n + l.total, 0); }
+export function subtotal() { return lines().reduce((n, l) => n + l.totalCents, 0); }
 
 export function add(id, color, size, qty = 1) {
   const key = lineId(id, color, size);

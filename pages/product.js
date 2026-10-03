@@ -1,4 +1,5 @@
-import { findProduct, imagesFor, money, PRODUCTS, CARE_NOTE } from '../data/products.js';
+import { imagesFor, money } from '../data/catalog.js';
+import { findProduct, products, site, eraName } from '../assets/js/store.js';
 import { esc, dotStyle, card } from '../assets/js/ui.js';
 import * as cart from '../assets/js/cart.js';
 import { openBag } from '../assets/js/app.js';
@@ -22,7 +23,7 @@ export const product = {
 
     const color = p.colors[0];
     const imgs = imagesFor(p, color.name);
-    const related = PRODUCTS.filter(x => x.id !== p.id && (x.category === p.category || x.collection === p.collection)).slice(0, 4);
+    const related = products().filter(x => x.id !== p.id && (x.category === p.category || x.era === p.era)).slice(0, 4);
 
     return /* html */`
 <section class="pdp">
@@ -33,9 +34,9 @@ export const product = {
     </div>
 
     <div class="pdp-info">
-      <a href="#/shop" class="crumb">${esc(p.collection)} collection</a>
+      <a href="#/shop" class="crumb">${esc(eraName(p.era))} collection</a>
       <h1 class="pdp-name">${esc(p.name)}</h1>
-      <p class="pdp-price">${money(p.price)} <span>USD</span></p>
+      <p class="pdp-price">${money(p.priceCents)} <span>USD</span></p>
 
       <fieldset class="opt">
         <legend>Colour <span id="colorName">${esc(color.name)}</span></legend>
@@ -70,7 +71,7 @@ export const product = {
         </details>
         <details>
           <summary>Care</summary>
-          <p>${esc(CARE_NOTE)}</p>
+          <p>${esc(site().careNote)}</p>
         </details>
         <details>
           <summary>Sizing help</summary>
@@ -132,7 +133,7 @@ ${related.length ? `
     document.querySelectorAll('input[name="size"]').forEach(r => r.addEventListener('change', () => {
       size = r.value;
       addBtn.disabled = false;
-      addBtn.textContent = `Add to bag, ${money(p.price)}`;
+      addBtn.textContent = `Add to bag, ${money(p.priceCents)}`;
     }));
 
     addBtn.addEventListener('click', () => {

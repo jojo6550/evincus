@@ -1,6 +1,9 @@
-import { PRODUCTS, imagesFor, money } from '../../data/products.js';
+import { imagesFor, money } from '../../data/catalog.js';
+import { loadCatalog, products, eraName } from './store.js';
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const TAGS = { 'disaster-zone-tee': ['New', true], 'made-for-chaos-tee': ['Distressed'], 'catastrophe-zip-hoodie': ['New', true], 'flaming-eye-tee': ['Core'] };
+await loadCatalog();
+const PRODUCTS = products();
 const grid = document.getElementById('grid');
 document.getElementById('total').textContent = PRODUCTS.length;
 grid.innerHTML = PRODUCTS.map(p => {
@@ -14,7 +17,7 @@ grid.innerHTML = PRODUCTS.map(p => {
       <img src="${esc(front)}" alt="${esc(p.name)}" loading="lazy">
       <img class="alt" src="${esc(back)}" alt="" loading="lazy">
     </div>
-    <div class="card__meta"><h3>${esc(p.name)}</h3><span class="price">${money(p.price)}</span><span class="mono">${esc(p.collection)} · ${esc(colors)} · USD</span></div>
+    <div class="card__meta"><h3>${esc(p.name)}</h3><span class="price">${money(p.priceCents)}</span><span class="mono">${esc(eraName(p.era))} · ${esc(colors)} · USD</span></div>
   </a>`;
 }).join('');
 const count = document.getElementById('count');

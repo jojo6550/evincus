@@ -1,7 +1,8 @@
-import { LOOKBOOK } from '../data/products.js';
+import { site } from '../assets/js/store.js';
 
 export const about = {
   render() {
+    const LOOKBOOK = site().lookbook;
     return /* html */`
 <section class="about-hero">
   <div class="wrap">

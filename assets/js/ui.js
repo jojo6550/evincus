@@ -1,4 +1,4 @@
-import { money, imagesFor } from '../../data/products.js';
+import { money, imagesFor } from '../../data/catalog.js';
 
 export function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -21,7 +21,7 @@ export function card(p, { eager = false } = {}) {
     </div>
     <div class="card-row">
       <span class="card-name">${esc(p.name)}</span>
-      <span class="card-price">${money(p.price)}</span>
+      <span class="card-price">${money(p.priceCents)}</span>
     </div>
     <div class="card-colors">
       <span class="dots" aria-hidden="true">${p.colors.map(c => `<span class="dot" style="${dotStyle(c)}"></span>`).join('')}</span>

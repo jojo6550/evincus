@@ -5,7 +5,8 @@ import { about }    from '../../pages/about.js';
 import { checkout } from '../../pages/checkout.js';
 import { thankYou } from '../../pages/thank-you.js';
 import * as cart from './cart.js';
-import { money } from '../../data/products.js';
+import { money } from '../../data/catalog.js';
+import { loadCatalog } from './store.js';
 
 const routes = {
   '/':          home,
@@ -106,7 +107,7 @@ function renderBag() {
         </div>
       </div>
       <div class="line-end">
-        <span>${money(l.total)}</span>
+        <span>${money(l.totalCents)}</span>
         <button type="button" class="text-btn" data-act="remove">Remove</button>
       </div>
     </div>`).join('');
@@ -167,6 +168,7 @@ cart.onChange(() => {
   bagCount.classList.add('bump');
 });
 
+await loadCatalog();
 renderBag();
 window.addEventListener('hashchange', navigate);
 navigate();

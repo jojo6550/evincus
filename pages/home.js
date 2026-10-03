@@ -1,11 +1,11 @@
-import { PRODUCTS, LOOKBOOK } from '../data/products.js';
+import { products, site } from '../assets/js/store.js';
 import { card } from '../assets/js/ui.js';
-
-const drop = PRODUCTS.filter(p => p.collection === 'Catastrophe');
-const more = PRODUCTS.filter(p => p.collection !== 'Catastrophe').slice(0, 4);
 
 export const home = {
   render() {
+    const LOOKBOOK = site().lookbook;
+    const drop = products().filter(p => p.era === 'catastrophe');
+    const more = products().filter(p => p.era !== 'catastrophe').slice(0, 4);
     return /* html */`
 <section class="hero" aria-label="Catastrophe Collection">
   <div class="hero-photo"><img src="${LOOKBOOK[0]}" alt="Model wearing the Disaster Zone Tee" fetchpriority="high"></div>
