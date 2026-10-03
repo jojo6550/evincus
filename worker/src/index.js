@@ -9,6 +9,7 @@ import { getProduct } from './routes/products.js';
 import { quoteRoute } from './routes/quote.js';
 import { createOrderRoute } from './routes/orders.js';
 import { captureRoute } from './routes/capture.js';
+import { beacon } from './routes/beacon.js';
 
 const ROUTES = [
   ['GET', /^\/api\/health$/, health],
@@ -18,6 +19,7 @@ const ROUTES = [
   ['POST', /^\/api\/bag\/quote$/, quoteRoute],
   ['POST', /^\/api\/orders$/, createOrderRoute],
   ['POST', /^\/api\/orders\/capture$/, captureRoute],
+  ['POST', /^\/api\/beacon$/, beacon],
 ];
 
 export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {

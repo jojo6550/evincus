@@ -22,3 +22,11 @@ id = "local-orders"
 
 [triggers]
 crons = ["*/15 * * * *"]
+
+[[ratelimits]]
+name = "BEACON_LIMIT"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 10
+  period = 60
