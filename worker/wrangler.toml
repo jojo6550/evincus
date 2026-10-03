@@ -6,9 +6,9 @@ workers_dev = true
 [vars]
 ENVIRONMENT = "production"
 PAYPAL_ENV = "sandbox"
-PAYPAL_CLIENT_ID = "set-in-task-13"
+PAYPAL_CLIENT_ID = "REPLACE_WITH_SANDBOX_CLIENT_ID"
 SHIPPING_USD = "0"
-OWNER_EMAIL = "set-in-task-13"
+OWNER_EMAIL = "REPLACE_WITH_OWNER_EMAIL"
 EMAIL_FROM = "Evincus <orders@evincus.shop>"
 ALLOWED_ORIGINS = "https://evincus.shop,https://www.evincus.shop,https://jojo6550.github.io"
 COMMIT_SHA = "dev"
@@ -16,6 +16,7 @@ COMMIT_SHA = "dev"
 [observability]
 enabled = true
 
+# Replace with the id from: npx wrangler kv namespace create ORDERS
 [[kv_namespaces]]
 binding = "ORDERS"
 id = "local-orders"
@@ -28,5 +29,31 @@ name = "BEACON_LIMIT"
 namespace_id = "1001"
 
   [ratelimits.simple]
+  limit = 10
+  period = 60
+
+[env.staging]
+name = "evincus-api-staging"
+routes = []
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+PAYPAL_ENV = "sandbox"
+PAYPAL_CLIENT_ID = "REPLACE_WITH_SANDBOX_CLIENT_ID"
+SHIPPING_USD = "0"
+OWNER_EMAIL = "REPLACE_WITH_OWNER_EMAIL"
+EMAIL_FROM = "Evincus <orders@evincus.shop>"
+ALLOWED_ORIGINS = "https://jojo6550.github.io"
+COMMIT_SHA = "dev"
+
+[[env.staging.kv_namespaces]]
+binding = "ORDERS"
+id = "REPLACE_WITH_ORDERS_STAGING_KV_ID"
+
+[[env.staging.ratelimits]]
+name = "BEACON_LIMIT"
+namespace_id = "1002"
+
+  [env.staging.ratelimits.simple]
   limit = 10
   period = 60
