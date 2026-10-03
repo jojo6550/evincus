@@ -92,3 +92,50 @@ export async function call(method, path, { body, raw, headers = {}, env = makeEn
   try { json = JSON.parse(text); } catch { /* not JSON */ }
   return { res, status: res.status, json, text, env };
 }
+
+// Fake PayPal + Resend on globalThis.fetch.
+// paypal: { down, decline, paidValue, payer } ; resend: { fail(body) → boolean }
+export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
+  const orders = new Map();
+  const calls = [];
+  const emails = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const u = new URL(typeof input === 'string' ? input : input.url);
+    const method = init.method ?? 'GET';
+    const headers = new Headers(init.headers);
+    calls.push({ method, host: u.host, path: u.pathname, headers });
+    const reply = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+
+    if (u.host === 'api.resend.com') {
+      const body = JSON.parse(init.body);
+      if (resend.fail?.(body)) return reply({ message: 'failed' }, 500);
+      emails.push({ ...body, idempotencyKey: headers.get('Idempotency-Key') });
+      return reply({ id: `em_${emails.length}` });
+    }
+
+    if (paypal.down) return reply({ name: 'INTERNAL_SERVER_ERROR' }, 500);
+    if (u.pathname === '/v1/oauth2/token') return reply({ access_token: 'token' });
+    if (u.pathname === '/v2/checkout/orders' && method === 'POST') {
+      const id = `ORDER${orders.size + 1}ABCDEFG`;
+      orders.set(id, { id, status: 'APPROVED', ...JSON.parse(init.body) });
+      return reply({ id });
+    }
+    const m = u.pathname.match(/^\/v2\/checkout\/orders\/(\w+)(\/capture)?$/);
+    const order = m && orders.get(m[1]);
+    if (!order) return reply({ name: 'RESOURCE_NOT_FOUND' }, 404);
+    if (!m[2]) return reply(order);
+    if (paypal.decline) return reply({ name: 'UNPROCESSABLE_ENTITY' }, 422);
+    const unit = order.purchase_units[0];
+    const amount = paypal.paidValue ? { ...unit.amount, value: paypal.paidValue } : unit.amount;
+    return reply({
+      id: order.id,
+      status: 'COMPLETED',
+      payer: 'payer' in paypal ? paypal.payer : { name: { given_name: 'Ann', surname: 'Lee' }, email_address: 'ann@example.com' },
+      purchase_units: [{
+        shipping: { name: { full_name: 'Ann Lee' }, address: { address_line_1: '1 Main St', admin_area_2: 'Kingston', country_code: 'JM' } },
+        payments: { captures: [{ id: 'CAPTURE1', amount }] },
+      }],
+    });
+  };
+  return { orders, calls, emails, captures: () => calls.filter(c => c.path.endsWith('/capture')) };
+}

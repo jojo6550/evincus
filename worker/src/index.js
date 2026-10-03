@@ -1,6 +1,7 @@
 import { CATALOG } from './lib/catalog.js';
 import { createLogger } from './lib/log.js';
 import { HttpError, corsHeaders, fail } from './lib/http.js';
+import { alert } from './lib/alerts.js';
 import { health } from './routes/health.js';
 import { listEras, getEra } from './routes/eras.js';
 import { getProduct } from './routes/products.js';
@@ -41,6 +42,7 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
         if (err instanceof HttpError) res = fail(c, err.code, err.status);
         else {
           log.error('unhandled', { message: String(err?.message ?? err), stack: String(err?.stack ?? '') });
+          c.waitUntil(alert(c, 'unhandled', { subject: 'Unhandled error', rows: [['Route', `${req.method} ${url.pathname}`], ['Message', String(err?.message ?? err)]] }));
           res = fail(c, 'server-error', 500);
         }
       }

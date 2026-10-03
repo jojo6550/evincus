@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { call, makeEnv, captureLogs } from './helpers/fake-env.mjs';
+import { call, makeEnv, captureLogs, fakeUpstreams } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 import { redact } from '../worker/src/lib/log.js';
 
@@ -110,6 +110,7 @@ test('localhost is allowed only outside production', async () => {
 });
 
 test('unhandled errors return 500 and log "unhandled"', async () => {
+  fakeUpstreams();
   const logs = captureLogs();
   try {
     const { status, json } = await call('GET', '/api/eras', { data: null });
