@@ -1,0 +1,29 @@
+[
+  {
+    "slug": "catastrophe",
+    "name": "Catastrophe",
+    "tagline": "Peace in chaos",
+    "story": "Zip fleece, heavyweight cotton and distressed washes. In black, brown and bold prints.",
+    "hero": "https://evincus.shop/cdn/shop/files/IMG_0559.jpg?v=1771262379&width=2400",
+    "dropsAt": null,
+    "endsAt": null
+  },
+  {
+    "slug": "reflection",
+    "name": "Reflection",
+    "tagline": "Stripes on repeat",
+    "story": "A striped track jacket and pants in a cotton-rich 365 g/m² knit.",
+    "hero": "https://cdn.shopify.com/s/files/1/0923/9258/7635/files/7b0b25855ae3438085098ca9cadeb57f.png?v=1773206367",
+    "dropsAt": null,
+    "endsAt": null
+  },
+  {
+    "slug": "core",
+    "name": "Core",
+    "tagline": "Always in the line-up",
+    "story": "Heavyweight oversized tees that stay in the store between drops.",
+    "hero": "https://cdn.shopify.com/s/files/1/0923/9258/7635/files/rn-image_picker_lib_temp_f0746b01-53eb-40f7-9cdf-a726f64c12b0.png?v=1771580365",
+    "dropsAt": null,
+    "endsAt": null
+  }
+]

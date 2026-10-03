@@ -1,0 +1,27 @@
+{
+  "categories": [
+    {
+      "id": "all",
+      "name": "Everything"
+    },
+    {
+      "id": "tees",
+      "name": "Tees"
+    },
+    {
+      "id": "outerwear",
+      "name": "Outerwear"
+    },
+    {
+      "id": "bottoms",
+      "name": "Bottoms"
+    }
+  ],
+  "lookbook": [
+    "https://evincus.shop/cdn/shop/files/IMG_0559.jpg?v=1771262379&width=2400",
+    "https://evincus.shop/cdn/shop/files/IMG_0566.jpg?v=1771263317&width=1600",
+    "https://evincus.shop/cdn/shop/files/IMG_0561.jpg?v=1771263510&width=1600",
+    "https://evincus.shop/cdn/shop/files/IMG_0558.jpg?v=1771263676&width=1500"
+  ],
+  "careNote": "Machine wash at 30°C on a gentle cycle. Do not bleach. Tumble dry low. Iron at low temperature."
+}

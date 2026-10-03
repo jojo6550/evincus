@@ -1,0 +1,14 @@
+{
+  "name": "evincus",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test",
+    "dev:api": "wrangler dev --config worker/wrangler.toml",
+    "deploy:api": "wrangler deploy --config worker/wrangler.toml"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  }
+}

@@ -4,3 +4,6 @@ node_modules/
 .claude/
 .env
 .netlify/
+.dev.vars
+.wrangler/
+_site/
