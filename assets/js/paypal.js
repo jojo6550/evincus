@@ -75,7 +75,7 @@ export async function initPaypalButtons() {
         cart.clear();
         window.location.hash = '/thank-you';
       })
-      .catch(() => showError('Your payment didn't go through and you were not charged. Try again, or DM @evincus.sw on Instagram.')),
+      .catch(() => showError("Your payment didn't go through and you were not charged. Try again, or DM @evincus.sw on Instagram.")),
     onCancel: () => showError(''),
     onError: err => {
       if (err?.message === 'empty-bag') { showError('Your bag is empty. Add something before checking out.'); return; }
