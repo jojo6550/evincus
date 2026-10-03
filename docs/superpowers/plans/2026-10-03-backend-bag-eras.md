@@ -3880,3 +3880,14 @@ Create the two monitors described in the README and confirm both show "up".
 git add README.md .gitignore
 git commit -m "Remove Netlify functions and document the Worker setup"
 ```
+
+---
+
+## Amendment (2026-10-03): landing page is the only site page
+
+The user chose `index.html` (the "⚠ WARNING · Catastrophe — 2026" design) as the only page. Tasks 11 and 12 above are superseded:
+
+- **Task 11 (amended):** bag drawer, product view dialog and in-drawer PayPal checkout built into `index.html` (`assets/js/bag.js`, `product-view.js`, `quote.js`, reworked `paypal.js`, styles in `assets/css/index.css`).
+- **Task 12 (amended):** era filter, era intro, upcoming teaser and sold-out/ended tags in the `#shop` section; the old store app (`index.store.html`, `evincus-redesign.html`, `assets/js/app.js`, `ui.js`, `totals.js`, `redesign.js`, `pages/`, `assets/css/main.css`, `redesign.css`) is deleted.
+- Task 10 is unchanged, but its browser check runs on `index.html`.
+- Task 14's README describes `index.html` as the site.
