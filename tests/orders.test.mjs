@@ -99,6 +99,38 @@ test('capture refuses an order whose amount was changed after signing', async ()
   assert.ok(!calls.some(c => c.endsWith('/capture')));
 });
 
+test('capture refuses a replayed tag on an order with different, cheaper contents', async () => {
+  const { orders, calls } = fakePaypal();
+  const { id } = await (await createOrder(post('/api/orders', { items: [item({ qty: 1 })] }))).json();
+  const real = orders.get(id).purchase_units[0];
+  // Attacker's own order: same signed tag and total, but a different product at a made-up unit price.
+  const other = PRODUCTS.find(x => x.price !== p.price) ?? PRODUCTS[1];
+  const total = Number(real.amount.value) - 5;
+  orders.set('REPLAY123456', {
+    id: 'REPLAY123456', status: 'APPROVED',
+    purchase_units: [{
+      custom_id: real.custom_id,
+      amount: { ...real.amount, breakdown: { ...real.amount.breakdown, item_total: { currency_code: 'USD', value: total.toFixed(2) } } },
+      items: [{
+        name: other.name, sku: `${other.id}|${other.colors[0].name}|${other.sizes[0]}`, quantity: '1',
+        unit_amount: { currency_code: 'USD', value: total.toFixed(2) },
+      }],
+    }],
+  });
+  const res = await captureOrder(post('/api/orders/capture', { orderID: 'REPLAY123456' }));
+  assert.equal(res.status, 400);
+  assert.ok(!calls.some(c => c.endsWith('/capture')));
+});
+
+test('capture refuses a legit-total order with a tampered line price', async () => {
+  const { orders, calls } = fakePaypal();
+  const { id } = await (await createOrder(post('/api/orders', { items: [item()] }))).json();
+  orders.get(id).purchase_units[0].items[0].unit_amount.value = '0.01';
+  const res = await captureOrder(post('/api/orders/capture', { orderID: id }));
+  assert.equal(res.status, 400);
+  assert.ok(!calls.some(c => c.endsWith('/capture')));
+});
+
 test('capture refuses malformed ids and non-POST', async () => {
   fakePaypal();
   assert.equal((await captureOrder(post('/api/orders/capture', { orderID: '../x' }))).status, 400);

@@ -1,10 +1,12 @@
 import { CURRENCY, captureOrder, getOrder, verifyTag } from './lib/paypal.mjs';
+import { unitMatchesCatalog } from './lib/pricing.mjs';
 import { json, readJson } from './lib/http.mjs';
 
 const ORDER_ID = /^[A-Za-z0-9]{8,32}$/;
 
 // POST /api/orders/capture  { orderID }  ->  { id, name, email }
-// Captures only orders this server created, and only if the amount PayPal holds matches our signed tag.
+// Captures only orders this server created, and only if the line items PayPal holds re-price to the same
+// total from the catalog. The signed tag alone is not enough: it binds the total, not the contents.
 export default async req => {
   if (req.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
 
@@ -20,7 +22,8 @@ export default async req => {
       order.purchase_units?.length !== 1 ||
       order.status !== 'APPROVED' ||
       amount?.currency_code !== CURRENCY ||
-      !verifyTag(unit.custom_id, amount.value)
+      !verifyTag(unit.custom_id, amount.value) ||
+      !unitMatchesCatalog(unit)
     ) {
       return json({ error: 'order-rejected' }, 400);
     }

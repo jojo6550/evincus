@@ -31,3 +31,27 @@ export function priceCart(items, shipping = shippingCents()) {
   const subtotal = lines.reduce((n, l) => n + l.unitCents * l.qty, 0);
   return { lines, subtotal, shipping, total: subtotal + shipping };
 }
+
+// Rebuilds the cart from a PayPal purchase unit's line items and re-prices it from the catalog.
+// Returns true only if the unit's total, shipping and every line's unit price match the catalog.
+export function unitMatchesCatalog(unit, shipping = shippingCents()) {
+  try {
+    const items = unit?.items?.map(it => {
+      const [id, color, size, ...extra] = String(it.sku).split('|');
+      if (extra.length || !/^[1-9]\d*$/.test(it.quantity)) throw new CartError('invalid-line');
+      return { id, color, size, qty: Number(it.quantity), sku: it.sku, unit_amount: it.unit_amount };
+    });
+    const priced = priceCart(items, shipping);
+    const money = c => ({ currency_code: 'USD', value: fromCents(c) });
+    const same = (a, b) => a?.currency_code === b.currency_code && a?.value === b.value;
+    return (
+      same(unit.amount, money(priced.total)) &&
+      same(unit.amount.breakdown?.item_total, money(priced.subtotal)) &&
+      same(unit.amount.breakdown?.shipping, money(priced.shipping)) &&
+      priced.lines.every((l, i) => items[i].sku === l.key && same(items[i].unit_amount, money(l.unitCents)))
+    );
+  } catch (err) {
+    if (err instanceof CartError) return false;
+    throw err;
+  }
+}
