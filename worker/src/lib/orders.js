@@ -1,0 +1,54 @@
+import { money } from '../../../data/catalog.js';
+
+export const ORDER_TTL = 63072000; // 2 years
+export const orderKey = id => `order:${id}`;
+
+export const findOrder = (env, id) => env.ORDERS.get(orderKey(id), 'json');
+
+export async function saveOrder(env, record) {
+  await env.ORDERS.put(orderKey(record.id), JSON.stringify(record), { expirationTtl: ORDER_TTL });
+  await env.ORDERS.put(`day:${record.capturedAt.slice(0, 10)}:${record.id}`, '', { expirationTtl: ORDER_TTL });
+}
+
+export const updateOrder = (env, record) =>
+  env.ORDERS.put(orderKey(record.id), JSON.stringify(record), { expirationTtl: ORDER_TTL });
+
+export function buildRecord(captured, q, now) {
+  const unit = captured.purchase_units?.[0] ?? {};
+  const payerName = captured.payer?.name ?? {};
+  return {
+    id: captured.id,
+    captureId: unit.payments?.captures?.[0]?.id ?? null,
+    capturedAt: now.toISOString(),
+    status: 'COMPLETED',
+    lines: q.lines.map(({ key, name, color, size, qty, unitCents }) => ({ key, name, color, size, qty, unitCents })),
+    subtotalCents: q.subtotalCents,
+    shippingCents: q.shippingCents,
+    totalCents: q.totalCents,
+    payer: {
+      name: [payerName.given_name, payerName.surname].filter(Boolean).join(' '),
+      firstName: payerName.given_name ?? '',
+      email: captured.payer?.email_address ?? '',
+    },
+    shipTo: { name: unit.shipping?.name?.full_name ?? '', address: unit.shipping?.address ?? {} },
+    email: { customer: 'pending', owner: 'pending', attempts: 0 },
+  };
+}
+
+export const addressLines = a =>
+  [a.address_line_1, a.address_line_2, a.admin_area_2, a.admin_area_1, a.postal_code, a.country_code].filter(Boolean);
+
+// Label/value rows for owner emails and alerts.
+export function recordRows(r) {
+  return [
+    ['Order', r.id],
+    ['Capture', r.captureId ?? ''],
+    ['Captured at', r.capturedAt],
+    ['Payer', `${r.payer.name} <${r.payer.email}>`],
+    ['Ship to', [r.shipTo.name, ...addressLines(r.shipTo.address)].join(', ')],
+    ...r.lines.map(l => [`${l.qty} × ${l.name}`, `${l.color} / ${l.size} at ${money(l.unitCents)}`]),
+    ['Subtotal', money(r.subtotalCents)],
+    ['Shipping', money(r.shippingCents)],
+    ['Total', `${money(r.totalCents)} USD`],
+  ];
+}
