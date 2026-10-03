@@ -2,3 +2,5 @@ assets/js/config.js
 node_modules/
 .remember/
 .claude/
+.env
+.netlify/

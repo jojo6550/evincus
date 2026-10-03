@@ -1,6 +1,5 @@
 import { PAYPAL_CLIENT_ID } from './config.js';
 import * as cart from './cart.js';
-import { orderTotals } from './totals.js';
 
 const SDK_URL = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&currency=USD&intent=capture&enable-funding=card&disable-funding=venmo,paylater`;
 
@@ -26,31 +25,15 @@ function showError(msg) {
   el.hidden = !msg;
 }
 
-const usd = n => n.toFixed(2);
-
-function buildOrder() {
-  const { lines, subtotal, shipping, total } = orderTotals();
-  return {
-    purchase_units: [{
-      description: 'Evincus order',
-      amount: {
-        currency_code: 'USD',
-        value: usd(total),
-        breakdown: {
-          item_total: { currency_code: 'USD', value: usd(subtotal) },
-          shipping:   { currency_code: 'USD', value: usd(shipping) },
-        },
-      },
-      items: lines.map(l => ({
-        name: l.name.slice(0, 127),
-        description: `${l.color} / ${l.size}`.slice(0, 127),
-        sku: l.key.slice(0, 127),
-        quantity: String(l.qty),
-        unit_amount: { currency_code: 'USD', value: usd(l.price) },
-        category: 'PHYSICAL_GOODS',
-      })),
-    }],
-  };
+async function post(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `request-failed-${res.status}`);
+  return data;
 }
 
 export async function initPaypalButtons() {
@@ -73,24 +56,26 @@ export async function initPaypalButtons() {
 
   window.paypal.Buttons({
     style: { layout: 'vertical', color: 'white', shape: 'rect', label: 'checkout', height: 50 },
-    createOrder: (data, actions) => {
+    // Only ids, options and quantities go to the server; it prices the order and talks to PayPal.
+    createOrder: () => {
       showError('');
       if (!cart.count()) return Promise.reject(new Error('empty-bag'));
-      return actions.order.create(buildOrder());
+      const items = cart.lines().map(({ id, color, size, qty }) => ({ id, color, size, qty }));
+      return post('/api/orders', { items }).then(o => o.id);
     },
-    onApprove: (data, actions) => actions.order.capture()
-      .then(details => {
+    onApprove: data => post('/api/orders/capture', { orderID: data.orderID })
+      .then(order => {
         try {
           sessionStorage.setItem('evincus_order', JSON.stringify({
-            id: details.id,
-            name: details.payer?.name?.given_name ?? '',
-            email: details.payer?.email_address ?? '',
+            id: order.id,
+            name: order.name,
+            email: order.email,
           }));
         } catch { /* confirmation page falls back to generic copy */ }
         cart.clear();
         window.location.hash = '/thank-you';
       })
-      .catch(() => showError('Your payment didn\'t go through and you were not charged. Try again, or DM @evincus.sw on Instagram.')),
+      .catch(() => showError('Your payment didn't go through and you were not charged. Try again, or DM @evincus.sw on Instagram.')),
     onCancel: () => showError(''),
     onError: err => {
       if (err?.message === 'empty-bag') { showError('Your bag is empty. Add something before checking out.'); return; }

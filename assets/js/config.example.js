@@ -7,4 +7,5 @@
 export const PAYPAL_CLIENT_ID = 'test';
 
 // Flat shipping charge added to every order, in USD. 0 shows "Free".
+// Display only: the server charges the SHIPPING_USD environment variable, so keep the two equal.
 export const SHIPPING_USD = 0;
