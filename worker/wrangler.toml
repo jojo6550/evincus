@@ -1,0 +1,21 @@
+name = "evincus-api"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[vars]
+ENVIRONMENT = "production"
+PAYPAL_ENV = "sandbox"
+PAYPAL_CLIENT_ID = "set-in-task-13"
+SHIPPING_USD = "0"
+OWNER_EMAIL = "set-in-task-13"
+EMAIL_FROM = "Evincus <orders@evincus.shop>"
+ALLOWED_ORIGINS = "https://evincus.shop,https://www.evincus.shop,https://jojo6550.github.io"
+COMMIT_SHA = "dev"
+
+[observability]
+enabled = true
+
+[[kv_namespaces]]
+binding = "ORDERS"
+id = "local-orders"
