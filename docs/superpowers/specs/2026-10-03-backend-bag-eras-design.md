@@ -472,6 +472,20 @@ Each step leaves `main` deployable and its tests green.
 7. CI deploy: run staging end to end, then production.
 8. Delete `netlify/` and `netlify.toml`, delete `tests/orders.test.mjs` (superseded), and update the README with the new run, deploy, secrets and uptime-monitor instructions.
 
-## 11. Later: move to Cloudflare
+## 11. Later: era-driven site colours
+
+Not built in this work. Catastrophe keeps the current palette in `assets/css/index.css`.
+
+Direction for later: the main colours of the current era drive the site's palette.
+
+- The current era is the first `live` era in `eras.json`, newest first, so the theme switches automatically at `dropsAt`.
+- Each era gets a `palette` in `eras.json` mapped to the existing roles: `--ink`, `--ash`, `--char`, `--bone`, `--smoke`, `--hazard`.
+- `assets/css/eras.css` holds one `:root[data-era="<slug>"]` block per era. JS only sets `data-era` on `<html>`, so no inline styles.
+- A data test keeps `eras.css` matching each era's JSON `palette`, and enforces WCAG contrast: text 4.5:1, accent 3:1.
+- How far an era's colours reach (full palette vs accent only) is decided when the next era is designed.
+
+Nothing in this spec blocks it. `GET /api/eras` can add a `current` field when needed.
+
+## 12. Later: move to Cloudflare
 
 Serve the static site from the same Worker (static assets) or from Cloudflare Pages on `evincus.shop`, with `/api/*` routed to the Worker. Then set `API_BASE = ''`, reduce `ALLOWED_ORIGINS` to same-origin, and remove the Pages job from CI. No API code changes.
