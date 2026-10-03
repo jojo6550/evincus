@@ -160,6 +160,7 @@ test('an order that is not APPROVED is refused', async () => {
   const r = await capture(env, id);
   assert.equal(r.status, 409);
   assert.equal(r.json.error.code, 'capture-refused');
+  assert.equal(up.captures().length, 0);
 });
 
 test('malformed order ids are 400 and GET is 405', async () => {
@@ -183,4 +184,43 @@ test('if writing the order to KV fails, the shopper still gets 200 and the owner
   const mail = up.emails.find(e => /not saved/i.test(e.subject));
   assert.ok(mail.html.includes('ann@example.com'));
   assert.ok(mail.html.includes(id));
+});
+
+test('a paid order whose KV save failed is recorded on retry without a second PayPal capture', async () => {
+  const up = fakeUpstreams();
+  const env = makeEnv();
+  const id = await create(env);
+  env.ORDERS.failPuts = key => key.startsWith('order:') || key.startsWith('day:');
+  const first = await capture(env, id);
+  assert.equal(first.status, 200);
+  env.ORDERS.failPuts = null;
+  const second = await capture(env, id);
+  assert.equal(second.status, 200);
+  assert.deepEqual(second.json, first.json);
+  assert.equal(JSON.parse(env.ORDERS.store.get(`order:${id}`).value).captureId, 'CAPTURE1');
+  assert.equal(up.captures().length, 1);
+});
+
+test('a network error after PayPal charged is recovered by re-reading the order', async () => {
+  const up = fakeUpstreams({ paypal: { networkAfterCapture: true } });
+  const env = makeEnv();
+  const id = await create(env);
+  const r = await capture(env, id);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.totalCents, 7498);
+  assert.ok(env.ORDERS.store.has(`order:${id}`));
+  assert.equal(up.captures().length, 1);
+});
+
+test('an already-captured order with a bad tag is refused and not recorded', async () => {
+  const up = fakeUpstreams();
+  const env = makeEnv();
+  up.orders.set('FOREIGN12345', {
+    id: 'FOREIGN12345', status: 'COMPLETED',
+    purchase_units: [{ custom_id: 'abc.def', amount: { currency_code: 'USD', value: '0.01' } }],
+  });
+  const r = await capture(env, 'FOREIGN12345');
+  assert.equal(r.status, 409);
+  assert.equal(r.json.error.code, 'capture-refused');
+  assert.ok(!env.ORDERS.store.has('order:FOREIGN12345'));
 });

@@ -94,7 +94,7 @@ export async function call(method, path, { body, raw, headers = {}, env = makeEn
 }
 
 // Fake PayPal + Resend on globalThis.fetch.
-// paypal: { down, decline, paidValue, payer } ; resend: { fail(body) → boolean }
+// paypal: { down, decline, paidValue, payer, networkAfterCapture } ; resend: { fail(body) → boolean }
 export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
   const orders = new Map();
   const calls = [];
@@ -127,15 +127,19 @@ export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
     if (paypal.decline) return reply({ name: 'UNPROCESSABLE_ENTITY' }, 422);
     const unit = order.purchase_units[0];
     const amount = paypal.paidValue ? { ...unit.amount, value: paypal.paidValue } : unit.amount;
-    return reply({
+    const done = {
       id: order.id,
       status: 'COMPLETED',
       payer: 'payer' in paypal ? paypal.payer : { name: { given_name: 'Ann', surname: 'Lee' }, email_address: 'ann@example.com' },
       purchase_units: [{
+        ...unit,
         shipping: { name: { full_name: 'Ann Lee' }, address: { address_line_1: '1 Main St', admin_area_2: 'Kingston', country_code: 'JM' } },
         payments: { captures: [{ id: 'CAPTURE1', amount }] },
       }],
-    });
+    };
+    orders.set(order.id, { ...order, ...done }); // later GETs see the captured order, as at PayPal
+    if (paypal.networkAfterCapture) throw new TypeError('network down after charge');
+    return reply(done);
   };
   return { orders, calls, emails, captures: () => calls.filter(c => c.path.endsWith('/capture')) };
 }
