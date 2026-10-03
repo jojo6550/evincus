@@ -4,12 +4,14 @@ import { HttpError, corsHeaders, fail } from './lib/http.js';
 import { health } from './routes/health.js';
 import { listEras, getEra } from './routes/eras.js';
 import { getProduct } from './routes/products.js';
+import { quoteRoute } from './routes/quote.js';
 
 const ROUTES = [
   ['GET', /^\/api\/health$/, health],
   ['GET', /^\/api\/eras$/, listEras],
   ['GET', /^\/api\/eras\/([a-z0-9-]+)$/, getEra],
   ['GET', /^\/api\/products\/([a-z0-9-]+)$/, getProduct],
+  ['POST', /^\/api\/bag\/quote$/, quoteRoute],
 ];
 
 export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
