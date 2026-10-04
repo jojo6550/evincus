@@ -13,6 +13,13 @@ export async function saveOrder(env, record) {
 export const updateOrder = (env, record) =>
   env.ORDERS.put(orderKey(record.id), JSON.stringify(record), { expirationTtl: ORDER_TTL });
 
+// PayPal's capture time, so concurrent or repeated finishes of one order build the same record (same day key, same
+// email bodies under the same Resend idempotency keys). Falls back to now when PayPal omits or garbles it.
+function captureTime(capture, now) {
+  const t = Date.parse(capture?.create_time ?? '');
+  return Number.isNaN(t) ? now.toISOString() : new Date(t).toISOString();
+}
+
 export function buildRecord(captured, q, now) {
   const unit = captured.purchase_units?.[0] ?? {};
   const payerName = captured.payer?.name ?? {};
@@ -21,7 +28,7 @@ export function buildRecord(captured, q, now) {
     id: captured.id,
     captureId: capture?.id ?? null,
     captureStatus: capture?.status ?? 'UNKNOWN',
-    capturedAt: now.toISOString(),
+    capturedAt: captureTime(capture, now),
     status: 'COMPLETED',
     lines: q.lines.map(({ key, name, color, size, qty, unitCents }) => ({ key, name, color, size, qty, unitCents })),
     subtotalCents: q.subtotalCents,

@@ -104,6 +104,8 @@ const reread = (c, orderId) => getOrder(c.env, orderId).catch(() => null);
 
 // Captures once, and if the outcome is unknown, re-reads the order and retries once (PayPal-Request-Id prevents a double charge).
 // Resolves to { order, recovered } for a charge, or an error Response. "Not charged" is only said when PayPal definitely refused.
+// Every failure re-reads the order first: a concurrent request for the same order may have captured it, and PayPal then
+// refuses this one (e.g. 422 ORDER_ALREADY_CAPTURED) although the shopper was charged.
 async function capture(c, orderId) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -111,13 +113,16 @@ async function capture(c, orderId) {
     } catch (err) {
       if (!(err instanceof PaypalError)) throw err;
       const unknown = unknownOutcome(err);
-      if (!unknown && attempt === 0) return paypalFailure(c, err, orderId);
       const after = await reread(c, orderId);
-      // A definite refusal of the retry is trusted only while PayPal still shows the order unpaid.
+      if (after?.status === 'COMPLETED') {
+        logPaypalError(c, err, orderId);
+        if (unknown) c.waitUntil(countPaypalError(c));
+        return recovered(c, orderId, after);
+      }
+      // A definite refusal is trusted only while PayPal still shows the order unpaid.
       if (!unknown && after?.status === 'APPROVED') return paypalFailure(c, err, orderId);
       logPaypalError(c, err, orderId);
       c.waitUntil(countPaypalError(c));
-      if (after?.status === 'COMPLETED') return recovered(c, orderId, after);
       if (!unknown || after?.status !== 'APPROVED') break;
     }
   }

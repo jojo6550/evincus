@@ -94,7 +94,7 @@ export async function call(method, path, { body, raw, headers = {}, env = makeEn
 }
 
 // Fake PayPal + Resend on globalThis.fetch.
-// paypal: { down, decline, paidValue, payer, networkAfterCapture, captureStatus, captureErrors, chargeOnError } ; resend: { fail(body) → boolean }
+// paypal: { down, decline, paidValue, payer, networkAfterCapture, captureStatus, createTime, captureErrors, chargeOnError } ; resend: { fail(body) → boolean }
 // captureErrors: HTTP statuses returned by successive capture calls before captures succeed (e.g. [500, 500]).
 // chargeOnError: the order still becomes COMPLETED at PayPal when a capture call returns one of those errors.
 export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
@@ -137,7 +137,7 @@ export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
       purchase_units: [{
         ...unit,
         shipping: { name: { full_name: 'Ann Lee' }, address: { address_line_1: '1 Main St', admin_area_2: 'Kingston', country_code: 'JM' } },
-        payments: { captures: [{ id: 'CAPTURE1', status: paypal.captureStatus ?? 'COMPLETED', amount }] },
+        payments: { captures: [{ id: 'CAPTURE1', status: paypal.captureStatus ?? 'COMPLETED', amount, ...(paypal.createTime ? { create_time: paypal.createTime } : {}) }] },
       }],
     };
     const errorStatus = captureErrors.shift();

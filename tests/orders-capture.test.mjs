@@ -332,3 +332,40 @@ test('recovering an order PayPal already captured records the charged amounts, n
   assert.deepEqual(record.lines, [{ key: 'alpha-tee|Black, white print|S', name: 'Alpha <Tee>', color: 'Black, white print', size: 'S', qty: 2, unitCents: 3499 }]);
   assert.equal(up.captures().length, 0);
 });
+
+test('a definite refusal on the first capture of an order PayPal shows captured is recorded, not called a decline', async () => {
+  const up = fakeUpstreams({ paypal: { captureErrors: [422], chargeOnError: true } });
+  const env = makeEnv();
+  const id = await create(env);
+  const r = await capture(env, id);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.status, 'COMPLETED');
+  assert.equal(up.captures().length, 1);
+  assert.ok(env.ORDERS.store.has(`order:${id}`));
+});
+
+test('concurrent captures of one order charge once and send each email under one idempotency key', async () => {
+  const up = fakeUpstreams();
+  const env = makeEnv();
+  const id = await create(env);
+  const [a, b] = await Promise.all([capture(env, id), capture(env, id)]);
+  assert.equal(a.status, 200);
+  assert.equal(b.status, 200);
+  assert.deepEqual(a.json, b.json);
+  assert.ok(up.captures().every(c => c.headers.get('PayPal-Request-Id') === id));
+  const keys = new Set(up.emails.map(e => e.idempotencyKey));
+  assert.deepEqual([...keys].sort(), [`${id}-customer`, `${id}-owner`]);
+  const bodies = key => new Set(up.emails.filter(e => e.idempotencyKey === key).map(e => e.html));
+  assert.equal(bodies(`${id}-owner`).size, 1);
+  assert.equal(bodies(`${id}-customer`).size, 1);
+});
+
+test('the record uses PayPal\'s capture time, so repeated finishes build the same record', async () => {
+  fakeUpstreams({ paypal: { createTime: '2026-10-02T23:59:30Z' } });
+  const env = makeEnv();
+  const id = await create(env);
+  await capture(env, id);
+  const record = JSON.parse(env.ORDERS.store.get(`order:${id}`).value);
+  assert.equal(record.capturedAt, '2026-10-02T23:59:30.000Z');
+  assert.ok(env.ORDERS.store.has(`day:2026-10-02:${id}`));
+});
