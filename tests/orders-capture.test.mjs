@@ -224,3 +224,111 @@ test('an already-captured order with a bad tag is refused and not recorded', asy
   assert.equal(r.json.error.code, 'capture-refused');
   assert.ok(!env.ORDERS.store.has('order:FOREIGN12345'));
 });
+
+test('a capture that errors with 500 but charged anyway is recorded from the re-read order', async () => {
+  const up = fakeUpstreams({ paypal: { captureErrors: [500], chargeOnError: true } });
+  const env = makeEnv();
+  const id = await create(env);
+  const r = await capture(env, id);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.totalCents, 7498);
+  assert.ok(env.ORDERS.store.has(`order:${id}`));
+  assert.equal(up.captures().length, 1);
+});
+
+test('a capture that errors with 500 twice while the order stays APPROVED is 502 capture-unknown, not "not charged"', async () => {
+  const up = fakeUpstreams({ paypal: { captureErrors: [500, 500] } });
+  const env = makeEnv();
+  const id = await create(env);
+  const r = await capture(env, id);
+  assert.equal(r.status, 502);
+  assert.equal(r.json.error.code, 'capture-unknown');
+  assert.match(r.json.error.message, /Don't pay again/);
+  assert.doesNotMatch(r.json.error.message, /not charged/);
+  assert.equal(up.captures().length, 2);
+  assert.ok(!env.ORDERS.store.has(`order:${id}`));
+});
+
+test('capture-path paypal.error log lines carry the order id', async () => {
+  fakeUpstreams({ paypal: { captureErrors: [500, 500] } });
+  const env = makeEnv();
+  const id = await create(env);
+  const logs = captureLogs();
+  try { await capture(env, id); } finally { logs.restore(); }
+  const errors = logs.lines.filter(l => l.event === 'paypal.error');
+  assert.ok(errors.length >= 1);
+  assert.ok(errors.every(l => l.orderId === id && l.op === 'capture' && l.upstreamStatus === 500));
+});
+
+test('a 500 then a successful retry captures once at PayPal and records the order', async () => {
+  const up = fakeUpstreams({ paypal: { captureErrors: [500] } });
+  const env = makeEnv();
+  const id = await create(env);
+  const r = await capture(env, id);
+  assert.equal(r.status, 200);
+  assert.equal(up.captures().length, 2);
+  assert.ok(up.captures().every(c => c.headers.get('PayPal-Request-Id') === id));
+  assert.ok(env.ORDERS.store.has(`order:${id}`));
+});
+
+test('a 500 then a definite 400 on retry with the order still APPROVED says not charged', async () => {
+  fakeUpstreams({ paypal: { captureErrors: [500, 400] } });
+  const env = makeEnv();
+  const id = await create(env);
+  const r = await capture(env, id);
+  assert.equal(r.status, 502);
+  assert.equal(r.json.error.code, 'paypal-error');
+});
+
+test('a 500 then a 422 on retry is still a decline', async () => {
+  fakeUpstreams({ paypal: { captureErrors: [500, 422] } });
+  const env = makeEnv();
+  const id = await create(env);
+  const r = await capture(env, id);
+  assert.equal(r.status, 422);
+  assert.equal(r.json.error.code, 'payment-declined');
+});
+
+test('a pending capture is recorded, flagged, and the owner is told not to ship', async () => {
+  const up = fakeUpstreams({ paypal: { captureStatus: 'PENDING' } });
+  const env = makeEnv();
+  const id = await create(env);
+  const logs = captureLogs();
+  let r;
+  try { r = await capture(env, id); } finally { logs.restore(); }
+  assert.equal(r.status, 200);
+  const record = JSON.parse(env.ORDERS.store.get(`order:${id}`).value);
+  assert.equal(record.captureStatus, 'PENDING');
+  assert.ok(logs.lines.some(l => l.event === 'order.payment_pending' && l.level === 'warn' && l.orderId === id && l.captureStatus === 'PENDING'));
+  assert.ok(up.emails.some(e => /Payment pending on order/.test(e.subject)));
+  const owner = up.emails.find(e => e.subject.startsWith('New order'));
+  assert.ok(owner.html.includes('don&#39;t ship'));
+});
+
+test('a completed capture records captureStatus COMPLETED and no pending row', async () => {
+  const up = fakeUpstreams();
+  const env = makeEnv();
+  const id = await create(env);
+  await capture(env, id);
+  assert.equal(JSON.parse(env.ORDERS.store.get(`order:${id}`).value).captureStatus, 'COMPLETED');
+  assert.ok(!up.emails.some(e => /pending/i.test(e.subject) || e.html.includes('don&#39;t ship')));
+});
+
+test('recovering an order PayPal already captured records the charged amounts, not current catalog prices', async () => {
+  const up = fakeUpstreams();
+  const env = makeEnv();
+  const id = await create(env);
+  const o = up.orders.get(id);
+  o.status = 'COMPLETED';
+  o.payer = { name: { given_name: 'Ann', surname: 'Lee' }, email_address: 'ann@example.com' };
+  o.purchase_units[0].payments = { captures: [{ id: 'CAPTURE1', status: 'COMPLETED', amount: o.purchase_units[0].amount }] };
+  const r = await capture(env, id, { data: withProduct('alpha-tee', { priceCents: 9999 }) });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.totalCents, 7498);
+  const record = JSON.parse(env.ORDERS.store.get(`order:${id}`).value);
+  assert.equal(record.subtotalCents, 6998);
+  assert.equal(record.shippingCents, 500);
+  assert.equal(record.totalCents, 7498);
+  assert.deepEqual(record.lines, [{ key: 'alpha-tee|Black, white print|S', name: 'Alpha <Tee>', color: 'Black, white print', size: 'S', qty: 2, unitCents: 3499 }]);
+  assert.equal(up.captures().length, 0);
+});

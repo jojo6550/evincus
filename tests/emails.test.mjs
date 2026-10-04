@@ -115,3 +115,15 @@ test('a full purchase with emails writes no PII to logs', async () => {
   const all = JSON.stringify(logs.lines);
   for (const pii of ['ann@example.com', 'Ann Lee', '1 Main St', 'Kingston']) assert.ok(!all.includes(pii), pii);
 });
+
+test('a failed record update after capture still queues the email retry', async () => {
+  fakeUpstreams({ resend: { fail: b => b.to[0] === 'ann@example.com' } });
+  const env = makeEnv();
+  let orderPuts = 0;
+  env.ORDERS.failPuts = key => key.startsWith('order:') && ++orderPuts > 1; // the save succeeds, the update fails
+  const logs = captureLogs();
+  let id;
+  try { id = await buy(env); } finally { logs.restore(); }
+  assert.equal(orderPuts, 2);
+  assert.deepEqual(retryState(env, id), { retries: 0, nextAt: NOW + 15 * MIN });
+});

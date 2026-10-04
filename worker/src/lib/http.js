@@ -21,6 +21,7 @@ export const MESSAGES = {
   'bag-changed': 'Some items in your bag changed. Check your bag, then check out again.',
   'capture-refused': "This payment couldn't be verified, so you were not charged. Start checkout again from your bag.",
   'capture-mismatch': "Your payment needs a manual check. Don't pay again: we'll contact you by email within one business day.",
+  'capture-unknown': "We couldn't confirm your payment. Don't pay again — check your PayPal account or email for a receipt, or DM @evincus.sw on Instagram with your order reference.",
   'payment-declined': 'Your payment method was declined and you were not charged. Try another card or PayPal account.',
   'paypal-error': "PayPal didn't respond and you were not charged. Try again in a minute.",
 };

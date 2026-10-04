@@ -66,6 +66,23 @@ export function itemsFromUnit(unit) {
   return items;
 }
 
+const toCents = v => Math.round(Number(v) * 100);
+
+// What PayPal actually charged, as a quote-shaped object: amounts from the purchase unit, names from `q` when it priced the same SKU.
+export function chargedQuote(unit, q) {
+  const priced = new Map((q?.lines ?? []).map(l => [l.key, l]));
+  const items = itemsFromUnit(unit) ?? [];
+  const lines = items.map((i, n) => {
+    const it = unit.items[n];
+    return { key: it.sku, name: priced.get(it.sku)?.name ?? String(it.name ?? i.id), color: i.color, size: i.size, qty: i.qty, unitCents: toCents(it.unit_amount?.value) };
+  });
+  const totalCents = toCents(unit.amount?.value);
+  const shipping = unit.amount?.breakdown?.shipping?.value;
+  const itemTotal = unit.amount?.breakdown?.item_total?.value;
+  const shippingCents = shipping === undefined ? 0 : toCents(shipping);
+  return { lines, subtotalCents: itemTotal === undefined ? totalCents - shippingCents : toCents(itemTotal), shippingCents, totalCents };
+}
+
 // True only if every line is plainly buyable and every amount PayPal holds equals the quote.
 export function unitMatchesQuote(unit, q) {
   const money = c => ({ currency_code: 'USD', value: fromCents(c) });

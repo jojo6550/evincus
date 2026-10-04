@@ -1,10 +1,11 @@
 import { json, fail, readJson } from '../lib/http.js';
 import { CURRENCY, PaypalError, captureOrder, getOrder, verifyTag } from '../lib/paypal.js';
-import { CartError, COUNTED, itemsFromUnit, quote, shippingCents, unitMatchesQuote } from '../lib/pricing.js';
+import { CartError, COUNTED, chargedQuote, itemsFromUnit, quote, shippingCents, unitMatchesQuote } from '../lib/pricing.js';
 import { buildRecord, findOrder, recordRows, saveOrder } from '../lib/orders.js';
 import { alert } from '../lib/alerts.js';
 import { sendOrderEmails } from '../lib/delivery.js';
-import { paypalFailure } from './orders.js';
+import { countPaypalError } from '../lib/alerts.js';
+import { logPaypalError, paypalFailure } from './orders.js';
 
 const ORDER_ID = /^[A-Za-z0-9]{8,32}$/;
 
@@ -35,6 +36,10 @@ async function finish(c, orderId, done, q, amount) {
   }
 
   const record = buildRecord(done, q, c.now);
+  if (record.captureStatus !== 'COMPLETED') {
+    c.log.warn('order.payment_pending', { orderId, captureStatus: record.captureStatus });
+    c.waitUntil(alert(c, 'order.payment_pending', { subject: `Payment pending on order ${orderId}`, rows: recordRows(record), dedupe: false }));
+  }
   let persisted = true;
   try {
     await saveOrder(c.env, record);
@@ -50,7 +55,7 @@ async function finish(c, orderId, done, q, amount) {
 
 // POST /api/orders/capture { orderID }
 // Captures only orders this server signed, whose contents still re-price to the same amounts and are still buyable.
-// An order PayPal already captured (a success the Worker missed) is recorded instead of refused.
+// An order PayPal already captured (a success the Worker missed) is recorded, at the amounts PayPal charged, instead of refused.
 export async function captureRoute(req, c) {
   const body = await readJson(req);
   const orderId = body?.orderID;
@@ -75,12 +80,9 @@ export async function captureRoute(req, c) {
   try { q = items && quote(c.data, c.now, items, shippingCents(c.env)); } catch (err) { if (!(err instanceof CartError)) throw err; }
 
   if (completed) {
-    if (!q) {
-      c.log.error('capture.recovered_unpriced', { orderId });
-      q = { lines: [], subtotalCents: 0, shippingCents: 0, totalCents: Math.round(Number(amount.value) * 100) };
-    }
+    if (!q) c.log.error('capture.recovered_unpriced', { orderId });
     c.log.info('order.recovered', { orderId });
-    return finish(c, orderId, order, q, amount);
+    return finish(c, orderId, order, chargedQuote(unit, q), amount);
   }
 
   if (!q) return refuse(c, orderId, 'reprice-mismatch');
@@ -90,15 +92,40 @@ export async function captureRoute(req, c) {
   }
   if (!unitMatchesQuote(unit, q)) return refuse(c, orderId, 'reprice-mismatch');
 
-  let done;
-  try {
-    done = await captureOrder(c.env, orderId);
-  } catch (err) {
-    if (!(err instanceof PaypalError) || err.status !== 0) return paypalFailure(c, err);
-    // The charge may have gone through before the connection dropped; look once more.
-    try { done = await getOrder(c.env, orderId); } catch { return paypalFailure(c, err); }
-    if (done.status !== 'COMPLETED') return paypalFailure(c, err);
-    c.log.info('order.recovered', { orderId });
+  const outcome = await capture(c, orderId);
+  if (outcome instanceof Response) return outcome;
+  return finish(c, orderId, outcome.order, outcome.recovered ? chargedQuote(unit, q) : q, amount);
+}
+
+// A 5xx or a dropped connection says nothing about whether PayPal charged.
+const unknownOutcome = err => err instanceof PaypalError && (err.status === 0 || err.status >= 500);
+
+const reread = (c, orderId) => getOrder(c.env, orderId).catch(() => null);
+
+// Captures once, and if the outcome is unknown, re-reads the order and retries once (PayPal-Request-Id prevents a double charge).
+// Resolves to { order, recovered } for a charge, or an error Response. "Not charged" is only said when PayPal definitely refused.
+async function capture(c, orderId) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return { order: await captureOrder(c.env, orderId), recovered: false };
+    } catch (err) {
+      if (!(err instanceof PaypalError)) throw err;
+      const unknown = unknownOutcome(err);
+      if (!unknown && attempt === 0) return paypalFailure(c, err, orderId);
+      const after = await reread(c, orderId);
+      // A definite refusal of the retry is trusted only while PayPal still shows the order unpaid.
+      if (!unknown && after?.status === 'APPROVED') return paypalFailure(c, err, orderId);
+      logPaypalError(c, err, orderId);
+      c.waitUntil(countPaypalError(c));
+      if (after?.status === 'COMPLETED') return recovered(c, orderId, after);
+      if (!unknown || after?.status !== 'APPROVED') break;
+    }
   }
-  return finish(c, orderId, done, q, amount);
+  c.log.error('capture.unknown', { orderId });
+  return fail(c, 'capture-unknown', 502);
+}
+
+function recovered(c, orderId, order) {
+  c.log.info('order.recovered', { orderId });
+  return { order, recovered: true };
 }

@@ -3,11 +3,15 @@ import { CartError, quote, shippingCents } from '../lib/pricing.js';
 import { PaypalError, createOrder, newNonce } from '../lib/paypal.js';
 import { countPaypalError } from '../lib/alerts.js';
 
+export function logPaypalError(c, err, orderId) {
+  c.log.error('paypal.error', { op: err.op, upstreamStatus: err.status, upstream: err.upstream, ...(orderId ? { orderId } : {}) });
+}
+
 // Maps PayPal failures to responses. Only capture-time 422 is a card decline and doesn't count toward alerts.
 // Create-time 422 and all other errors are counted as outages.
-export function paypalFailure(c, err) {
+export function paypalFailure(c, err, orderId) {
   if (!(err instanceof PaypalError)) throw err;
-  c.log.error('paypal.error', { op: err.op, upstreamStatus: err.status, upstream: err.upstream });
+  logPaypalError(c, err, orderId);
   if (err.op === 'capture' && err.status === 422) return fail(c, 'payment-declined', 422);
   c.waitUntil(countPaypalError(c));
   return fail(c, 'paypal-error', 502);

@@ -94,9 +94,12 @@ export async function call(method, path, { body, raw, headers = {}, env = makeEn
 }
 
 // Fake PayPal + Resend on globalThis.fetch.
-// paypal: { down, decline, paidValue, payer, networkAfterCapture } ; resend: { fail(body) → boolean }
+// paypal: { down, decline, paidValue, payer, networkAfterCapture, captureStatus, captureErrors, chargeOnError } ; resend: { fail(body) → boolean }
+// captureErrors: HTTP statuses returned by successive capture calls before captures succeed (e.g. [500, 500]).
+// chargeOnError: the order still becomes COMPLETED at PayPal when a capture call returns one of those errors.
 export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
   const orders = new Map();
+  const captureErrors = [...(paypal.captureErrors ?? [])];
   const calls = [];
   const emails = [];
   globalThis.fetch = async (input, init = {}) => {
@@ -134,9 +137,14 @@ export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
       purchase_units: [{
         ...unit,
         shipping: { name: { full_name: 'Ann Lee' }, address: { address_line_1: '1 Main St', admin_area_2: 'Kingston', country_code: 'JM' } },
-        payments: { captures: [{ id: 'CAPTURE1', amount }] },
+        payments: { captures: [{ id: 'CAPTURE1', status: paypal.captureStatus ?? 'COMPLETED', amount }] },
       }],
     };
+    const errorStatus = captureErrors.shift();
+    if (errorStatus !== undefined) {
+      if (paypal.chargeOnError) orders.set(order.id, { ...order, ...done });
+      return reply({ name: errorStatus >= 500 ? 'INTERNAL_SERVER_ERROR' : 'INVALID_REQUEST' }, errorStatus);
+    }
     orders.set(order.id, { ...order, ...done }); // later GETs see the captured order, as at PayPal
     if (paypal.networkAfterCapture) throw new TypeError('network down after charge');
     return reply(done);

@@ -16,9 +16,11 @@ export const updateOrder = (env, record) =>
 export function buildRecord(captured, q, now) {
   const unit = captured.purchase_units?.[0] ?? {};
   const payerName = captured.payer?.name ?? {};
+  const capture = unit.payments?.captures?.[0];
   return {
     id: captured.id,
-    captureId: unit.payments?.captures?.[0]?.id ?? null,
+    captureId: capture?.id ?? null,
+    captureStatus: capture?.status ?? 'UNKNOWN',
     capturedAt: now.toISOString(),
     status: 'COMPLETED',
     lines: q.lines.map(({ key, name, color, size, qty, unitCents }) => ({ key, name, color, size, qty, unitCents })),
@@ -40,7 +42,9 @@ export const addressLines = a =>
 
 // Label/value rows for owner emails and alerts.
 export function recordRows(r) {
+  const pending = r.captureStatus && r.captureStatus !== 'COMPLETED';
   return [
+    ...(pending ? [['Payment status', `${r.captureStatus} — don't ship until PayPal shows it completed`]] : []),
     ['Order', r.id],
     ['Capture', r.captureId ?? ''],
     ['Captured at', r.capturedAt],

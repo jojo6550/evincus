@@ -31,12 +31,24 @@ export async function deliverOrderEmails(c, record) {
 }
 
 // First delivery, right after capture. Queues a retry only for orders that made it into KV.
+// The retry key is written before the record update, and separately, so a failed update can't lose the retry.
 export async function sendOrderEmails(c, record, { persisted }) {
+  let done;
   try {
-    const done = await deliverOrderEmails(c, record);
-    if (!persisted) return;
+    done = await deliverOrderEmails(c, record);
+  } catch (err) {
+    c.log.error('email.failed', { orderId: record.id, message: String(err?.message ?? err) });
+  }
+  if (!persisted) return;
+  if (!done) {
+    try {
+      await c.env.ORDERS.put(retryKey(record.id), JSON.stringify({ retries: 0, nextAt: +c.now + BACKOFF_MINUTES[0] * MIN }));
+    } catch (err) {
+      c.log.error('email.failed', { orderId: record.id, message: String(err?.message ?? err) });
+    }
+  }
+  try {
     await updateOrder(c.env, record);
-    if (!done) await c.env.ORDERS.put(retryKey(record.id), JSON.stringify({ retries: 0, nextAt: +c.now + BACKOFF_MINUTES[0] * MIN }));
   } catch (err) {
     c.log.error('email.failed', { orderId: record.id, message: String(err?.message ?? err) });
   }
