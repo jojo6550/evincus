@@ -1,15 +1,59 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { imagesFor } from '../data/catalog.js';
+import { CATALOG, FOLDERS } from '../data/eras/index.js';
 
-const read = path => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
-const eras = read('../data/eras.json');
-const products = read('../data/products.json');
-const site = read('../data/site.json');
-const snapshot = read('./fixtures/images-snapshot.json');
+const root = new URL('../', import.meta.url);
+const { eras, products } = CATALOG;
+const site = JSON.parse(readFileSync(new URL('data/site.json', root), 'utf8'));
+const erasDir = new URL('data/eras/', root);
+const dirs = readdirSync(erasDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name);
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+const IMAGE_NAME = /^[a-z0-9]+(-[a-z0-9]+)*\.(jpg|png|webp)$/;
+const MAX_BYTES = 500 * 1024;
+
+test('every era folder is listed in index.js and every listed era has a folder', () => {
+  assert.deepEqual([...dirs].sort(), [...FOLDERS].sort());
+});
+
+test('each era.js declares the slug of its folder', async () => {
+  for (const dir of dirs) {
+    const { era } = await import(new URL(`${dir}/era.js`, erasDir).href);
+    assert.equal(era.slug, dir, `data/eras/${dir}/era.js has slug "${era.slug}"`);
+  }
+});
+
+test('era photos are bare, safely named files in their own img folder', () => {
+  for (const e of eras) {
+    const prefix = `data/eras/${e.slug}/img/`;
+    const files = readdirSync(new URL(`${e.slug}/img/`, erasDir)); // exact case: Pages is case-sensitive
+    const refs = [e.hero, ...products.filter(p => p.era === e.slug).flatMap(p => [
+      ...(p.images ?? []),
+      ...p.colors.flatMap(c => c.images ?? []),
+    ])];
+    for (const ref of refs) {
+      assert.ok(ref.startsWith(prefix), `${ref} is not in ${prefix}`);
+      const file = ref.slice(prefix.length);
+      assert.match(file, IMAGE_NAME, `${e.slug}: "${file}" must be a bare lowercase-kebab .jpg/.png/.webp filename`);
+      assert.ok(files.includes(file), `${prefix}${file} is missing (names are case-sensitive)`);
+    }
+  }
+});
+
+test('no era photo is over 500 KB', () => {
+  for (const dir of dirs) {
+    for (const file of readdirSync(new URL(`${dir}/img/`, erasDir))) {
+      const { size } = statSync(new URL(`${dir}/img/${file}`, erasDir));
+      assert.ok(size <= MAX_BYTES, `data/eras/${dir}/img/${file} is ${Math.round(size / 1024)} KB (max 500 KB)`);
+    }
+  }
+});
+
+test('site.json does not use era photos', () => {
+  assert.ok(!JSON.stringify(site).includes('data/eras/'), 'non-era photos belong in assets/img/');
+});
 
 test('eras are well formed', () => {
   assert.ok(eras.length > 0);
@@ -52,13 +96,6 @@ test('products are well formed and point at real eras', () => {
       const [color, size, ...rest] = v.split('|');
       assert.ok(!rest.length && p.colors.some(c => c.name === color) && p.sizes.includes(size), `${p.id} soldOutVariants "${v}"`);
     }
-  }
-});
-
-test('images match the pre-migration snapshot', () => {
-  assert.deepEqual(Object.keys(snapshot).sort(), products.map(p => p.id).sort());
-  for (const p of products) {
-    for (const c of p.colors) assert.deepEqual(imagesFor(p, c.name), snapshot[p.id][c.name], `${p.id} / ${c.name}`);
   }
 });
 
