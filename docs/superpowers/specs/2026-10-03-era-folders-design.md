@@ -30,7 +30,7 @@ Stock counts, admin UI, editing from a phone, image processing beyond the one-of
 
 ### Assumption
 
-If the repo is public, unreleased eras in `data/eras/` are readable on GitHub before the drop (same as today). Keep the repo private, or add an era only on drop day.
+Everything in `data/` is published to Pages, so an unreleased era's folder can be fetched from the live site once pushed, whatever the repo's visibility. The API keeps it unbuyable but not secret. To keep a drop secret, add its folder on drop day. The site loads era modules only on the API-down fallback.
 
 ## 2. Layout
 

@@ -51,7 +51,9 @@ lowercase-kebab (`core-tee-black-1.jpg`), max 500 KB each.
 | Replace a stand-in photo | Overwrite the file in `img/` with the same name |
 
 Then `npm test` and push to `main`. Tests check folder names, photos and data before anything deploys.
-If the repo is public, an unreleased era's folder is readable on GitHub before the drop.
+Everything in `data/` is published to Pages, so an era's folder (`era.js`, photos) can be fetched from the live site
+once it's pushed, even with a private repo. The API keeps an upcoming era unbuyable, but it isn't secret. To keep a drop
+secret, push its folder on drop day.
 
 ## Tests
 

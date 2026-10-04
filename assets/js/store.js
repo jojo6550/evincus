@@ -2,7 +2,6 @@
 // The API is the source of truth. If it can't be reached, the bundled era catalog keeps browsing working,
 // with every product marked unbuyable so checkout stays off.
 import { publicView, findProduct as find } from '../../data/catalog.js';
-import { CATALOG } from '../../data/eras/index.js';
 import { api, beaconOnce } from './api.js';
 
 const DEFAULT_SITE = { categories: [], lookbook: [], careNote: '' };
@@ -26,7 +25,9 @@ async function fromApi() {
   };
 }
 
-function fromStatic() {
+// Loaded only here, so visitors on the normal path never download the era modules.
+async function fromStatic() {
+  const { CATALOG } = await import('../../data/eras/index.js');
   const view = publicView(CATALOG, new Date());
   return { eras: view.eras, products: view.products.map(p => ({ ...p, buyable: false })) };
 }
@@ -41,7 +42,7 @@ export async function loadCatalog() {
     state = { ...(await fromApi()), site, live: true };
   } catch {
     beaconOnce('api-unreachable');
-    state = { ...fromStatic(), site, live: false };
+    state = { ...(await fromStatic()), site, live: false };
   }
 }
 
