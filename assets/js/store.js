@@ -4,7 +4,9 @@
 import { publicView, findProduct as find } from '../../data/catalog.js';
 import { api, beaconOnce } from './api.js';
 
-let state = { eras: [], products: [], site: { categories: [], lookbook: [], careNote: '' }, live: false };
+const DEFAULT_SITE = { categories: [], lookbook: [], careNote: '' };
+
+let state = { eras: [], products: [], site: DEFAULT_SITE, live: false };
 
 async function fetchJson(file) {
   const res = await fetch(new URL(`../../data/${file}`, import.meta.url));
@@ -30,7 +32,11 @@ async function fromStatic() {
 }
 
 export async function loadCatalog() {
-  const site = await fetchJson('site.json');
+  // Site copy is decoration; without it the store still has to render.
+  const site = await fetchJson('site.json').catch(err => {
+    console.error(err);
+    return DEFAULT_SITE;
+  });
   try {
     state = { ...(await fromApi()), site, live: true };
   } catch {
