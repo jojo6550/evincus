@@ -25,6 +25,13 @@ test('each era.js declares the slug of its folder', async () => {
   }
 });
 
+test('no era.js has a TODO left', () => {
+  for (const dir of dirs) {
+    const text = readFileSync(new URL(`${dir}/era.js`, erasDir), 'utf8');
+    assert.ok(!text.includes('TODO'), `data/eras/${dir}/era.js still has a TODO`);
+  }
+});
+
 test('era photos are bare, safely named files in their own img folder', () => {
   for (const e of eras) {
     const prefix = `data/eras/${e.slug}/img/`;
