@@ -9,7 +9,9 @@ SDK checkout. Design spec: `docs/superpowers/specs/2026-10-03-backend-bag-eras-d
   bag drawer and in-drawer PayPal checkout.
 - `assets/js`: `index.js`, `store.js`, `api.js`, `cart.js`, `quote.js`, `bag.js`, `product-view.js`, `paypal.js`.
   Styles are in `assets/css/index.css`.
-- `data/eras.json`, `data/products.json`, `data/site.json`: the catalog. Edit these to add drops, change prices or mark things sold out.
+- `data/eras/<slug>/`: one folder per era. `era.js` holds the era and its products; `img/` holds that era's photos.
+  `data/eras/index.js` sets the order (newest first). `data/site.json` holds site copy.
+- `assets/img/`: every photo that doesn't belong to an era (logo, favicon, `site/` lookbook and banners).
 - `data/catalog.js`: catalog rules shared by the site and the API (era status, what's visible, what's buyable).
 - `worker/`: the API (`wrangler.toml`, `src/index.js` router, `src/routes`, `src/lib`, `src/emails`).
 
@@ -34,12 +36,22 @@ RESEND_API_KEY=...
 
 ## Catalog changes
 
-- **New era:** add it to the top of `data/eras.json` with `dropsAt` (ISO with offset, e.g. `2026-11-20T18:00:00-05:00`).
-  Until then the API shows only a teaser and its products can't be seen or bought. If the repo is public,
-  the JSON itself is readable on GitHub before the drop.
-- **End an era:** set `endsAt`. Its products stay visible but can't be bought.
-- **Sold out:** `"soldOut": true` for a whole product, or `"soldOutVariants": ["Black|XL"]` for one colour and size.
-- Push to `main`. Tests check the data before anything deploys.
+Each era is a folder in `data/eras/`. Image fields in `era.js` are bare filenames from that era's `img/` folder,
+lowercase-kebab (`core-tee-black-1.jpg`), max 500 KB each.
+
+| Task | How |
+| --- | --- |
+| Add an era | `npm run new-era -- <slug> "<Name>"`, add photos to its `img/`, fill in `era.js`, remove every `TODO` |
+| Schedule a drop | Set `dropsAt` (ISO with offset, e.g. `2026-11-20T18:00:00-05:00`). Until then the API shows only a teaser |
+| Retire an era | Set `endsAt`. Its products stay visible but can't be bought, and old links keep working |
+| Delete an era | Delete its folder and its two lines in `data/eras/index.js` |
+| Add, edit or remove a product | Edit that era's `products` array and add or remove its photos |
+| Move a product to another era | Move its object and its photos to the other folder |
+| Sold out | `soldOut: true` for a whole product, or `soldOutVariants: ['Black\|XL']` for one colour and size |
+| Replace a stand-in photo | Overwrite the file in `img/` with the same name |
+
+Then `npm test` and push to `main`. Tests check folder names, photos and data before anything deploys.
+If the repo is public, an unreleased era's folder is readable on GitHub before the drop.
 
 ## Tests
 
