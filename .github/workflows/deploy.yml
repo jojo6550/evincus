@@ -34,6 +34,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check wrangler.toml is configured
+        run: |
+          if grep -nE 'REPLACE_WITH_|"local-orders"' worker/wrangler.toml; then
+            echo "::error file=worker/wrangler.toml::worker/wrangler.toml still has REPLACE_WITH_ placeholders or the local-orders KV id. Configure both environments before any CI deploy (README, First deploy checklist)."
+            exit 1
+          fi
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
@@ -60,6 +66,15 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check public site config
+        env:
+          PAYPAL_CLIENT_ID: ${{ vars.PAYPAL_CLIENT_ID }}
+          API_BASE: ${{ vars.API_BASE }}
+        run: |
+          if [ -z "$PAYPAL_CLIENT_ID" ] || [ -z "$API_BASE" ]; then
+            echo "::error::The PAYPAL_CLIENT_ID and API_BASE repository variables must both be set (Settings, Secrets and variables, Actions, Variables)."
+            exit 1
+          fi
       - name: Write public site config
         env:
           PAYPAL_CLIENT_ID: ${{ vars.PAYPAL_CLIENT_ID }}

@@ -71,11 +71,22 @@ production KV `id = "local-orders"`. Before the first deploy:
    environments (default and `--env staging`).
 5. GitHub secrets: `CLOUDFLARE_API_TOKEN` (scoped to Workers Scripts: Edit and Workers KV Storage: Edit) and
    `CLOUDFLARE_ACCOUNT_ID`.
-6. GitHub variables: `PAYPAL_CLIENT_ID` and `API_BASE`.
+6. GitHub variables: `PAYPAL_CLIENT_ID` and `API_BASE`. The PayPal client ID in the repo variable and in
+   `worker/wrangler.toml` must be identical.
 7. Settings, Pages, Source = GitHub Actions.
 8. Verify the sending domain in Resend.
-9. Run the workflow manually with target `staging` first.
-10. If the `evincus.shop` DNS is on Cloudflare, add the custom-domain route for the Worker.
+9. The rate limit `namespace_id` values (`1001` production, `1002` staging) must be unique in your Cloudflare
+   account. Change them if another Worker already uses them.
+10. Deploy staging from your machine: `npm run deploy:api -- --env staging`. Test a sandbox purchase against it: run
+    the site on localhost with `API_BASE` in `assets/js/config.js` set to the staging Worker URL, and temporarily add
+    `http://localhost:5180` to the staging `ALLOWED_ORIGINS`. Only then merge to `main`: merging is the first
+    production deploy (the workflow refuses to run while `wrangler.toml` still has placeholders).
+11. Before merging, decide sandbox vs live. For live, set `PAYPAL_ENV = "live"` and the live client ID in
+    `worker/wrangler.toml` and the `PAYPAL_CLIENT_ID` repo variable together (they must match), or real shoppers will
+    see a test checkout.
+12. Merging deletes the Netlify functions. If Netlify still deploys this repo, disconnect it only after Pages and the
+    Worker are confirmed live.
+13. If the `evincus.shop` DNS is on Cloudflare, add the custom-domain route for the Worker.
 
 ## Payments
 
