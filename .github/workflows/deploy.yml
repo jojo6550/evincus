@@ -61,15 +61,18 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Write public site config
+        env:
+          PAYPAL_CLIENT_ID: ${{ vars.PAYPAL_CLIENT_ID }}
+          API_BASE: ${{ vars.API_BASE }}
         run: |
           cat > assets/js/config.js <<EOF
-          export const PAYPAL_CLIENT_ID = '${{ vars.PAYPAL_CLIENT_ID }}';
-          export const API_BASE = '${{ vars.API_BASE }}';
+          export const PAYPAL_CLIENT_ID = '$PAYPAL_CLIENT_ID';
+          export const API_BASE = '$API_BASE';
           EOF
       - name: Assemble site
         run: |
           mkdir -p _site
-          cp -r assets pages data _site/
+          cp -r assets data _site/
           cp *.html _site/
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
