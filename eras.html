@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="assets/img/favicon.ico" sizes="any">
+<title>Eras | Evincus</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=IBM+Plex+Mono:wght@400;500&family=Permanent+Marker&display=swap">
+<link rel="stylesheet" href="assets/css/index.css">
+<link rel="stylesheet" href="assets/css/pages.css">
+
+<header>
+  <nav class="nav wrap">
+    <a class="brand" href="index.html" aria-label="Evincus home"><img src="assets/img/logo.png" alt=""><b>EVINCUS</b></a>
+    <ul class="mono">
+      <li><a href="index.html#shop">Shop</a></li>
+      <li><a href="eras.html" aria-current="page">Eras</a></li>
+      <li><a href="index.html#lookbook">Lookbook</a></li>
+      <li><a href="index.html#about">About</a></li>
+    </ul>
+    <button class="cart mono" id="cart" type="button" aria-controls="bag" aria-haspopup="dialog">Bag <output id="count">0</output></button>
+  </nav>
+</header>
+
+<main>
+  <section class="wrap">
+    <div class="head">
+      <h1 class="head__title">Eras <em>every drop, in order</em></h1>
+      <span class="mono u-smoke"><span id="eraTotal">0</span> eras</span>
+    </div>
+    <div class="era-list" id="eraList" aria-live="polite"></div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="legal mono"><span>© 2026 Evincus. All rights reserved.</span><a href="index.html">Back to the store</a></div>
+  </div>
+</footer>
+
+<dialog class="drawer" id="bag" aria-labelledby="bagTitle">
+  <div class="drawer__head">
+    <h2 id="bagTitle">Your bag</h2>
+    <button class="x mono" id="bagClose" type="button" aria-label="Close bag" autofocus>Close <span aria-hidden="true">✕</span></button>
+  </div>
+  <div class="drawer__body" id="bagBody"></div>
+  <div class="drawer__foot" id="bagFoot"></div>
+</dialog>
+
+<dialog class="pdp" id="pdp" aria-labelledby="pdpName">
+  <button class="x mono pdp__close" id="pdpClose" type="button">Close <span aria-hidden="true">✕</span></button>
+  <div class="pdp__body" id="pdpBody"></div>
+</dialog>
+
+<script type="module" src="assets/js/eras.js"></script>

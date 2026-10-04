@@ -1,4 +1,4 @@
-import { API_BASE } from './config.js';
+import { API_BASE } from './env.js';
 
 export class ApiError extends Error {
   constructor(status, body) {

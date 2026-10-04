@@ -1,0 +1,40 @@
+/* Eras page and error pages. Base rules are for phones; min-width queries scale up. */
+.head__title { margin: 0; font-weight: 900; font-variation-settings: "wdth" 125; text-transform: uppercase; font-size: clamp(34px, 11vw, 72px); line-height: .9; letter-spacing: -.02em; }
+.head__title em { display: block; margin-top: 8px; font-style: normal; font-family: var(--marker); font-weight: 400; color: var(--hazard); font-size: .45em; letter-spacing: 0; text-transform: none; }
+.nav ul a[aria-current="page"] { color: var(--bone); }
+.legal a { color: var(--smoke); }
+
+/* ---------- eras ---------- */
+.era-list { display: grid; gap: 18px; padding-bottom: 48px; }
+.era-card { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--char); background: var(--ash); text-decoration: none; color: inherit; transition: border-color .2s; }
+.era-card:hover, .era-card:focus-visible { border-color: var(--hazard); }
+.era-card__img { aspect-ratio: 16 / 10; background: var(--char); overflow: hidden; }
+.era-card__img:empty { display: none; }
+.era-card__img img { width: 100%; height: 100%; object-fit: cover; transition: transform .4s; }
+.era-card:hover .era-card__img img { transform: scale(1.03); }
+.era-card--soon .era-card__img img { filter: grayscale(.6) contrast(1.1); }
+.era-card__copy { display: grid; align-content: center; gap: 10px; padding: 18px; min-width: 0; }
+.era-card h2 { margin: 0; font-weight: 900; font-variation-settings: "wdth" 125; text-transform: uppercase; font-size: clamp(28px, 9vw, 48px); line-height: .95; overflow-wrap: anywhere; }
+.era-card p { margin: 0; color: var(--smoke); }
+.era-card .era-card__tag { color: var(--bone); font-family: var(--marker); font-size: 18px; }
+.era-card__status { justify-self: start; border: 1px solid var(--smoke); padding: 3px 8px; color: var(--smoke); }
+.era-card__status--live { color: var(--hazard); border-color: var(--hazard); }
+.era-card__status--soon { color: var(--bone); border-color: var(--bone); }
+.era-card__go { color: var(--bone); border-bottom: 1px solid currentColor; justify-self: start; padding-bottom: 2px; }
+@media (min-width: 720px) {
+  .era-card { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); }
+  .era-card__img { aspect-ratio: auto; min-height: 280px; }
+  .era-card:nth-child(even) .era-card__img { order: 2; }
+  .era-card__copy { padding: clamp(24px, 3vw, 44px); }
+}
+
+/* ---------- error pages ---------- */
+.err { display: grid; gap: 8px; align-content: center; min-height: 70vh; padding-block: 40px; }
+.err__code { margin: 0; font-weight: 900; font-variation-settings: "wdth" 125; font-size: clamp(120px, 38vw, 320px); line-height: .8; color: transparent; -webkit-text-stroke: 2px var(--bone); letter-spacing: -.04em; }
+.err__copy { display: grid; gap: 14px; justify-items: start; max-width: 52ch; }
+.err__copy h1 { margin: 0; font-weight: 900; font-variation-settings: "wdth" 125; text-transform: uppercase; font-size: clamp(30px, 9vw, 56px); line-height: .95; }
+.err__copy p { margin: 0; color: var(--smoke); }
+.err__copy .ctas { display: grid; gap: 12px; width: 100%; margin-top: 8px; }
+@media (min-width: 720px) {
+  .err__copy .ctas { display: flex; width: auto; }
+}

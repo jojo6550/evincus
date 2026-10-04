@@ -1,4 +1,4 @@
-import { PAYPAL_CLIENT_ID } from './config.js';
+import { PAYPAL_CLIENT_ID } from './env.js';
 import { MAX_QTY } from '../../data/catalog.js';
 import * as cart from './cart.js';
 import { api, beacon } from './api.js';

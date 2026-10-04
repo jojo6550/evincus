@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<!-- Error pages are served from any path, so every link below resolves against this base. Change it with the site's URL prefix. -->
+<base href="/evincus/">
+<link rel="icon" href="assets/img/favicon.ico" sizes="any">
+<title>500 Something broke | Evincus</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=IBM+Plex+Mono:wght@400;500&family=Permanent+Marker&display=swap">
+<link rel="stylesheet" href="assets/css/index.css">
+<link rel="stylesheet" href="assets/css/pages.css">
+
+<header>
+  <nav class="nav wrap">
+    <a class="brand" href="./" aria-label="Evincus home"><img src="assets/img/logo.png" alt=""><b>EVINCUS</b></a>
+    <ul class="mono">
+      <li><a href="index.html#shop">Shop</a></li>
+      <li><a href="eras.html">Eras</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main class="wrap err">
+  <p class="err__code" aria-hidden="true">500</p>
+  <div class="err__copy">
+    <span class="mono u-hazard">Error 500</span>
+    <h1>Something broke</h1>
+    <p>Something went wrong on our side. Nothing you did.</p>
+    <p class="mono u-smoke" id="errPath"></p>
+    <div class="ctas">
+      <button class="btn btn--solid" id="retry" type="button">Try again</button>
+      <a class="btn btn--line" href="eras.html">Browse eras</a>
+    </div>
+  </div>
+</main>
+
+<script type="module" src="assets/js/error.js"></script>
