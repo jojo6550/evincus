@@ -1,5 +1,6 @@
 import { createApp } from '../../worker/src/index.js';
 import { FIXTURE, NOW } from './fixture.mjs';
+import { OrderSubmission } from '../../worker/src/lib/submissions.js';
 
 // In-memory stand-in for a KV namespace. Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
 export function fakeKV() {
@@ -38,7 +39,8 @@ export function fakeLimiter(limit) {
 }
 
 export function makeEnv(over = {}) {
-  return {
+  const env = {
+    PAYMENT_MODE: 'paypal', // Legacy payment tests explicitly exercise the optional PayPal mode.
     ENVIRONMENT: 'production',
     PAYPAL_ENV: 'sandbox',
     PAYPAL_CLIENT_ID: 'client-id',
@@ -54,6 +56,21 @@ export function makeEnv(over = {}) {
     BEACON_LIMIT: fakeLimiter(10),
     ...over,
   };
+  const objects = new Map();
+  env.ORDER_SUBMISSIONS ??= {
+    idFromName: name => name,
+    get(id) {
+      if (!objects.has(id)) {
+        const store = new Map();
+        let serial = Promise.resolve();
+        const state = { storage: { get: async k => structuredClone(store.get(k)), put: async (k, v) => store.set(k, structuredClone(v)), setAlarm: async () => {}, deleteAll: async () => store.clear() },
+          blockConcurrencyWhile(fn) { const result = serial.then(fn); serial = result.catch(() => {}); return result; } };
+        objects.set(id, new OrderSubmission(state, env));
+      }
+      return { fetch: (url, init) => objects.get(id).fetch(new Request(url, init)) };
+    },
+  };
+  return env;
 }
 
 // ctx.waitUntil collector; settle() also drains work queued by queued work.

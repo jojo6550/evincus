@@ -1,8 +1,8 @@
-// Bag drawer: a native <dialog> with three steps, one at a time — bag, pay, paid.
+// Bag drawer: a native <dialog> with bag, checkout and confirmation steps.
 import { money, MAX_QTY } from '../../data/catalog.js';
 import * as cart from './cart.js';
 import * as quote from './quote.js';
-import { mountPaypal } from './paypal.js';
+import { mountCheckout } from './checkout.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -112,16 +112,12 @@ function renderPay() {
   title.textContent = TITLES.pay;
   body.innerHTML = `
     <div class="pay">
-      <div class="sum">${row('Total', `<span id="payTotal">${money(q.totalCents)}</span> <small class="mono">USD</small>`, ' sum__total')}</div>
-      <p class="pay__copy">Pay with PayPal or any debit or credit card. You'll confirm your shipping address with PayPal before the payment goes through.</p>
-      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="policies.html#shipping" target="_blank" rel="noopener">shipping policy</a> and <a href="policies.html#terms" target="_blank" rel="noopener">terms</a> before paying.</p>
-      <p class="pay-error" role="alert" hidden></p>
-      <div class="pay__box"><i class="crop tl"></i><i class="crop br"></i><div class="pay__buttons"></div></div>
-      <button type="button" class="text-btn mono" data-act="back">← Back to bag</button>
+      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="policies.html#shipping" target="_blank" rel="noopener">shipping policy</a> and <a href="policies.html#terms" target="_blank" rel="noopener">terms</a> before placing your order.</p>
+      <div class="checkout-mount"></div>
     </div>`;
-  foot.innerHTML = '<p class="pay__fine mono">Evincus never sees or stores your card details.</p>';
-  foot.hidden = false;
-  mountPaypal(body.querySelector('.pay__buttons'), { errorEl: body.querySelector('.pay-error'), onPaid });
+  foot.innerHTML = '';
+  foot.hidden = true;
+  mountCheckout(body.querySelector('.checkout-mount'), { q, onPlaced: onPaid, onBagChanged: () => { go('bag'); quote.refreshQuote(); } });
 }
 
 function renderPaid(order) {
@@ -129,7 +125,8 @@ function renderPaid(order) {
   body.innerHTML = `
     <div class="paid">
       <h3 class="paid__title" tabindex="-1">${order.name ? `Thank you, ${esc(order.name)}.` : 'Thank you.'}</h3>
-      <p>Your order is in. ${order.email ? `We're emailing your receipt to ${esc(order.email)}.` : "We're emailing your receipt to the address on your PayPal account."}</p>
+      <p>Your order is placed. No payment was collected. Your confirmation will be emailed to ${esc(order.email)}.</p>
+      <p>${order.fulfillment?.type === 'pickup' ? `Pickup at ${esc(order.fulfillment.location.name)}. We'll contact you when it's ready and confirm the pickup details.` : "We'll contact you with delivery updates."}</p>
       <p class="paid__ref mono">Order reference <b>${esc(order.id)}</b></p>
       <p>Questions? DM <a href="https://www.instagram.com/evincus.sw/" target="_blank" rel="noopener">@evincus.sw</a> on Instagram with your order reference.</p>
       <button type="button" class="btn btn--solid" data-act="keep">Keep shopping</button>
@@ -151,8 +148,8 @@ function go(next) {
   if (dialog.open) title.focus();
 }
 
-function onPaid(order) {
-  cart.clear();
+function onPaid(order, ordered) {
+  cart.consume(ordered);
   step = 'paid';
   if (!dialog.open) dialog.showModal();
   renderPaid(order);
@@ -219,7 +216,7 @@ export function initBag() {
     const r = dialog.getBoundingClientRect();
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) closeBag();
   });
-  // Closing always returns to the bag step (the pay step's PayPal buttons are dropped with it).
+  // Closing returns to the bag; an uncertain submission remains available for retry.
   dialog.addEventListener('close', () => { if (step !== 'bag') go('bag'); });
 
   cart.onChange(() => { render(); quote.scheduleQuote(); });

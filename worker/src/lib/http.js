@@ -8,6 +8,10 @@ export class HttpError extends Error {
 
 // Shopper-facing messages. Say what happened and what to do next.
 export const MESSAGES = {
+  'invalid-checkout': 'Check your name, email, phone and delivery or pickup details, then try again.',
+  'unsupported-country': 'Delivery is not available to that country. Choose another destination or in-store pickup.',
+  'checkout-conflict': 'This checkout was already submitted with different details. Reopen your bag to start a new checkout.',
+  'payments-disabled': 'Payments are currently disabled. Place your order from your bag.',
   'not-found': "There's nothing at this address.",
   'method-not-allowed': "This address doesn't accept that kind of request.",
   'too-large': 'That request is too large to process.',
