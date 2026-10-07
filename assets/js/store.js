@@ -6,6 +6,11 @@ import { api, beaconOnce } from './api.js';
 
 const DEFAULT_SITE = { categories: [], lookbook: [], careNote: '' };
 
+// Shirts, then sweaters and jackets, then pants, on every page. Array sort is stable, so era order holds within a group.
+const CATEGORY_ORDER = ['tees', 'outerwear', 'bottoms'];
+const rank = p => { const i = CATEGORY_ORDER.indexOf(p.category); return i < 0 ? CATEGORY_ORDER.length : i; };
+const byCategory = list => [...list].sort((a, b) => rank(a) - rank(b));
+
 let state = { eras: [], products: [], site: DEFAULT_SITE, live: false };
 
 async function fetchJson(file) {
@@ -39,10 +44,12 @@ export async function loadCatalog() {
     return DEFAULT_SITE;
   });
   try {
-    state = { ...(await fromApi()), site, live: true };
+    const loaded = await fromApi();
+    state = { ...loaded, products: byCategory(loaded.products), site, live: true };
   } catch {
     beaconOnce('api-unreachable');
-    state = { ...(await fromStatic()), site, live: false };
+    const loaded = await fromStatic();
+    state = { ...loaded, products: byCategory(loaded.products), site, live: false };
   }
 }
 
