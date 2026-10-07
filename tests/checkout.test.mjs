@@ -31,7 +31,7 @@ test('direct delivery stores an unpaid order and confirms by Resend without PayP
 
 test('both pickup locations need no delivery address and have zero shipping', async () => {
   fakeUpstreams();
-  for (const locationId of ['trendy-hats', 'vinces-store']) {
+  for (const locationId of ['trendy-hats', 'evincus-store']) {
     const env = envForOrders();
     const b = { ...body(), fulfillment: { type: 'pickup', locationId }, expectedTotalCents: 6998 };
     const r = await place(b, env);
