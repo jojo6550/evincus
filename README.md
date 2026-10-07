@@ -1,13 +1,13 @@
 # Evincus storefront
 
-Static store on GitHub Pages plus an API on a Cloudflare Worker. No build step: vanilla ES modules and the PayPal JS
-SDK checkout. Design spec: `docs/superpowers/specs/2026-10-03-backend-bag-eras-design.md`.
+Static store on GitHub Pages plus an API on a Cloudflare Worker. Vanilla ES modules, with no build step.
+Checkout places orders directly. **No payment service is used and no payment is collected.**
 
 ## Layout
 
 - `index.html`: the whole site, a single dark "Catastrophe" landing page with an era filter, product view dialog,
-  bag drawer and in-drawer PayPal checkout.
-- `assets/js`: `index.js`, `store.js`, `api.js`, `cart.js`, `quote.js`, `bag.js`, `product-view.js`, `paypal.js`.
+  bag drawer and in-drawer delivery / pickup checkout.
+- `assets/js`: `index.js`, `store.js`, `api.js`, `cart.js`, `quote.js`, `bag.js`, `product-view.js`, `checkout.js`.
   Styles are in `assets/css/index.css`.
 - `data/eras/<slug>/`: one folder per era. `era.js` holds the era and its products; `img/` holds that era's photos.
   `data/eras/index.js` sets the order (newest first). `data/site.json` holds site copy.
@@ -29,8 +29,6 @@ npx http-server -p 5180 -c-1 .                         # site on http://localhos
 
 ```
 ENVIRONMENT=development
-PAYPAL_CLIENT_SECRET=...
-ORDER_HMAC_KEY=...
 RESEND_API_KEY=...
 ```
 
@@ -68,46 +66,73 @@ deploy only the staging Worker.
 
 | Where | What |
 | --- | --- |
-| `worker/wrangler.toml` `[vars]` | `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`, `SHIPPING_USD`, `OWNER_EMAIL`, `EMAIL_FROM`, `ALLOWED_ORIGINS` |
-| `wrangler secret put` | `PAYPAL_CLIENT_SECRET`, `ORDER_HMAC_KEY`, `RESEND_API_KEY` |
+| `worker/wrangler.toml` `[vars]` | `PAYMENT_MODE = "none"`, `SHIPPING_USD`, `DELIVERY_EXCLUDED_COUNTRIES`, `OWNER_EMAIL`, `EMAIL_FROM`, `ALLOWED_ORIGINS` |
+| `wrangler secret put` | `RESEND_API_KEY` |
 | GitHub secrets | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
-| GitHub variables | `PAYPAL_CLIENT_ID`, `API_BASE` (written into `assets/js/config.js` at deploy) |
+| GitHub variables | `API_BASE` (written into `assets/js/config.js` at deploy) |
 
 ### First deploy checklist
 
-`worker/wrangler.toml` ships with `REPLACE_WITH_*` placeholders (sandbox client id, owner email, staging KV id) and
+`worker/wrangler.toml` ships with `REPLACE_WITH_*` placeholders (owner email, staging KV id) and
 production KV `id = "local-orders"`. Before the first deploy:
 
 1. `npx wrangler login`.
 2. Create the KV namespaces `ORDERS` and `ORDERS_STAGING` and paste their ids into `worker/wrangler.toml`.
 3. Fill in every `REPLACE_WITH_*` value.
-4. Run `wrangler secret put` for `PAYPAL_CLIENT_SECRET`, `ORDER_HMAC_KEY` and `RESEND_API_KEY`, for both
+4. Run `npx wrangler secret put RESEND_API_KEY --config worker/wrangler.toml`, for both
    environments (default and `--env staging`).
 5. GitHub secrets: `CLOUDFLARE_API_TOKEN` (scoped to Workers Scripts: Edit and Workers KV Storage: Edit) and
    `CLOUDFLARE_ACCOUNT_ID`.
-6. GitHub variables: `PAYPAL_CLIENT_ID` and `API_BASE`. The PayPal client ID in the repo variable and in
-   `worker/wrangler.toml` must be identical.
+6. GitHub variable: `API_BASE` pointing to the deployed Worker.
 7. Settings, Pages, Source = GitHub Actions.
 8. Verify the sending domain in Resend.
-9. The rate limit `namespace_id` values (`1001` production, `1002` staging) must be unique in your Cloudflare
+9. The rate limit `namespace_id` values (`1001`–`1004`, beacon and order limits) must be unique in your Cloudflare
    account. Change them if another Worker already uses them.
-10. Deploy staging from your machine: `npm run deploy:api -- --env staging`. Test a sandbox purchase against it: run
+10. Deploy staging from your machine: `npm run deploy:api -- --env staging`. Test a delivery and a pickup order: run
     the site on localhost with `API_BASE` in `assets/js/config.js` set to the staging Worker URL, and temporarily add
     `http://localhost:5180` to the staging `ALLOWED_ORIGINS`. Only then merge to `main`: merging is the first
     production deploy (the workflow refuses to run while `wrangler.toml` still has placeholders).
-11. Before merging, decide sandbox vs live. For live, set `PAYPAL_ENV = "live"` and the live client ID in
-    `worker/wrangler.toml` and the `PAYPAL_CLIENT_ID` repo variable together (they must match), or real shoppers will
-    see a test checkout.
+11. Keep `PAYMENT_MODE = "none"`. The Durable Object binding and SQLite migration are deployed with the Worker.
 12. Merging deletes the Netlify functions. If Netlify still deploys this repo, disconnect it only after Pages and the
     Worker are confirmed live.
 13. If the `evincus.shop` DNS is on Cloudflare, add the custom-domain route for the Worker.
 
-## Payments
+## Orders and fulfillment
 
-The browser sends only product id, colour, size and quantity. The Worker prices the bag from the catalog, creates
-the PayPal order with a server-signed tag, and at capture re-checks the tag, re-prices every line, checks every line
-is still buyable, then verifies the captured amount. Each order is saved to KV for 2 years; the customer gets a
-receipt and the owner a notification through Resend, with retries every 15 minutes if sending fails.
+`POST /api/orders` accepts `checkoutToken` (a UUID), `items`, `customer` (`name`, `email`, `phone`),
+`fulfillment`, optional `notes`, and `expectedTotalCents`. The Worker checks catalog prices, availability,
+variants and quantities; mismatched totals require reviewing the bag. Orders are `PLACED`, with
+`paymentStatus: NOT_COLLECTED`. `/api/orders/capture` is disabled. No PayPal SDK loads in checkout.
+
+Delivery uses an ISO country dropdown including the USA and Canada. Set `DELIVERY_EXCLUDED_COUNTRIES` to a
+comma-separated list of ISO codes when exclusions are known. The current list allows all ISO countries;
+carrier restrictions must be configured before launch. Delivery uses the existing flat `SHIPPING_USD` setting
+(currently zero); set the confirmed delivery charge before launch. Pickup is free.
+
+`data/fulfillment.js` holds the two pickup locations: Trendy Hats and Vince's store, both in Mandeville,
+Manchester, Jamaica. Their addresses are intentionally empty until confirmed. Fill each `address` there;
+checkout and confirmations use the same settings. Customers are contacted when pickup is ready.
+
+A Durable Object serializes each checkout token and retains the order for two years. The same token and
+payload return the same order, even if catalog availability changes after placement. Different payloads
+using the same token are refused. The order and Jamaica-day index must reach KV before success is returned;
+a failed write can be repaired by retrying the same submission. The browser keeps an uncertain submission
+in session storage and retries it without creating a new order. Only ordered quantities are removed from the bag.
+
+Customers receive a Resend confirmation after placement. The owner receives a daily summary of the previous
+Jamaica calendar day's orders at **08:00 America/Jamaica (13:00 UTC)**, including contact details, line items,
+delivery addresses or pickup selections, notes and order totals. Empty days also send a summary. This is order
+value, not collected revenue. Summaries split into parts of 20 orders. The 15-minute cron queues summaries
+after 08:00 and retries failed deliveries with stable Resend idempotency keys and saved email bodies.
+Completed summary markers prevent subsequent sends. A saved cursor catches up after missed cron days.
+Customer confirmations use the existing bounded backoff.
+
+Configure `OWNER_EMAIL`, `EMAIL_FROM`, the production/staging KV IDs and the `RESEND_API_KEY` secret,
+and verify the sending domain in Resend before deployment. Use a separate staging recipient so test orders
+do not enter the production mailbox. No real email delivery is verified by the automated tests.
+
+Legacy PayPal code remains available only behind explicit `PAYMENT_MODE = "paypal"` for future development;
+enabling it also requires restoring the payment UI and credentials. Do not change that setting for this release.
 
 ## Monitoring
 

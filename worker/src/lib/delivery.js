@@ -16,6 +16,7 @@ export async function deliverOrderEmails(c, record) {
     ['owner', c.env.OWNER_EMAIL, () => ownerEmail(record)],
   ];
   for (const [recipient, to, build] of jobs) {
+    if (recipient === 'owner' && record.email.owner === 'daily-summary') continue;
     if (record.email[recipient] === 'sent') continue;
     try {
       await sendEmail(c.env, { to, ...build(), idempotencyKey: `${record.id}-${recipient}` });
@@ -27,7 +28,7 @@ export async function deliverOrderEmails(c, record) {
     }
   }
   record.email.attempts = attempt;
-  return record.email.customer === 'sent' && record.email.owner === 'sent';
+  return record.email.customer === 'sent' && ['sent', 'daily-summary'].includes(record.email.owner);
 }
 
 // First delivery, right after capture. Queues a retry only for orders that made it into KV.
@@ -49,6 +50,7 @@ export async function sendOrderEmails(c, record, { persisted }) {
   }
   try {
     await updateOrder(c.env, record);
+    if (done) await c.env.ORDERS.delete(retryKey(record.id));
   } catch (err) {
     c.log.error('email.failed', { orderId: record.id, message: String(err?.message ?? err) });
   }

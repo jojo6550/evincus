@@ -7,7 +7,8 @@ export const findOrder = (env, id) => env.ORDERS.get(orderKey(id), 'json');
 
 export async function saveOrder(env, record) {
   await env.ORDERS.put(orderKey(record.id), JSON.stringify(record), { expirationTtl: ORDER_TTL });
-  await env.ORDERS.put(`day:${record.capturedAt.slice(0, 10)}:${record.id}`, '', { expirationTtl: ORDER_TTL });
+  const day = record.placedAt ? new Date(Date.parse(record.placedAt) - 5 * 3600000).toISOString().slice(0, 10) : record.capturedAt.slice(0, 10);
+  await env.ORDERS.put(`day:${day}:${record.id}`, '', { expirationTtl: ORDER_TTL });
 }
 
 export const updateOrder = (env, record) =>
@@ -51,12 +52,12 @@ export const addressLines = a =>
 export function recordRows(r) {
   const pending = r.captureStatus && r.captureStatus !== 'COMPLETED';
   return [
+    ...(r.placedAt ? [['Status', 'Placed — no payment collected'], ['Placed at', r.placedAt], ['Phone', r.customer.phone], ['Fulfillment', r.fulfillment.type === 'pickup' ? `Pickup: ${r.fulfillment.location.name}, ${r.fulfillment.location.address ?? r.fulfillment.location.area + ' (address to be confirmed)'}` : 'Delivery'], ['Notes', r.notes]] : []),
     ...(pending ? [['Payment status', `${r.captureStatus} — don't ship until PayPal shows it completed`]] : []),
     ['Order', r.id],
-    ['Capture', r.captureId ?? ''],
-    ['Captured at', r.capturedAt],
+    ...(!r.placedAt ? [['Capture', r.captureId ?? ''], ['Captured at', r.capturedAt]] : []),
     ['Payer', `${r.payer.name} <${r.payer.email}>`],
-    ['Ship to', [r.shipTo.name, ...addressLines(r.shipTo.address)].join(', ')],
+    ...(r.fulfillment?.type !== 'pickup' ? [['Ship to', [r.shipTo.name, ...addressLines(r.shipTo.address)].join(', ')]] : []),
     ...r.lines.map(l => [`${l.qty} × ${l.name}`, `${l.color} / ${l.size} at ${money(l.unitCents)}`]),
     ['Subtotal', money(r.subtotalCents)],
     ['Shipping', money(r.shippingCents)],

@@ -10,8 +10,12 @@ import { quoteRoute } from './routes/quote.js';
 import { createOrderRoute } from './routes/orders.js';
 import { captureRoute } from './routes/capture.js';
 import { beacon } from './routes/beacon.js';
+import { checkoutOptions } from './routes/checkout.js';
+import { dailyOrderSummary } from './lib/digest.js';
+export { OrderSubmission } from './lib/submissions.js';
 
 const ROUTES = [
+  ['GET', /^\/api\/checkout\/options$/, checkoutOptions],
   ['GET', /^\/api\/health$/, health],
   ['GET', /^\/api\/eras$/, listEras],
   ['GET', /^\/api\/eras\/([a-z0-9-]+)$/, getEra],
@@ -42,7 +46,8 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
           else if (!hit) res = fail(c, 'method-not-allowed', 405);
           else {
             c.params = url.pathname.match(hit[1]).slice(1);
-            res = await hit[2](req, c);
+            res = url.pathname === '/api/orders/capture' && env.PAYMENT_MODE !== 'paypal'
+              ? fail(c, 'payments-disabled', 403) : await hit[2](req, c);
           }
         }
       } catch (err) {
@@ -65,7 +70,10 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
       const log = createLogger({ route: 'cron' });
       const now = clock();
       const c = { env, data, now: new Date(now), reqId: `cron-${now}`, log, waitUntil: p => ctx.waitUntil(p), params: [] };
-      ctx.waitUntil(retryEmails(c).catch(err => log.error('unhandled', { message: String(err?.message ?? err) })));
+      ctx.waitUntil((async () => {
+        await retryEmails(c);
+        if (env.PAYMENT_MODE !== 'paypal') await dailyOrderSummary(c);
+      })().catch(err => log.error('unhandled', { message: String(err?.message ?? err) })));
     },
   };
 }

@@ -68,20 +68,17 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Check public site config
         env:
-          PAYPAL_CLIENT_ID: ${{ vars.PAYPAL_CLIENT_ID }}
           API_BASE: ${{ vars.API_BASE }}
         run: |
-          if [ -z "$PAYPAL_CLIENT_ID" ] || [ -z "$API_BASE" ]; then
-            echo "::error::The PAYPAL_CLIENT_ID and API_BASE repository variables must both be set (Settings, Secrets and variables, Actions, Variables)."
+          if [ -z "$API_BASE" ]; then
+            echo "::error::The API_BASE repository variable must be set (Settings, Secrets and variables, Actions, Variables)."
             exit 1
           fi
       - name: Write public site config
         env:
-          PAYPAL_CLIENT_ID: ${{ vars.PAYPAL_CLIENT_ID }}
           API_BASE: ${{ vars.API_BASE }}
         run: |
           cat > assets/js/config.js <<EOF
-          export const PAYPAL_CLIENT_ID = '$PAYPAL_CLIENT_ID';
           export const API_BASE = '$API_BASE';
           EOF
       - name: Assemble site

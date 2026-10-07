@@ -2,6 +2,7 @@ import { json, fail, readJson } from '../lib/http.js';
 import { CartError, quote, shippingCents } from '../lib/pricing.js';
 import { PaypalError, createOrder, newNonce } from '../lib/paypal.js';
 import { countPaypalError } from '../lib/alerts.js';
+import { placeOrderRoute } from './checkout.js';
 
 export function logPaypalError(c, err, orderId) {
   c.log.error('paypal.error', { op: err.op, upstreamStatus: err.status, upstream: err.upstream, ...(orderId ? { orderId } : {}) });
@@ -18,6 +19,7 @@ export function paypalFailure(c, err, orderId) {
 }
 
 export async function createOrderRoute(req, c) {
+  if (c.env.PAYMENT_MODE !== 'paypal') return placeOrderRoute(req, c);
   const body = await readJson(req);
   let q;
   try {

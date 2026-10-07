@@ -5,7 +5,7 @@ const KEY = 'evincus_bag';
 const listeners = new Set();
 
 function read() {
-  try { return JSON.parse(localStorage.getItem(KEY)) || []; }
+  try { const stored = JSON.parse(localStorage.getItem(KEY)); return Array.isArray(stored) ? stored.filter(i => i && typeof i === 'object') : []; }
   catch { return []; }
 }
 
@@ -41,6 +41,8 @@ export function rawItems() {
 export function subtotal() { return lines().reduce((n, l) => n + l.totalCents, 0); }
 
 export function add(id, color, size, qty = 1) {
+  if (!Number.isInteger(qty) || qty < 1) return;
+  qty = Math.min(qty, 10);
   const key = lineId(id, color, size);
   const hit = items.find(i => i.key === key);
   if (hit) hit.qty = Math.min(hit.qty + qty, 10);
@@ -49,6 +51,7 @@ export function add(id, color, size, qty = 1) {
 }
 
 export function setQty(key, qty) {
+  if (!Number.isInteger(qty)) return;
   const hit = items.find(i => i.key === key);
   if (!hit) return;
   if (qty < 1) items = items.filter(i => i.key !== key);
@@ -59,4 +62,13 @@ export function setQty(key, qty) {
 export function remove(key) { items = items.filter(i => i.key !== key); save(); }
 export function removeMany(keys) { const drop = new Set(keys); items = items.filter(i => !drop.has(i.key)); save(); }
 export function clear()     { items = []; save(); }
+export function consume(ordered) {
+  for (const line of ordered) {
+    const key = lineId(line.id, line.color, line.size);
+    const hit = items.find(i => i.key === key);
+    if (hit) hit.qty -= line.qty;
+  }
+  items = items.filter(i => i.qty > 0);
+  save();
+}
 export function onChange(fn) { listeners.add(fn); }

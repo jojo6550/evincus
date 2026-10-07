@@ -8,14 +8,14 @@ export function receiptEmail(r) {
   return {
     subject: `Your Evincus order ${r.id}`,
     html: layout('Thanks for your order', `
-<p>Your payment went through and your order is in.</p>
+<p>${r.placedAt ? 'Your order is placed. No payment was collected at checkout.' : 'Your payment went through and your order is in.'}</p>
 <table width="100%">
 ${items}
 <tr><td>Subtotal</td><td align="right">${money(r.subtotalCents)}</td></tr>
 <tr><td>Shipping</td><td align="right">${r.shippingCents ? money(r.shippingCents) : 'Free'}</td></tr>
 <tr><th align="left">Total</th><th align="right">${money(r.totalCents)} USD</th></tr>
 </table>
-${ship ? `<h2>Shipping to</h2><p>${ship}</p>` : ''}
+${r.fulfillment?.type === 'pickup' ? `<h2>Pickup</h2><p>${esc(r.fulfillment.location.name)}<br>${esc(r.fulfillment.location.address ?? r.fulfillment.location.area)}</p><p>We will contact you when your order is ready and confirm the pickup details.</p>` : ship ? `<h2>Shipping to</h2><p>${ship}</p>` : ''}
 <p>Order reference: ${esc(r.id)}</p>
 <p>Questions about your order? DM @evincus.sw on Instagram with your order reference.</p>`),
   };
