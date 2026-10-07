@@ -114,6 +114,7 @@ function renderPay() {
     <div class="pay">
       <div class="sum">${row('Total', `<span id="payTotal">${money(q.totalCents)}</span> <small class="mono">USD</small>`, ' sum__total')}</div>
       <p class="pay__copy">Pay with PayPal or any debit or credit card. You'll confirm your shipping address with PayPal before the payment goes through.</p>
+      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="policies.html#shipping" target="_blank" rel="noopener">shipping policy</a> and <a href="policies.html#terms" target="_blank" rel="noopener">terms</a> before paying.</p>
       <p class="pay-error" role="alert" hidden></p>
       <div class="pay__box"><i class="crop tl"></i><i class="crop br"></i><div class="pay__buttons"></div></div>
       <button type="button" class="text-btn mono" data-act="back">← Back to bag</button>

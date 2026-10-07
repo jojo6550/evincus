@@ -14,6 +14,10 @@ SDK checkout. Design spec: `docs/superpowers/specs/2026-10-03-backend-bag-eras-d
 - `assets/img/`: every photo that doesn't belong to an era (logo, favicon, `site/` lookbook and banners).
 - `data/catalog.js`: catalog rules shared by the site and the API (era status, what's visible, what's buyable).
 - `worker/`: the API (`wrangler.toml`, `src/index.js` router, `src/routes`, `src/lib`, `src/emails`).
+- `policies.html`: customer-facing privacy, shipping, refund, terms and FAQ content,
+  linked from the store, eras page and checkout. Refund requests have a 24-hour
+  window from purchase. `docs/policies/original-evincus-shop.md` preserves the
+  recovered homepage source and records the adaptation decisions.
 
 ## Run locally
 

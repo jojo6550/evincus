@@ -34,7 +34,7 @@ async function resolveFile(path) {
   } catch { return null; }
 }
 
-export function startServer(port = Number(process.env.PORT) || 8080) {
+export function startServer(port = Number(5000)) {
   const server = createServer(async (req, res) => {
     try {
       let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);

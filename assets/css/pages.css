@@ -4,6 +4,22 @@
 .nav ul a[aria-current="page"] { color: var(--bone); }
 .legal a { color: var(--smoke); }
 
+/* ---------- policies ---------- */
+.policy-page { max-width: 1000px; padding-bottom: 48px; }
+.policy-nav { display: flex; flex-wrap: wrap; gap: 16px 24px; margin-block: 24px; }
+.policy-nav a { padding-block: 8px; text-underline-offset: 5px; }
+.policy-notice { border: 1px solid var(--hazard); padding: 20px; background: var(--ash); }
+.policy-notice strong { display: block; color: var(--hazard); margin-bottom: 6px; }
+.policy-section { border-top: 1px solid var(--char); margin-top: 36px; padding-top: 24px; scroll-margin-top: 100px; overflow-wrap: anywhere; }
+.policy-section h2 { font-size: clamp(26px, 6vw, 38px); text-transform: uppercase; line-height: 1.1; margin: 0 0 24px; }
+.policy-section h3 { font-size: 18px; margin: 24px 0 8px; }
+.policy-section p, .policy-section li { max-width: 75ch; }
+.policy-section a { text-underline-offset: 3px; }
+.policy-section li + li { margin-top: 10px; }
+.policy-section details { border-bottom: 1px solid var(--char); padding-block: 16px; }
+.policy-section summary { cursor: pointer; font-weight: 700; }
+.policy-section details p { margin-bottom: 0; }
+
 /* ---------- eras ---------- */
 .era-list { display: grid; gap: 18px; padding-bottom: 48px; }
 .era-card { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--char); background: var(--ash); text-decoration: none; color: inherit; transition: border-color .2s; }
