@@ -41,5 +41,10 @@ export async function refreshQuote() {
 
 export function scheduleQuote() {
   clearTimeout(timer);
+  // Disable checkout as soon as the cart changes, including during the debounce.
+  // Invalidate any request for the old cart so it cannot restore a stale quote.
+  ++seq;
+  state = { ...state, status: 'loading' };
+  emit();
   timer = setTimeout(refreshQuote, 300);
 }
