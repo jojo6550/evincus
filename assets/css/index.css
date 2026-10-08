@@ -526,3 +526,57 @@ button.btn--line:disabled { background: transparent; color: var(--bone); }
   .teaser { grid-template-columns: minmax(0, 1fr); }
   .teaser img { max-height: 220px; }
 }
+
+/* ---------- sale ---------- */
+/* Countdown banner for `npm run discount`: a hazard-red slab with tape-stripe edges and ink tiles for the clock. */
+.sale[hidden] { display: none; }
+.sale {
+  position: relative; z-index: 4; background: var(--hazard); color: var(--ink); overflow: hidden;
+  border-block: 2px solid var(--ink); padding-block: 14px;
+}
+.sale::before, .sale::after {
+  content: ""; position: absolute; inset-inline: 0; height: 6px;
+  background: repeating-linear-gradient(-45deg, var(--ink) 0 6px, transparent 6px 12px);
+}
+.sale::before { top: 0; }
+.sale::after { bottom: 0; }
+.sale__inner { display: grid; gap: 12px; justify-items: center; text-align: center; padding-block: 6px; }
+.sale__deal { margin: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 12px; }
+.sale__word {
+  font-family: var(--marker); font-size: 30px; line-height: 1; color: var(--bone); transform: rotate(-8deg);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+.sale__pct { font-weight: 900; font-variation-settings: "wdth" 125; font-size: 44px; line-height: .9; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.sale__scope { flex-basis: 100%; font-size: 11px; font-weight: 500; overflow-wrap: anywhere; }
+.sale__clock { display: flex; gap: 6px; }
+.sale__cell {
+  display: grid; justify-items: center; gap: 2px; min-width: 54px; padding: 8px 6px 6px;
+  background: var(--ink); color: var(--bone); box-shadow: 3px 3px 0 color-mix(in srgb, var(--ink) 45%, transparent);
+}
+.sale__cell b { font: 500 22px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.sale__cell small { font-size: 8px; letter-spacing: .16em; color: var(--smoke); }
+.sale__cell--s b { color: var(--hazard); animation: tick 1s steps(1) infinite; }
+@keyframes tick { 50% { opacity: .55; } }
+.sale__go {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 18px;
+  color: var(--ink); text-decoration: none; border: 2px solid var(--ink); font-weight: 500; transition: background .2s, color .2s;
+}
+.sale__go:hover, .sale__go:focus-visible { background: var(--ink); color: var(--hazard); }
+.sale :focus-visible { outline-color: var(--ink); }
+@media (min-width: 720px) {
+  .sale { padding-block: 12px; }
+  .sale__inner { grid-template-columns: auto auto 1fr; justify-items: start; align-items: center; gap: clamp(16px, 3vw, 40px); text-align: left; }
+  .sale__deal { justify-content: start; flex-wrap: nowrap; }
+  .sale__word { font-size: 34px; }
+  .sale__pct { font-size: clamp(48px, 5vw, 64px); }
+  .sale__scope { flex-basis: auto; max-width: 30ch; font-size: 12px; }
+  .sale__go { justify-self: end; }
+  .sale__cell { min-width: 62px; }
+  .sale__cell b { font-size: 26px; }
+}
+
+/* sale prices */
+.price__was { color: var(--smoke); text-decoration-color: var(--hazard); text-decoration-thickness: 2px; margin-right: .3em; }
+.price__now { color: var(--hazard); font-weight: 500; }
+.pdp__sale { margin: -10px 0 0; color: var(--hazard); }
+.era-card__sale { margin: 0; color: var(--hazard); }

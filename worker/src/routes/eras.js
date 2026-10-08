@@ -1,12 +1,14 @@
-import { publicView, eraSummary, eraDetail, cacheSeconds } from '../../../data/catalog.js';
+import { publicView, publicSales, eraSummary, eraDetail, cacheSeconds } from '../../../data/catalog.js';
 import { json, fail } from '../lib/http.js';
 
-export const catalogCache = c => ({ 'Cache-Control': `public, max-age=${cacheSeconds(c.data.eras, c.now)}` });
+// Never cached past the next drop, era end, or sale start or end.
+const boundaries = data => [...data.eras, ...(data.sales ?? []).map(s => ({ dropsAt: s.startsAt, endsAt: s.endsAt }))];
+export const catalogCache = c => ({ 'Cache-Control': `public, max-age=${cacheSeconds(boundaries(c.data), c.now)}` });
 
 export function listEras(req, c) {
   const v = publicView(c.data, c.now);
   c.log.info('era.list', { count: v.eras.length });
-  return json({ now: c.now.toISOString(), eras: v.eras.map(e => eraSummary(e, v.products)) }, 200, catalogCache(c));
+  return json({ now: c.now.toISOString(), eras: v.eras.map(e => eraSummary(e, v.products)), sales: publicSales(c.data.sales, c.now) }, 200, catalogCache(c));
 }
 
 export function getEra(req, c) {

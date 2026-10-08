@@ -1,4 +1,6 @@
 import { CATALOG } from './lib/catalog.js';
+import { applySales } from '../../data/catalog.js';
+import { loadSales } from './lib/sales.js';
 import { createLogger } from './lib/log.js';
 import { HttpError, corsHeaders, fail } from './lib/http.js';
 import { alert } from './lib/alerts.js';
@@ -14,15 +16,16 @@ import { checkoutOptions } from './routes/checkout.js';
 import { dailyOrderSummary } from './lib/digest.js';
 export { OrderSubmission } from './lib/submissions.js';
 
+// The fourth field marks routes that read prices: they get the catalog with running sales applied.
 const ROUTES = [
   ['GET', /^\/api\/checkout\/options$/, checkoutOptions],
   ['GET', /^\/api\/health$/, health],
-  ['GET', /^\/api\/eras$/, listEras],
-  ['GET', /^\/api\/eras\/([a-z0-9-]+)$/, getEra],
-  ['GET', /^\/api\/products\/([a-z0-9-]+)$/, getProduct],
-  ['POST', /^\/api\/bag\/quote$/, quoteRoute],
-  ['POST', /^\/api\/orders$/, createOrderRoute],
-  ['POST', /^\/api\/orders\/capture$/, captureRoute],
+  ['GET', /^\/api\/eras$/, listEras, true],
+  ['GET', /^\/api\/eras\/([a-z0-9-]+)$/, getEra, true],
+  ['GET', /^\/api\/products\/([a-z0-9-]+)$/, getProduct, true],
+  ['POST', /^\/api\/bag\/quote$/, quoteRoute, true],
+  ['POST', /^\/api\/orders$/, createOrderRoute, true],
+  ['POST', /^\/api\/orders\/capture$/, captureRoute, true],
   ['POST', /^\/api\/beacon$/, beacon],
 ];
 
@@ -46,6 +49,11 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
           else if (!hit) res = fail(c, 'method-not-allowed', 405);
           else {
             c.params = url.pathname.match(hit[1]).slice(1);
+            if (hit[3]) {
+              c.base = data;
+              c.sales = await loadSales(env, log);
+              c.data = applySales(data, c.sales, c.now);
+            }
             res = url.pathname === '/api/orders/capture' && env.PAYMENT_MODE !== 'paypal'
               ? fail(c, 'payments-disabled', 403) : await hit[2](req, c);
           }

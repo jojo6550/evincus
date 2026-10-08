@@ -4,6 +4,8 @@ import { CartError, COUNTED, chargedQuote, itemsFromUnit, quote, shippingCents, 
 import { buildRecord, findOrder, recordRows, saveOrder } from '../lib/orders.js';
 import { alert } from '../lib/alerts.js';
 import { sendOrderEmails } from '../lib/delivery.js';
+import { SALE_GRACE_MS } from '../lib/sales.js';
+import { applySales } from '../../../data/catalog.js';
 import { countPaypalError } from '../lib/alerts.js';
 import { logPaypalError, paypalFailure } from './orders.js';
 
@@ -90,7 +92,13 @@ export async function captureRoute(req, c) {
     c.log.warn('capture.refused', { orderId, code: 'bag-changed' });
     return fail(c, 'bag-changed', 409, { lines: q.lines });
   }
-  if (!unitMatchesQuote(unit, q)) return refuse(c, orderId, 'reprice-mismatch');
+  if (!unitMatchesQuote(unit, q)) {
+    // The shopper may have approved just before a sale ended: re-price as of the grace window.
+    const graced = c.base && quote(applySales(c.base, c.sales, new Date(+c.now - SALE_GRACE_MS)), c.now, items, shippingCents(c.env));
+    if (!graced || !unitMatchesQuote(unit, graced)) return refuse(c, orderId, 'reprice-mismatch');
+    c.log.info('capture.sale_grace', { orderId });
+    q = graced;
+  }
 
   const outcome = await capture(c, orderId);
   if (outcome instanceof Response) return outcome;

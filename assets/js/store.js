@@ -11,7 +11,7 @@ const CATEGORY_ORDER = ['tees', 'outerwear', 'bottoms'];
 const rank = p => { const i = CATEGORY_ORDER.indexOf(p.category); return i < 0 ? CATEGORY_ORDER.length : i; };
 const byCategory = list => [...list].sort((a, b) => rank(a) - rank(b));
 
-let state = { eras: [], products: [], site: DEFAULT_SITE, live: false };
+let state = { eras: [], products: [], sales: [], skewMs: 0, site: DEFAULT_SITE, live: false };
 
 async function fetchJson(file) {
   const res = await fetch(new URL(`../../data/${file}`, import.meta.url));
@@ -27,6 +27,8 @@ async function fromApi() {
   return {
     eras: list.eras.map(e => ({ ...e, ...(bySlug.get(e.slug) ?? {}) })),
     products: details.flatMap(d => d.products),
+    sales: list.sales ?? [],
+    skewMs: Date.parse(list.now) - Date.now() || 0,
   };
 }
 
@@ -34,7 +36,7 @@ async function fromApi() {
 async function fromStatic() {
   const { CATALOG } = await import('../../data/eras/index.js');
   const view = publicView(CATALOG, new Date());
-  return { eras: view.eras, products: view.products.map(p => ({ ...p, buyable: false })) };
+  return { eras: view.eras, products: view.products.map(p => ({ ...p, buyable: false })), sales: [] };
 }
 
 export async function loadCatalog() {
@@ -56,6 +58,9 @@ export async function loadCatalog() {
 export const eras = () => state.eras;
 export const products = () => state.products;
 export const site = () => state.site;
+export const sales = () => state.sales;
+// The API's clock, so sale countdowns end when the API says, not when this device does.
+export const serverNow = () => Date.now() + state.skewMs;
 export const isLive = () => state.live;
 export const findProduct = id => find(state.products, id);
 export const eraName = slug => state.eras.find(e => e.slug === slug)?.name ?? '';
