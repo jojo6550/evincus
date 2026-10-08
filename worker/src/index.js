@@ -14,6 +14,8 @@ import { captureRoute } from './routes/capture.js';
 import { beacon } from './routes/beacon.js';
 import { checkoutOptions } from './routes/checkout.js';
 import { dailyOrderSummary } from './lib/digest.js';
+import { newsletter } from './lib/newsletter.js';
+import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
 export { OrderSubmission } from './lib/submissions.js';
 
 // The fourth field marks routes that read prices: they get the catalog with running sales applied.
@@ -27,6 +29,9 @@ const ROUTES = [
   ['POST', /^\/api\/orders$/, createOrderRoute, true],
   ['POST', /^\/api\/orders\/capture$/, captureRoute, true],
   ['POST', /^\/api\/beacon$/, beacon],
+  ['POST', /^\/api\/newsletter\/subscribe$/, subscribeRoute],
+  ['POST', /^\/api\/newsletter\/confirm$/, confirmRoute],
+  ['POST', /^\/api\/newsletter\/unsubscribe$/, unsubscribeRoute],
 ];
 
 export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
@@ -78,10 +83,12 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
       const log = createLogger({ route: 'cron' });
       const now = clock();
       const c = { env, data, now: new Date(now), reqId: `cron-${now}`, log, waitUntil: p => ctx.waitUntil(p), params: [] };
+      const logFailure = err => log.error('unhandled', { message: String(err?.message ?? err) });
       ctx.waitUntil((async () => {
         await retryEmails(c);
         if (env.PAYMENT_MODE !== 'paypal') await dailyOrderSummary(c);
-      })().catch(err => log.error('unhandled', { message: String(err?.message ?? err) })));
+      })().catch(logFailure));
+      ctx.waitUntil(newsletter(c).catch(logFailure));
     },
   };
 }

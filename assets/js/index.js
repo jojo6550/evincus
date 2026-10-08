@@ -5,6 +5,7 @@ import { refreshQuote } from './quote.js';
 import { initBag } from './bag.js';
 import { initProductView, openProduct } from './product-view.js';
 import { initSale, priceHtml, saleTag } from './sale.js';
+import { initSignup } from './signup.js';
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const TAGS = { 'disaster-zone-tee': ['New', true], 'made-for-chaos-tee': ['Distressed'], 'catastrophe-zip-hoodie': ['New', true], 'flaming-eye-tee': ['Core'] };
 await loadCatalog();
@@ -76,8 +77,4 @@ const fromHash = () => {
 };
 fromHash();
 window.addEventListener('hashchange', fromHash);
-document.getElementById('signup').addEventListener('submit', e => {
-  e.preventDefault();
-  const v = document.getElementById('email').value.trim();
-  document.getElementById('note').textContent = /.+@.+\..+/.test(v) ? "You're on the list. Demo only, nothing was sent." : 'Enter a valid email address.';
-});
+initSignup();

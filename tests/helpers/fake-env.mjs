@@ -21,7 +21,7 @@ export function fakeKV() {
     },
     async delete(key) { store.delete(key); },
     async list({ prefix = '' } = {}) {
-      const keys = [...store.keys()].filter(k => k.startsWith(prefix)).sort().map(name => ({ name }));
+      const keys = [...store.keys()].filter(k => k.startsWith(prefix)).sort().map(name => ({ name, ...(store.get(name).opts.metadata && { metadata: store.get(name).opts.metadata }) }));
       return { keys, list_complete: true };
     },
   };
@@ -119,6 +119,7 @@ export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
   const captureErrors = [...(paypal.captureErrors ?? [])];
   const calls = [];
   const emails = [];
+  const batchKeys = new Set();
   globalThis.fetch = async (input, init = {}) => {
     const u = new URL(typeof input === 'string' ? input : input.url);
     const method = init.method ?? 'GET';
@@ -129,7 +130,16 @@ export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
     if (u.host === 'api.resend.com') {
       const body = JSON.parse(init.body);
       if (resend.fail?.(body)) return reply({ message: 'failed' }, 500);
-      emails.push({ ...body, idempotencyKey: headers.get('Idempotency-Key') });
+      const idempotencyKey = headers.get('Idempotency-Key');
+      if (u.pathname === '/emails/batch') {
+        // Like Resend: a repeated idempotency key sends nothing new.
+        if (!batchKeys.has(idempotencyKey)) {
+          batchKeys.add(idempotencyKey);
+          for (const e of body) emails.push({ ...e, idempotencyKey, batch: true });
+        }
+        return reply({ data: body.map((_, i) => ({ id: `em_b${i}` })) });
+      }
+      emails.push({ ...body, idempotencyKey });
       return reply({ id: `em_${emails.length}` });
     }
 

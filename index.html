@@ -130,10 +130,11 @@
     <div class="foot">
       <div>
         <h3>Get the next warning first</h3>
-        <p>Drop alerts, early access and collabs. No spam.</p>
+        <p>Drop alerts, sales and early access. One email a day at most, only when something's new.</p>
         <form id="signup" novalidate>
           <label for="email" class="mono sr-only">Email</label>
-          <input id="email" type="email" placeholder="you@email.com" autocomplete="email">
+          <input id="email" type="email" placeholder="you@email.com" autocomplete="email" required>
+          <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
           <button type="submit">Join</button>
         </form>
         <div class="note mono" id="note" aria-live="polite"></div>

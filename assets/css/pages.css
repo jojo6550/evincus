@@ -54,3 +54,14 @@
 @media (min-width: 720px) {
   .err__copy .ctas { display: flex; width: auto; }
 }
+
+/* ---------- newsletter ---------- */
+.nl { display: grid; gap: 18px; justify-items: start; max-width: 720px; min-height: 60vh; align-content: center; }
+.nl__title { margin: 0; font-weight: 900; font-variation-settings: "wdth" 125; text-transform: uppercase; font-size: clamp(30px, 9vw, 72px); line-height: .95; letter-spacing: -.02em; overflow-wrap: break-word; }
+.nl__text { margin: 0; max-width: 52ch; color: var(--smoke); font-size: 17px; }
+.nl__action { width: 100%; justify-content: center; }
+.nl__action[hidden] { display: none; }
+.nl__back { color: var(--smoke); }
+@media (min-width: 720px) {
+  .nl__action { width: auto; }
+}

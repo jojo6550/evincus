@@ -74,6 +74,25 @@ Everything in `data/` is published to Pages, so an era's folder (`era.js`, photo
 once it's pushed, even with a private repo. The API keeps an upcoming era unbuyable, but it isn't secret. To keep a drop
 secret, push its folder on drop day.
 
+### Newsletter
+
+The footer form signs people up (double opt-in: they get a confirm email first). Subscribers are stored in the `ORDERS`
+KV as `sub:<id>`. Every day after `NEWSLETTER_HOUR` (Jamaica time, `worker/wrangler.toml`) the cron sends a "What's new"
+email to every confirmed subscriber with whatever changed since the last one: drops that went live, sales that started,
+drops in the next 48 hours, and sales ending in the next 24 hours. Nothing new means no email.
+
+| Setting | Where |
+| --- | --- |
+| Send hour, or off | `NEWSLETTER_HOUR` in `worker/wrangler.toml` (`"10"` = 10:00, `""` = off) |
+| Link signing key | `npx wrangler secret put NEWSLETTER_KEY --config worker/wrangler.toml` (falls back to `ORDER_HMAC_KEY`) |
+| Links and images | `SITE_URL` (the public site) |
+| One-click unsubscribe in Gmail/Apple Mail | `API_URL` (this Worker's public URL) |
+| Postal address in the footer (required for marketing email in many countries) | `POSTAL_ADDRESS` |
+
+Emails go through Resend (`RESEND_API_KEY`, `EMAIL_FROM`) in batches of 100. Each batch has a fixed idempotency key,
+so cron retries never send anyone the same issue twice.
+
+
 ## Tests
 
 ```bash

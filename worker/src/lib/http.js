@@ -21,6 +21,8 @@ export const MESSAGES = {
   'unknown-product': "This piece isn't in the store. It may have sold out or been renamed.",
   'invalid-cart': "Your bag couldn't be read. Refresh the page and try again.",
   'invalid-order': "That order reference isn't valid. Start checkout again from your bag.",
+  'invalid-email': 'Enter a valid email address, like you@email.com.',
+  'newsletter-link': 'That link has expired or is incomplete. Sign up again from the bottom of the store page.',
   'invalid-beacon': 'That report was not in the expected format.',
   'bag-changed': 'Some items in your bag changed. Check your bag, then check out again.',
   'capture-refused': "This payment couldn't be verified, so you were not charged. Start checkout again from your bag.",

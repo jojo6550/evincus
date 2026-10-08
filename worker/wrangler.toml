@@ -12,6 +12,12 @@ OWNER_EMAIL = "REPLACE_WITH_OWNER_EMAIL"
 EMAIL_FROM = "Evincus <orders@evincus.shop>"
 ALLOWED_ORIGINS = "https://evincus.shop,https://www.evincus.shop,https://jojo6550.github.io"
 COMMIT_SHA = "dev"
+# Newsletter: hour of day (0-23, Jamaica time) the "What's new" email goes out. Blank turns it off.
+NEWSLETTER_HOUR = "10"
+SITE_URL = "https://evincus.shop"
+# Optional: this Worker's public URL, for one-click unsubscribe headers. POSTAL_ADDRESS is printed in the footer.
+API_URL = ""
+POSTAL_ADDRESS = ""
 
 [observability]
 enabled = true
@@ -60,6 +66,10 @@ OWNER_EMAIL = "REPLACE_WITH_OWNER_EMAIL"
 EMAIL_FROM = "Evincus <orders@evincus.shop>"
 ALLOWED_ORIGINS = "https://jojo6550.github.io"
 COMMIT_SHA = "dev"
+NEWSLETTER_HOUR = ""
+SITE_URL = "https://jojo6550.github.io/evincus"
+API_URL = ""
+POSTAL_ADDRESS = ""
 
 [[env.staging.durable_objects.bindings]]
 name = "ORDER_SUBMISSIONS"

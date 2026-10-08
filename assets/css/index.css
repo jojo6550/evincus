@@ -580,3 +580,7 @@ button.btn--line:disabled { background: transparent; color: var(--bone); }
 .price__now { color: var(--hazard); font-weight: 500; }
 .pdp__sale { margin: -10px 0 0; color: var(--hazard); }
 .era-card__sale { margin: 0; color: var(--hazard); }
+
+/* newsletter honeypot: off-screen for people, still filled by bots */
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+#signup button:disabled { opacity: .6; cursor: progress; }
