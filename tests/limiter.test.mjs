@@ -36,3 +36,11 @@ test('concurrent hits never pass the limit and refused hits write nothing', { sk
   assert.equal(results.filter(r => r.success).length, 5);
   assert.equal((await kv.get(['rl', 'order', 'ip', 0])).value, 5);
 });
+
+test('a limit of 10 holds under 30 concurrent hits', { skip }, async t => {
+  const kv = await memoryKv(t);
+  const l = kvLimiter(kv, 'beacon', { limit: 10, period: 60, now: () => 0 });
+  const results = await Promise.all(Array.from({ length: 30 }, () => l.limit({ key: 'ip' })));
+  assert.equal(results.filter(r => r.success).length, 10);
+  assert.equal((await kv.get(['rl', 'beacon', 'ip', 0])).value, 10);
+});
