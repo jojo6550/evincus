@@ -73,10 +73,11 @@ export function makeEnv(over = {}) {
   return env;
 }
 
-// ctx.waitUntil collector; settle() also drains work queued by queued work.
-export function makeCtx() {
+// ctx.waitUntil collector; settle() also drains work queued by queued work. `ip` is the client address the runtime saw.
+export function makeCtx(ip) {
   const pending = [];
   return {
+    ip,
     waitUntil: p => { pending.push(p); },
     async settle() { while (pending.length) await pending.shift(); },
   };
@@ -93,9 +94,9 @@ export function captureLogs() {
 }
 
 // One request through the Worker, with waitUntil work finished before returning.
-export async function call(method, path, { body, raw, headers = {}, env = makeEnv(), clock = () => NOW, data = FIXTURE } = {}) {
+export async function call(method, path, { body, raw, headers = {}, ip, env = makeEnv(), clock = () => NOW, data = FIXTURE } = {}) {
   const app = createApp({ data, clock });
-  const ctx = makeCtx();
+  const ctx = makeCtx(ip);
   const init = { method, headers: { ...headers } };
   if (raw !== undefined) init.body = raw;
   else if (body !== undefined) {

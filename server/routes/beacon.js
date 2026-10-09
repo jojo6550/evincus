@@ -6,8 +6,7 @@ const ALLOWED = new Set(['event', ...OPTIONAL]);
 
 // Checkout-only error reports from the browser. Fixed schema, small, rate limited per IP.
 export async function beacon(req, c) {
-  const ip = req.headers.get('CF-Connecting-IP') ?? 'unknown';
-  const { success } = await c.env.BEACON_LIMIT.limit({ key: ip });
+  const { success } = await c.env.BEACON_LIMIT.limit({ key: c.ip });
   if (!success) return fail(c, 'rate-limited', 429);
 
   const body = await readJson(req, 2048);

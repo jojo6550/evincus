@@ -136,3 +136,8 @@ test('redact drops PII keys at any depth', () => {
   const out = redact({ orderId: 'X', payer: { email: 'a@b.c' }, lines: [{ name: 'Tee', sku: 's' }], nested: { shipTo: {}, phone: '1', ok: 1 } });
   assert.deepEqual(out, { orderId: 'X', lines: [{ sku: 's' }], nested: { ok: 1 } });
 });
+
+test('request ids are random UUIDs, never taken from request headers', async () => {
+  const r = await call('GET', '/api/health', { headers: { 'cf-ray': 'ray-123' } });
+  assert.match(r.res.headers.get('x-request-id'), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+});

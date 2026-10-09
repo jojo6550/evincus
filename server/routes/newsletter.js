@@ -10,7 +10,7 @@ const ok = () => json({ ok: true }, 200, { 'Cache-Control': 'no-store' });
 // at most one per address per hour (the idempotency key repeats within the hour).
 export async function subscribeRoute(req, c) {
   if (c.env.ORDER_LIMIT) {
-    const { success } = await c.env.ORDER_LIMIT.limit({ key: `newsletter:${req.headers.get('CF-Connecting-IP') ?? 'unknown'}` });
+    const { success } = await c.env.ORDER_LIMIT.limit({ key: `newsletter:${c.ip}` });
     if (!success) return fail(c, 'rate-limited', 429);
   }
   const body = await readJson(req, 2048);

@@ -13,7 +13,7 @@ export async function placeOrderRoute(req, c) {
   const body = await readJson(req);
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body?.checkoutToken ?? '')) throw new HttpError('invalid-order', 400);
   if (c.env.ORDER_LIMIT) {
-    const result = await c.env.ORDER_LIMIT.limit({ key: req.headers.get('CF-Connecting-IP') ?? 'unknown' });
+    const result = await c.env.ORDER_LIMIT.limit({ key: c.ip });
     if (!result.success) return fail(c, 'rate-limited', 429);
   }
   const details = parseCheckout(body, c.env);

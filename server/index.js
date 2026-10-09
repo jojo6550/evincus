@@ -39,9 +39,9 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
     async fetch(req, env, ctx) {
       const started = Date.now();
       const url = new URL(req.url);
-      const reqId = req.headers.get('cf-ray') ?? crypto.randomUUID();
+      const reqId = crypto.randomUUID();
       const log = createLogger({ reqId, route: `${req.method} ${url.pathname}` });
-      const c = { env, data, now: new Date(clock()), reqId, log, waitUntil: p => ctx.waitUntil(p), params: [] };
+      const c = { env, data, now: new Date(clock()), reqId, log, ip: ctx.ip ?? 'unknown', waitUntil: p => ctx.waitUntil(p), params: [] };
 
       let res;
       try {
