@@ -61,14 +61,14 @@ banner on the site, and reach shoppers within about a minute. Start and end time
 
 | Task | How |
 | --- | --- |
-| Discount one era | `npm run discount -- catastrophe 3 20` (3 days, 20% off) |
-| Discount a group of eras | `npm run discount -- catastrophe,core 7 15 --label "Fall sale"` |
-| Discount everything | `npm run discount -- all 2 30` |
-| Schedule a sale | add `--starts 2026-11-27T00:00:00-05:00` |
-| See sales | `npm run discount -- list` |
-| End a sale early | `npm run discount -- end <id>` or `end all` |
+| Discount one era | `npm run discount catastrophe 3 20` (3 days, 20% off) |
+| Discount a group of eras | `npm run discount catastrophe,core 7 15 label="Fall sale"` |
+| Discount everything | `npm run discount all 2 30` |
+| Schedule a sale | add `starts=2026-11-27T00:00:00-05:00` |
+| See sales | `npm run discount list` |
+| End a sale early | `npm run discount end <id>` or `end all` |
 
-Add `--staging` for staging, `--local` for `npm run dev:api`, `--dry-run` to preview. Overlapping sales don't stack: each
+Add `staging` for staging, `local` for `npm run dev:api`, `dry-run` to preview (plain words, no dashes: npm keeps `--flags` for itself in PowerShell). Overlapping sales don't stack: each
 product gets its era's deepest one. A PayPal order approved in the last 15 minutes of a sale still captures at the sale price.
 Everything in `data/` is published to Pages, so an era's folder (`era.js`, photos) can be fetched from the live site
 once it's pushed, even with a private repo. The API keeps an upcoming era unbuyable, but it isn't secret. To keep a drop

@@ -1,6 +1,6 @@
-// Runs a timed sale on the live store: `npm run discount -- <eras|all> <days> <percent>`.
+// Runs a timed sale on the live store: `npm run discount <eras|all> <days> <percent>`.
 // Sales are stored in the API's ORDERS KV namespace (key config:sales) and take effect within about a minute,
-// with no deploy. See `npm run discount -- help`.
+// with no deploy. See `npm run discount help`.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,35 +13,41 @@ const DAY = 86_400_000;
 const MAX_DAYS = 365;
 
 export const USAGE = `Usage:
-  npm run discount -- <eras> <days> <percent> [options]   start a sale
-  npm run discount -- list [options]                      show running and scheduled sales
-  npm run discount -- end <id|all> [options]              end a sale now
+  npm run discount <eras> <days> <percent> [options]   start a sale
+  npm run discount list [options]                      show running and scheduled sales
+  npm run discount end <id|all> [options]              end a sale now
 
   <eras>     all, one era slug, or several joined by commas: catastrophe,core
   <days>     how long it runs, e.g. 3 or 0.5 (12 hours)
   <percent>  1 to ${SALE_MAX_PERCENT}, e.g. 20 or 20%
 
-Options:
-  --label "Text"   headline on the sale banner (default: the era names)
-  --starts <ISO>   schedule the start, e.g. 2026-11-27T09:00:00-05:00 (default: now)
-  --staging        use the staging API instead of production
-  --local          use the local wrangler dev store (npm run dev:api)
-  --dry-run        print the change without saving it
+Options (plain words, so npm and PowerShell pass them through):
+  label="Text"     headline on the sale banner (default: the era names)
+  starts=<ISO>     schedule the start, e.g. starts=2026-11-27T09:00:00-05:00 (default: now)
+  staging          use the staging API instead of production
+  local            use the local wrangler dev store (npm run dev:api)
+  dry-run          print the change without saving it
 
 Examples:
-  npm run discount -- catastrophe 3 20
-  npm run discount -- catastrophe,core 7 15% --label "Fall sale"
-  npm run discount -- all 2 30 --starts 2026-11-27T00:00:00-05:00
-  npm run discount -- end all`;
+  npm run discount catastrophe 3 20 local
+  npm run discount catastrophe,core 7 15% label="Fall sale"
+  npm run discount all 2 30 starts=2026-11-27T00:00:00-05:00
+  npm run discount list local
+  npm run discount end all`;
+
+// Options also work as plain words (local, staging, dry-run, label=..., starts=...). npm never sees those,
+// unlike --flags, which npm keeps for itself whenever the `--` is missing (Windows PowerShell drops it).
+const WORDS = { local: 'local', staging: 'staging', 'dry-run': 'dryRun' };
 
 export function parseArgs(argv) {
   const flags = { staging: false, local: false, dryRun: false, label: null, starts: null };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--staging') flags.staging = true;
-    else if (a === '--local') flags.local = true;
-    else if (a === '--dry-run') flags.dryRun = true;
+    const word = WORDS[a.replace(/^--/, '')];
+    const kv = /^(?:--)?(label|starts)=([\s\S]*)$/.exec(a);
+    if (word) flags[word] = true;
+    else if (kv) flags[kv[1]] = kv[2];
     else if (a === '--label' || a === '--starts') {
       const v = argv[++i];
       if (v === undefined) throw new Error(`${a} needs a value.`);
@@ -49,12 +55,12 @@ export function parseArgs(argv) {
     } else if (a.startsWith('--')) throw new Error(`Unknown option ${a}.`);
     else rest.push(a);
   }
-  if (flags.staging && flags.local) throw new Error('Use --staging or --local, not both.');
+  if (flags.staging && flags.local) throw new Error('Use staging or local, not both.');
   const [cmd, ...args] = rest;
   if (!cmd || cmd === 'help') return { cmd: 'help', flags };
   if (cmd === 'list') return { cmd: 'list', flags };
   if (cmd === 'end') {
-    if (args.length !== 1) throw new Error('Say which sale to end: npm run discount -- end <id|all>');
+    if (args.length !== 1) throw new Error('Say which sale to end: npm run discount end <id|all>');
     return { cmd: 'end', id: args[0], flags };
   }
   if (args.length !== 2) throw new Error(`Expected <eras> <days> <percent>.\n\n${USAGE}`);
@@ -96,7 +102,7 @@ export const addSale = (list, sale, now) => [...pendingSales(list, now), sale];
 export function endSale(list, id, now) {
   const pending = pendingSales(list, now);
   if (id === 'all') return [];
-  if (!pending.some(s => s.id === id)) throw new Error(`No running or scheduled sale with id ${id}. See npm run discount -- list.`);
+  if (!pending.some(s => s.id === id)) throw new Error(`No running or scheduled sale with id ${id}. See npm run discount list.`);
   return pending.filter(s => s.id !== id);
 }
 
@@ -123,7 +129,7 @@ function target(flags) {
   const toml = readFileSync(CONFIG, 'utf8');
   const prod = toml.split(/^\[env\./m)[0];
   const placeholder = flags.staging ? /REPLACE_WITH_ORDERS_STAGING_KV_ID/.test(toml) : /id = "local-orders"/.test(prod);
-  if (placeholder) throw new Error(`worker/wrangler.toml has no real ORDERS KV id for ${flags.staging ? 'staging' : 'production'} yet. Set it first (README, First deploy checklist), or use --local.`);
+  if (placeholder) throw new Error(`worker/wrangler.toml has no real ORDERS KV id for ${flags.staging ? 'staging' : 'production'} yet. Set it first (README, First deploy checklist), or add local to test against npm run dev:api.`);
   return ['--remote', ...(flags.staging ? ['--env', 'staging'] : [])];
 }
 

@@ -109,7 +109,14 @@ test('parseArgs reads a sale, list, end, and flags', () => {
   assert.equal(parseArgs([]).cmd, 'help');
   assert.throws(() => parseArgs(['core', '3']), /Expected/);
   assert.throws(() => parseArgs(['core', '3', '20', '--nope']), /Unknown option/);
-  assert.throws(() => parseArgs(['list', '--staging', '--local']), /not both/);
+  assert.throws(() => parseArgs(['list', 'staging', 'local']), /not both/);
+});
+
+test('parseArgs takes options as plain words too, so npm never swallows them', () => {
+  assert.deepEqual(parseArgs(['catastrophe', '3', '20', 'local', 'dry-run', 'label=Fall sale', 'starts=2026-11-27T00:00:00-05:00']).flags,
+    { staging: false, local: true, dryRun: true, label: 'Fall sale', starts: '2026-11-27T00:00:00-05:00' });
+  assert.equal(parseArgs(['list', 'staging']).flags.staging, true);
+  assert.equal(parseArgs(['end', 'all', '--local']).flags.local, true);
 });
 
 test('makeSale builds a timed sale for eras, a group, or everything', () => {
