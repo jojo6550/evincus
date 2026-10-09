@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { serveStatic, ERROR_CODES } from '../server/static.js';
+import { captureLogs } from './helpers/fake-env.mjs';
 
 const FILES = {
   'index.html': 'home', 'eras.html': 'eras', '404.html': 'not found', '500.html': 'broken', '503.html': 'down',
@@ -42,7 +43,8 @@ test('root pages, assets and data are served with their types', async () => {
 
 test('nothing outside the allowlist is served, however the path is written', async () => {
   for (const path of ['/README.md', '/server/index.js', '/.env', '/package.json', '/assets/.hidden', '/assets/%2e%2e%2f.env',
-    '/assets/..%5c.env', '/data/%00x', '/assets/', '/assets', '/nope.html', '/INDEX.HTML', '/assets//css/index.css', '/%E0%A4%A']) {
+    '/assets/..%5c.env', '/data/%00x', '/assets/', '/assets', '/nope.html', '/INDEX.HTML', '/assets//css/index.css', '/%E0%A4%A',
+    '/assets/%252e%252e/package.json', '/assets/%252e%252e/%252eenv', '/data/%252e./package.json', '/assets/%2e%2e/package.json']) {
     const r = await get(path);
     assert.equal(r.status, 404, path);
     assert.equal(await r.text(), 'not found', path);
@@ -55,6 +57,12 @@ test('config.js is generated from env, never read from disk', async () => {
   assert.equal(r.headers.get('content-type'), 'text/javascript; charset=utf-8');
   assert.equal(await r.text(), `export const API_BASE = '';\nexport const PAYPAL_CLIENT_ID = "live-\\"id";\n`);
   assert.match(await (await get('/assets/js/config.js')).text(), /PAYPAL_CLIENT_ID = "test"/);
+  // A case-insensitive filesystem would otherwise resolve this to the stale file on disk.
+  const cased = await get('/assets/JS/config.js');
+  assert.equal(cased.status, 200);
+  const casedBody = await cased.text();
+  assert.match(casedBody, /API_BASE = ''/);
+  assert.notEqual(casedBody, 'FROM DISK');
 });
 
 test('/__error/<code> shows that page only in development', async () => {
@@ -75,9 +83,31 @@ test('HEAD has headers and no body; other methods are 405', async () => {
 });
 
 test('a disk error other than a missing file is a 500 page', async () => {
-  const r = await get('/assets/explode.css');
-  assert.equal(r.status, 500);
-  assert.equal(await r.text(), 'broken');
+  const logs = captureLogs();
+  try {
+    const r = await get('/assets/explode.css');
+    assert.equal(r.status, 500);
+    assert.equal(await r.text(), 'broken');
+  } finally {
+    logs.restore();
+  }
+  assert.ok(logs.lines.some(line => line.event === 'static.failed' && line.level === 'error'));
+});
+
+test('traversal stays blocked when files resolve through file URLs, as in production', async () => {
+  // Resolves like Deno's new URL(path, import.meta.url) plus percent-decoding, then reads from FILES.
+  const urlRead = async path => {
+    const u = new URL(path, 'file:///root/');
+    const rel = decodeURIComponent(u.pathname).slice('/root/'.length);
+    return readFile(rel);
+  };
+  const via = p => serveStatic(new Request(`https://shop.test${p}`), { env: {}, readFile: urlRead });
+  for (const p of ['/assets/%252e%252e/package.json', '/assets/%252e%252e/%252eenv', '/data/%252e./package.json', '/assets/%252e%252e/server/index.js']) {
+    const r = await via(p);
+    assert.equal(r.status, 404, p);
+    assert.equal(await r.text(), 'not found', p);
+  }
+  assert.equal((await via('/assets/css/index.css')).status, 200);
 });
 
 test('every real error page resolves links from the site root', () => {

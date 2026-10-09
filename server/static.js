@@ -19,7 +19,9 @@ const MISSING = new Set(['ENOENT', 'EISDIR', 'EACCES', 'EPERM', 'NotFound', 'IsA
 const extension = path => /\.[a-z0-9]+$/i.exec(path)?.[0].toLowerCase() ?? '';
 const missing = err => MISSING.has(err?.code) || MISSING.has(err?.name);
 
+// The path is decoded once before this check, so a still-encoded %2e would pass and later be decoded again by a file URL.
 function allowed(path) {
+  if (!/^[A-Za-z0-9._\/-]+$/.test(path)) return false;
   if (/\.\.|\\|\0|\/\//.test(path) || path.split('/').some(part => part.startsWith('.'))) return false;
   return PAGE.test(path) || DIRS.some(dir => path.startsWith(dir) && !path.endsWith('/'));
 }
@@ -40,7 +42,7 @@ export async function serveStatic(req, { env = {}, readFile }) {
     let path;
     try { path = decodeURIComponent(new URL(req.url).pathname); } catch { return await errorPage(404); }
     if (path === '/') path = '/index.html';
-    if (path === '/assets/js/config.js') return send(configJs(env), path, 200, 'no-cache');
+    if (path.toLowerCase() === '/assets/js/config.js') return send(configJs(env), '/assets/js/config.js', 200, 'no-cache');
     const forced = /^\/__error\/(\d{3})$/.exec(path);
     if (forced && env.ENVIRONMENT === 'development' && ERROR_CODES.includes(Number(forced[1]))) return await errorPage(Number(forced[1]));
     if (allowed(path)) {
