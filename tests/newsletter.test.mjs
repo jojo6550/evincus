@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, makeCtx, fakeUpstreams } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
-import { createApp } from '../worker/src/index.js';
-import { buildIssue, linkToken, subKey, subscriberId, BATCH } from '../worker/src/lib/newsletter.js';
-import { SALES_KEY } from '../worker/src/lib/sales.js';
-import { UNSUB } from '../worker/src/emails/newsletter.js';
+import { createApp } from '../server/index.js';
+import { buildIssue, linkToken, subKey, subscriberId, BATCH } from '../server/lib/newsletter.js';
+import { SALES_KEY } from '../server/lib/sales.js';
+import { UNSUB } from '../server/emails/newsletter.js';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;

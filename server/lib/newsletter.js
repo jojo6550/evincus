@@ -3,7 +3,7 @@
 // Once a day after NEWSLETTER_HOUR (Jamaica time) the cron builds an issue from what changed since the last one.
 // Nothing new means no email. An issue is saved with its recipient batches before anything is sent, and each
 // batch uses a fixed idempotency key, so retries and overlapping cron runs never send a batch twice.
-import { activeSales, applySales, publicView } from '../../../data/catalog.js';
+import { activeSales, applySales, publicView } from '../../data/catalog.js';
 import { sendBatch } from './email.js';
 import { loadSales } from './sales.js';
 import { newsletterEmail, UNSUB } from '../emails/newsletter.js';

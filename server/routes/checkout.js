@@ -2,7 +2,7 @@ import { json, fail, readJson, HttpError } from '../lib/http.js';
 import { CartError, quote } from '../lib/pricing.js';
 import { parseCheckout, checkoutShipping, directRecord } from '../lib/checkout.js';
 import { sendOrderEmails } from '../lib/delivery.js';
-import { PICKUP_LOCATIONS, deliveryCountries } from '../../../data/fulfillment.js';
+import { PICKUP_LOCATIONS, deliveryCountries } from '../../data/fulfillment.js';
 import { findOrder } from '../lib/orders.js';
 
 export function checkoutOptions(req, c) {

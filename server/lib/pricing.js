@@ -1,4 +1,4 @@
-import { MAX_QTY, lineKey, lineStatus, imagesFor } from '../../../data/catalog.js';
+import { MAX_QTY, lineKey, lineStatus, imagesFor } from '../../data/catalog.js';
 
 export const MAX_LINES = 50;
 export const COUNTED = new Set(['ok', 'qty-capped']);

@@ -5,7 +5,7 @@ import { buildRecord, findOrder, recordRows, saveOrder } from '../lib/orders.js'
 import { alert } from '../lib/alerts.js';
 import { sendOrderEmails } from '../lib/delivery.js';
 import { SALE_GRACE_MS } from '../lib/sales.js';
-import { applySales } from '../../../data/catalog.js';
+import { applySales } from '../../data/catalog.js';
 import { countPaypalError } from '../lib/alerts.js';
 import { logPaypalError, paypalFailure } from './orders.js';
 

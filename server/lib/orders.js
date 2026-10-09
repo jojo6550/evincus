@@ -1,4 +1,4 @@
-import { money } from '../../../data/catalog.js';
+import { money } from '../../data/catalog.js';
 
 export const ORDER_TTL = 63072000; // 2 years
 export const orderKey = id => `order:${id}`;

@@ -1,6 +1,6 @@
-import { createApp } from '../../worker/src/index.js';
+import { createApp } from '../../server/index.js';
 import { FIXTURE, NOW } from './fixture.mjs';
-import { OrderSubmission } from '../../worker/src/lib/submissions.js';
+import { OrderSubmission } from '../../server/lib/submissions.js';
 
 // In-memory stand-in for a KV namespace. Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
 export function fakeKV() {

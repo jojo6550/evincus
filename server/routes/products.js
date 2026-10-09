@@ -1,4 +1,4 @@
-import { publicView } from '../../../data/catalog.js';
+import { publicView } from '../../data/catalog.js';
 import { json, fail } from '../lib/http.js';
 import { catalogCache } from './eras.js';
 

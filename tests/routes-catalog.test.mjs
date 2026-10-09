@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, captureLogs, fakeUpstreams } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
-import { redact } from '../worker/src/lib/log.js';
+import { redact } from '../server/lib/log.js';
 
 test('GET /api/eras lists eras with status; upcoming has no story and no products', async () => {
   const { status, json, res } = await call('GET', '/api/eras');

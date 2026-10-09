@@ -1,4 +1,4 @@
-import { publicView, publicSales, eraSummary, eraDetail, cacheSeconds } from '../../../data/catalog.js';
+import { publicView, publicSales, eraSummary, eraDetail, cacheSeconds } from '../../data/catalog.js';
 import { json, fail } from '../lib/http.js';
 
 // Never cached past the next drop, era end, or sale start or end.

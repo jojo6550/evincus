@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { call, makeEnv, fakeUpstreams } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 import { applySales, bestSale, salePrice } from '../data/catalog.js';
-import { SALES_KEY, SALE_GRACE_MS } from '../worker/src/lib/sales.js';
+import { SALES_KEY, SALE_GRACE_MS } from '../server/lib/sales.js';
 import { addSale, endSale, makeSale, parseArgs, parseStored } from '../scripts/discount.mjs';
 
 const HOUR = 3_600_000;

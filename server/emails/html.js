@@ -1,5 +1,5 @@
 // Plain HTML for email: no styles, so every client renders it the same way.
-import { money } from '../../../data/catalog.js';
+import { money } from '../../data/catalog.js';
 
 export { money };
 

@@ -1,5 +1,5 @@
 import { CATALOG } from './lib/catalog.js';
-import { applySales } from '../../data/catalog.js';
+import { applySales } from '../data/catalog.js';
 import { loadSales } from './lib/sales.js';
 import { createLogger } from './lib/log.js';
 import { HttpError, corsHeaders, fail } from './lib/http.js';

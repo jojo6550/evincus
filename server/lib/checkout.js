@@ -1,4 +1,4 @@
-import { PICKUP_LOCATIONS, deliveryCountries } from '../../../data/fulfillment.js';
+import { PICKUP_LOCATIONS, deliveryCountries } from '../../data/fulfillment.js';
 import { HttpError } from './http.js';
 import { shippingCents } from './pricing.js';
 
