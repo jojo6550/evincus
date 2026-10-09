@@ -5,12 +5,10 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "test": "node --test",
-    "dev": "node scripts/dev.mjs",
+    "dev": "deno task dev",
     "error": "node scripts/error.mjs",
     "new-era": "node scripts/new-era.mjs",
-    "discount": "node scripts/discount.mjs",
-    "dev:api": "wrangler dev --config worker/wrangler.toml",
-    "deploy:api": "wrangler deploy --config worker/wrangler.toml"
+    "discount": "node scripts/discount.mjs"
   },
   "devDependencies": {
     "@deno/kv": "^0.14.0",
