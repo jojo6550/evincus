@@ -16,7 +16,6 @@ import { checkoutOptions } from './routes/checkout.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
-export { OrderSubmission } from './lib/submissions.js';
 
 // The fourth field marks routes that read prices: they get the catalog with running sales applied.
 const ROUTES = [

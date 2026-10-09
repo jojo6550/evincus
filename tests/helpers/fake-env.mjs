@@ -1,10 +1,16 @@
 import { createApp } from '../../server/index.js';
 import { FIXTURE, NOW } from './fixture.mjs';
-import { OrderSubmission } from '../../server/lib/submissions.js';
 
-// In-memory stand-in for a KV namespace. Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
+// In-memory stand-in for the ORDERS store (server/lib/kv-store.js has the same surface).
+// Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
 export function fakeKV() {
   const store = new Map();
+  const versions = new Map();
+  let clock = 0;
+  // Keys a test put straight into `store` count as present, at version '0'.
+  const versionOf = key => versions.get(key) ?? (store.has(key) ? '0' : null);
+  const write = (key, value, opts = {}) => { store.set(key, { value: String(value), opts }); versions.set(key, String(++clock)); };
+  const remove = key => { store.delete(key); versions.delete(key); };
   return {
     store,
     failPuts: null,
@@ -15,11 +21,23 @@ export function fakeKV() {
       const { value } = store.get(key);
       return type === 'json' ? JSON.parse(value) : value;
     },
+    async getEntry(key) {
+      if (this.failGets?.(key)) throw new Error('KV get failed');
+      return { value: store.has(key) ? store.get(key).value : null, version: versionOf(key) };
+    },
     async put(key, value, opts = {}) {
       if (this.failPuts?.(key)) throw new Error('KV put failed');
-      store.set(key, { value: String(value), opts });
+      write(key, value, opts);
     },
-    async delete(key) { store.delete(key); },
+    async delete(key) { remove(key); },
+    // All or nothing, with no await between the checks and the writes, like a Deno KV atomic commit.
+    async commit({ checks = [], puts = [], deletes = [] } = {}) {
+      for (const { key } of puts) if (this.failPuts?.(key)) throw new Error('KV put failed');
+      if (!checks.every(({ key, version }) => versionOf(key) === (version ?? null))) return false;
+      for (const { key, value, opts } of puts) write(key, value, opts);
+      for (const key of deletes) remove(key);
+      return true;
+    },
     async list({ prefix = '' } = {}) {
       const keys = [...store.keys()].filter(k => k.startsWith(prefix)).sort().map(name => ({ name, ...(store.get(name).opts.metadata && { metadata: store.get(name).opts.metadata }) }));
       return { keys, list_complete: true };
@@ -55,20 +73,6 @@ export function makeEnv(over = {}) {
     ORDERS: fakeKV(),
     BEACON_LIMIT: fakeLimiter(10),
     ...over,
-  };
-  const objects = new Map();
-  env.ORDER_SUBMISSIONS ??= {
-    idFromName: name => name,
-    get(id) {
-      if (!objects.has(id)) {
-        const store = new Map();
-        let serial = Promise.resolve();
-        const state = { storage: { get: async k => structuredClone(store.get(k)), put: async (k, v) => store.set(k, structuredClone(v)), setAlarm: async () => {}, deleteAll: async () => store.clear() },
-          blockConcurrencyWhile(fn) { const result = serial.then(fn); serial = result.catch(() => {}); return result; } };
-        objects.set(id, new OrderSubmission(state, env));
-      }
-      return { fetch: (url, init) => objects.get(id).fetch(new Request(url, init)) };
-    },
   };
   return env;
 }

@@ -4,6 +4,7 @@ import { parseCheckout, checkoutShipping, directRecord } from '../lib/checkout.j
 import { sendOrderEmails } from '../lib/delivery.js';
 import { PICKUP_LOCATIONS, deliveryCountries } from '../../data/fulfillment.js';
 import { findOrder } from '../lib/orders.js';
+import { submitOrder } from '../lib/submissions.js';
 
 export function checkoutOptions(req, c) {
   return json({ pickupLocations: PICKUP_LOCATIONS, countries: deliveryCountries(c.env), deliveryShippingCents: checkoutShipping(c.env, 'delivery') }, 200, { 'Cache-Control': 'no-store' });
@@ -21,22 +22,18 @@ export async function placeOrderRoute(req, c) {
   const bytes = new TextEncoder().encode(JSON.stringify({ items: body.items.map(({ id, color, size, qty }) => ({ id, color, size, qty })), ...details, expectedTotalCents: body.expectedTotalCents }));
   const fingerprint = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
   const id = `EV-${body.checkoutToken.toLowerCase()}`;
-  const stub = c.env.ORDER_SUBMISSIONS.get(c.env.ORDER_SUBMISSIONS.idFromName(id));
-  const submit = record => stub.fetch('https://submission.internal/', { method: 'POST', body: JSON.stringify({ fingerprint, record }) });
-  let response = await submit(null);
-  if (response.status === 409) return fail(c, 'checkout-conflict', 409);
-  if (!response.ok) throw new Error('Order storage unavailable');
-  let { record } = await response.json();
+  let result = await submitOrder(c.env, id, fingerprint, null);
+  if (result.conflict) return fail(c, 'checkout-conflict', 409);
+  let { record } = result;
   if (!record) {
     let q;
     try { q = quote(c.data, c.now, body?.items, checkoutShipping(c.env, details.fulfillment.type)); }
     catch (err) { if (err instanceof CartError) return fail(c, 'invalid-cart', 400); throw err; }
     // Never silently accept a changed price or capped quantity.
     if (!q.checkoutReady || q.lines.some(l => l.status !== 'ok') || body.expectedTotalCents !== q.totalCents) return fail(c, 'bag-changed', 409, { lines: q.lines });
-    response = await submit(directRecord(id, q, details, c.now));
-    if (response.status === 409) return fail(c, 'checkout-conflict', 409);
-    if (!response.ok) throw new Error('Order storage unavailable');
-    ({ record } = await response.json());
+    result = await submitOrder(c.env, id, fingerprint, directRecord(id, q, details, c.now));
+    if (result.conflict) return fail(c, 'checkout-conflict', 409);
+    ({ record } = result);
   }
   c.log.info('order.placed', { orderId: id, totalCents: record.totalCents });
   c.waitUntil((async () => {

@@ -5,10 +5,15 @@ export const orderKey = id => `order:${id}`;
 
 export const findOrder = (env, id) => env.ORDERS.get(orderKey(id), 'json');
 
+// The Jamaica day an order was placed (UTC-5, no DST), or the UTC day a legacy PayPal order was captured.
+export function dayKey(record) {
+  const day = record.placedAt ? new Date(Date.parse(record.placedAt) - 5 * 3600000).toISOString().slice(0, 10) : record.capturedAt.slice(0, 10);
+  return `day:${day}:${record.id}`;
+}
+
 export async function saveOrder(env, record) {
   await env.ORDERS.put(orderKey(record.id), JSON.stringify(record), { expirationTtl: ORDER_TTL });
-  const day = record.placedAt ? new Date(Date.parse(record.placedAt) - 5 * 3600000).toISOString().slice(0, 10) : record.capturedAt.slice(0, 10);
-  await env.ORDERS.put(`day:${day}:${record.id}`, '', { expirationTtl: ORDER_TTL });
+  await env.ORDERS.put(dayKey(record), '', { expirationTtl: ORDER_TTL });
 }
 
 export const updateOrder = (env, record) =>
