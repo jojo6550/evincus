@@ -129,3 +129,75 @@ test('commit is compare-and-set on the version read', { skip }, async t => {
   assert.equal(await s.get('other'), null);
   assert.equal(await s.commit({ checks: [{ key: 'config:sales', version: current.version }], puts: [{ key: 'config:sales', value: '[4]' }] }), false);
 });
+
+test('concurrent commits expecting an absent key: exactly one wins and the losers write nothing', { skip }, async t => {
+  const { s } = await open(t);
+  const results = await Promise.all(Array.from({ length: 8 }, (_, i) =>
+    s.commit({ checks: [{ key: 'race', version: null }], puts: [{ key: 'race', value: String(i) }, { key: `won:${i}`, value: 'x' }] })));
+  assert.equal(results.filter(Boolean).length, 1);
+  const winner = results.indexOf(true);
+  assert.equal(await s.get('race'), String(winner));
+  assert.deepEqual((await s.list({ prefix: 'won:' })).keys.map(k => k.name), [`won:${winner}`]);
+});
+
+test('concurrent chunked puts and gets: reads are never torn and one chunk set is left', { skip }, async t => {
+  const { s, kv } = await open(t);
+  const values = Array.from({ length: 4 }, (_, i) => String(i).repeat(150_000));
+  for (let round = 0; round < 5; round++) {
+    const writes = values.map(v => s.put('big', v));
+    const reads = Array.from({ length: 8 }, () => s.get('big'));
+    await Promise.all(writes);
+    const allowed = round === 0 ? [null, ...values] : values; // before the very first write lands, a read may find nothing
+    for (const read of await Promise.all(reads)) assert.ok(allowed.includes(read), 'a read returned text that was never written');
+
+    const [head] = await raw(kv, ['s']);
+    const chunks = await raw(kv, ['c']);
+    assert.equal(chunks.length, head.value.n, `round ${round}: chunks of replaced writes were left behind`);
+    assert.ok(chunks.every(c => c.key[2] === head.value.id), `round ${round}: a chunk belongs to a set other than the head's`);
+    assert.ok(values.includes(await s.get('big')));
+  }
+});
+
+test('a read whose chunk set is replaced mid-read starts over and returns the newer value', { skip }, async t => {
+  const { s, kv } = await open(t);
+  const older = 'a'.repeat(150_000);
+  const newer = 'b'.repeat(150_000);
+  await s.put('big', older);
+  // The reader has the old head in hand when a writer replaces the value and deletes the old chunk set.
+  let replaced = false;
+  const reader = kvStore({
+    get: key => kv.get(key),
+    getMany: async keys => {
+      if (!replaced && keys[0][0] === 'c') { replaced = true; await s.put('big', newer); }
+      return kv.getMany(keys);
+    },
+  });
+  assert.equal(await reader.get('big'), newer);
+  assert.ok(replaced);
+});
+
+test('a clash on a written key alone is retried, while a clash on a checked key returns false', { skip }, async t => {
+  const { s, kv } = await open(t);
+  // Another writer lands on `other` right after commit() has read it, so the guard on `other` fails once.
+  let interfered = false;
+  const racing = kvStore({
+    get: key => kv.get(key),
+    getMany: async keys => {
+      const entries = await kv.getMany(keys);
+      if (!interfered) { interfered = true; await s.put('other', 'theirs'); }
+      return entries;
+    },
+    atomic: () => kv.atomic(),
+  });
+  assert.equal(await racing.commit({ checks: [{ key: 'mine', version: null }], puts: [{ key: 'mine', value: '1' }, { key: 'other', value: 'ours' }] }), true);
+  assert.equal(await s.get('mine'), '1');
+  assert.equal(await s.get('other'), 'ours');
+
+  // Same interference, but now the checked key is the one that changed: nothing is written.
+  interfered = false;
+  const stale = await s.getEntry('mine');
+  await s.put('mine', '2');
+  assert.equal(await racing.commit({ checks: [{ key: 'mine', version: stale.version }], puts: [{ key: 'mine', value: '3' }, { key: 'other', value: 'again' }] }), false);
+  assert.equal(await s.get('mine'), '2');
+  assert.equal(await s.get('other'), 'theirs');
+});
