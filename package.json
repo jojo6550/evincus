@@ -13,6 +13,7 @@
     "deploy:api": "wrangler deploy --config worker/wrangler.toml"
   },
   "devDependencies": {
+    "@deno/kv": "^0.14.0",
     "wrangler": "^4.40.0"
   }
 }
