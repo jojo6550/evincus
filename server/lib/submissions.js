@@ -1,4 +1,4 @@
-import { ORDER_TTL, orderKey, dayKey } from './orders.js';
+import { ORDER_TTL, orderKey, retryKey, dayKey } from './orders.js';
 
 export const submissionKey = id => `submission:${id}`;
 const ROUNDS = 3;
@@ -22,7 +22,7 @@ export async function submitOrder(env, id, fingerprint, record) {
         { key: submissionKey(id), value: JSON.stringify({ fingerprint, record }), opts: ttl },
         { key: orderKey(record.id), value: JSON.stringify(record), opts: ttl },
         { key: dayKey(record), value: '', opts: ttl },
-        { key: `email-retry:${record.id}`, value: JSON.stringify({ retries: 0, nextAt: Date.parse(record.placedAt) }) },
+        { key: retryKey(record.id), value: JSON.stringify({ retries: 0, nextAt: Date.parse(record.placedAt) }) },
       ],
     });
     if (saved) return { record };

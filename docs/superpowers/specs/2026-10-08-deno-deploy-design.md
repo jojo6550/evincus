@@ -173,7 +173,7 @@ Commands, words and validation stay (`<eras> <days> <percent>`, `list`, `end`, `
 - `/assets/js/config.js` (matched case-insensitively) is generated, never read from disk: `export const API_BASE = ''; export const PAYPAL_CLIENT_ID = <JSON of env.PAYPAL_CLIENT_ID ?? 'test'>;`
 - `/__error/<code>` (403, 404, 500, 502, 503, 504) serves that page with that status, only when `env.ENVIRONMENT === 'development'`.
 - A read error other than not-found → `500.html` with `500`.
-- Headers: content type from the table now in `scripts/dev.mjs` (plus `.ttf`, `.woff`, `.mp4`); `X-Content-Type-Options: nosniff`; `.html` → `Cache-Control: no-cache`, everything else → `public, max-age=3600`.
+- Headers: content type from the table now in `scripts/dev.mjs` (plus `.ttf`, `.woff`, `.mp4`); `X-Content-Type-Options: nosniff`; `.html` → `Cache-Control: no-cache`, everything else → `public, max-age=600`.
 - The six error pages change `<base href="/evincus/">` to `<base href="/">`.
 
 ## 11. Local development

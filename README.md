@@ -32,8 +32,8 @@ npm run dev                 # site and API on http://localhost:8000/
 ```
 
 Local KV is separate from production, so test orders, subscribers and sales never touch the live store.
-`ENVIRONMENT=development` in `.env` lets other localhost origins through CORS and turns on the error page preview:
-`npm run error 503` prints its URL.
+`ENVIRONMENT=development` in `.env` turns on the error page preview (`npm run error 503` prints its URL);
+any value other than `production` also lets other localhost origins through CORS.
 
 ## Catalog changes
 
@@ -51,7 +51,7 @@ lowercase-kebab (`core-tee-black-1.jpg`), max 500 KB each.
 | Sold out | `soldOut: true` for a whole product, or `soldOutVariants: ['Black\|XL']` for one colour and size |
 | Replace a stand-in photo | Overwrite the file in `img/` with the same name |
 
-Then `npm test` and push to `main`. Tests check folder names, photos and data before anything deploys.
+Then `npm test` and push to `main`. Deno Deploy deploys every push to `main` straight away and CI runs alongside it without blocking the deploy, so run `npm test` before you push; the tests check folder names, photos and data.
 
 ### Sales
 

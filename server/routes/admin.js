@@ -39,7 +39,7 @@ export async function putSalesRoute(req, c) {
   const body = await readJson(req, 65536);
   const { sales, version } = body ?? {};
   const valid = Array.isArray(sales) && sales.length <= MAX_SALES && sales.every(s => isSale(s)) &&
-    (version === null || typeof version === 'string');
+    (version === null || (typeof version === 'string' && /^[0-9a-f]{20}$/.test(version)));
   if (!valid) return fail(c, 'invalid-sales', 400);
   const saved = await c.env.ORDERS.commit({ checks: [{ key: SALES_KEY, version }], puts: [{ key: SALES_KEY, value: JSON.stringify(sales) }] });
   if (!saved) return fail(c, 'sales-changed', 409);

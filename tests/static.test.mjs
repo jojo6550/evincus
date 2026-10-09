@@ -29,10 +29,10 @@ test('/ serves index.html as uncached HTML', async () => {
 test('root pages, assets and data are served with their types', async () => {
   for (const [path, type, cache] of [
     ['/eras.html', 'text/html; charset=utf-8', 'no-cache'],
-    ['/assets/css/index.css', 'text/css; charset=utf-8', 'public, max-age=3600'],
-    ['/assets/fonts/CruJones.ttf', 'font/ttf', 'public, max-age=3600'],
-    ['/data/site.json', 'application/json; charset=utf-8', 'public, max-age=3600'],
-    ['/data/eras/core/img/core-tee-black-1.jpg', 'image/jpeg', 'public, max-age=3600'],
+    ['/assets/css/index.css', 'text/css; charset=utf-8', 'public, max-age=600'],
+    ['/assets/fonts/CruJones.ttf', 'font/ttf', 'public, max-age=600'],
+    ['/data/site.json', 'application/json; charset=utf-8', 'public, max-age=600'],
+    ['/data/eras/core/img/core-tee-black-1.jpg', 'image/jpeg', 'public, max-age=600'],
   ]) {
     const r = await get(path);
     assert.equal(r.status, 200, path);

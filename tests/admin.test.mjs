@@ -56,7 +56,7 @@ test('PUT with a stale version is 409 and changes nothing', async () => {
 
 test('PUT refuses lists that are not valid sales', async () => {
   const env = makeEnv({ ADMIN_TOKEN: TOKEN });
-  for (const body of [{ sales: [sale({ percent: 0 })], version: null }, { sales: 'nope', version: null }, { sales: Array.from({ length: 51 }, (_, i) => sale({ id: `s${i}` })), version: null }, { sales: [], version: 5 }, { version: null }]) {
+  for (const body of [{ sales: [sale({ percent: 0 })], version: null }, { sales: 'nope', version: null }, { sales: Array.from({ length: 51 }, (_, i) => sale({ id: `s${i}` })), version: null }, { sales: [], version: 5 }, { sales: [], version: 'abc' }, { version: null }]) {
     const r = await putSales(env, body);
     assert.equal(r.status, 400, JSON.stringify(body).slice(0, 80));
     assert.equal(r.json.error.code, 'invalid-sales');

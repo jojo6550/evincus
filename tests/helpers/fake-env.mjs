@@ -7,9 +7,10 @@ export function fakeKV() {
   const store = new Map();
   const versions = new Map();
   let clock = 0;
-  // Keys a test put straight into `store` count as present, at version '0'.
-  const versionOf = key => versions.get(key) ?? (store.has(key) ? '0' : null);
-  const write = (key, value, opts = {}) => { store.set(key, { value: String(value), opts }); versions.set(key, String(++clock)); };
+  // Versions are 20 hex digits, like Deno versionstamps. Keys a test put straight into `store` count as present, at version 0.
+  const stamp = n => String(n).padStart(20, '0');
+  const versionOf = key => versions.get(key) ?? (store.has(key) ? stamp(0) : null);
+  const write = (key, value, opts = {}) => { store.set(key, { value: String(value), opts }); versions.set(key, stamp(++clock)); };
   const remove = key => { store.delete(key); versions.delete(key); };
   return {
     store,

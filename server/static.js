@@ -31,7 +31,7 @@ const configJs = env => `export const API_BASE = '';\nexport const PAYPAL_CLIENT
 
 export async function serveStatic(req, { env = {}, readFile }) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
-  const send = (body, path, status = 200, cache = extension(path) === '.html' ? 'no-cache' : 'public, max-age=3600') =>
+  const send = (body, path, status = 200, cache = extension(path) === '.html' ? 'no-cache' : 'public, max-age=600') =>
     new Response(req.method === 'HEAD' ? null : body, {
       status,
       headers: { 'Content-Type': TYPES[extension(path)] ?? 'application/octet-stream', 'Cache-Control': cache, 'X-Content-Type-Options': 'nosniff' },

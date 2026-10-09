@@ -2,6 +2,7 @@ import { money } from '../../data/catalog.js';
 
 export const ORDER_TTL = 63072000; // 2 years
 export const orderKey = id => `order:${id}`;
+export const retryKey = id => `email-retry:${id}`;
 
 export const findOrder = (env, id) => env.ORDERS.get(orderKey(id), 'json');
 

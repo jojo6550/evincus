@@ -1,11 +1,10 @@
 import { sendEmail } from './email.js';
 import { alert } from './alerts.js';
-import { findOrder, updateOrder } from './orders.js';
+import { findOrder, updateOrder, retryKey } from './orders.js';
 import { receiptEmail } from '../emails/receipt.js';
 import { ownerEmail } from '../emails/owner.js';
 
 export const BACKOFF_MINUTES = [15, 30, 60, 120, 240];
-const retryKey = id => `email-retry:${id}`;
 const MIN = 60_000;
 
 // Sends whichever of the two emails isn't sent yet and updates record.email. True when both are sent.
