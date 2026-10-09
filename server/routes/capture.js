@@ -57,7 +57,7 @@ async function finish(c, orderId, done, q, amount) {
 
 // POST /api/orders/capture { orderID }
 // Captures only orders this server signed, whose contents still re-price to the same amounts and are still buyable.
-// An order PayPal already captured (a success the Worker missed) is recorded, at the amounts PayPal charged, instead of refused.
+// An order PayPal already captured (a success the server missed) is recorded, at the amounts PayPal charged, instead of refused.
 export async function captureRoute(req, c) {
   const body = await readJson(req);
   const orderId = body?.orderID;

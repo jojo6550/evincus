@@ -44,6 +44,6 @@ test('more than 10 beacons a minute from one IP are 429', async () => {
 test('the client IP comes from the connection, not a spoofable header', async () => {
   const env = makeEnv();
   for (let i = 0; i < 10; i++) await send({ event: 'api-unreachable' }, env);
-  const spoofed = await call('POST', '/api/beacon', { raw: JSON.stringify({ event: 'api-unreachable' }), env, ip: '1.2.3.4', headers: { 'CF-Connecting-IP': '9.9.9.9' } });
+  const spoofed = await call('POST', '/api/beacon', { raw: JSON.stringify({ event: 'api-unreachable' }), env, ip: '1.2.3.4', headers: { 'X-Forwarded-For': '9.9.9.9' } });
   assert.equal(spoofed.status, 429);
 });

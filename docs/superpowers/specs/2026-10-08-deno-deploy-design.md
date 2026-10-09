@@ -104,8 +104,8 @@ Deno.serve((req, info) => new URL(req.url).pathname.startsWith('/api/')
 
 Encoding:
 
-- Head entry `['s', key]` → `{ v, m, x, n }`: `v` value text (absent when chunked), `m` metadata, `x` expiry epoch ms or `null`, `n` chunk count (0 when inline).
-- Values over 60 000 UTF-8 bytes are split into `['c', key, i]` entries, written in the same atomic commit as the head. Reads fetch chunks with `getMany` in groups of 10 and join them. Overwrites and deletes remove chunks no longer needed.
+- Head entry `['s', key]` → `{ v, m, x, n, id }`: `v` the value as UTF-8 bytes (`null` when chunked), `m` metadata, `x` expiry epoch ms or `null`, `n` chunk count (0 when inline), `id` names the chunk set.
+- Values over 60 000 UTF-8 bytes are split into `['c', key, id, i]` entries, written in the same atomic commit as the head. A chunk set is never rewritten, only replaced under a new `id`, and a reader that finds a chunk missing reads again. Reads fetch chunks with `getMany` in groups of 10 and join them. Overwrites and deletes remove chunks no longer needed.
 - `expirationTtl` sets `x = now + ttl*1000` and Deno's `expireIn` on head and chunks (for cleanup). Reads treat `x <= now` as missing, so expiry is exact like Cloudflare's, not best-effort.
 - The version reported by `getEntry` and checked by `commit` is the head entry's versionstamp.
 - A thrown Deno KV error propagates (callers already handle storage failures).
@@ -135,7 +135,7 @@ export async function submitOrder(env, id, fingerprint, record) → { record } |
 `kvLimiter(kv, name, { limit, period, now = Date.now })` → `{ limit({ key }) → { success } }`.
 
 - Window `w = floor(now / (period*1000))`, key `['rl', name, key, w]`, `expireIn` two periods.
-- Read count with versionstamp, `atomic().check(entry).set(key, count + 1)`; retry on a failed check, up to 10 times, then allow (fail open, matching Cloudflare's limiter).
+- Read count with versionstamp, `atomic().check(entry).set(key, count + 1)`; retry on a failed check up to `limit + 2` attempts (each clash means another hit's increment landed, so `limit + 1` always settle), then refuse (fail closed).
 - `success = count + 1 <= limit`.
 
 ## 7. Cron
@@ -149,7 +149,7 @@ Branch timelines also run crons. Branch deploys must set `NEWSLETTER_HOUR=""` an
 | Route | Behaviour |
 |---|---|
 | `GET /api/admin/sales` | `200 { sales, version }` from `config:sales` (`sales: []` when missing) |
-| `PUT /api/admin/sales` | Body `{ sales, version }`. `sales` must be an array where every item passes `isSale`, at most 50 items, else `400 invalid-sales`. `commit` with check on `version` (`null` = key absent). Success `200 { sales, version: <new> }`; failed check `409 sales-changed` |
+| `PUT /api/admin/sales` | Body `{ sales, version }`. `sales` must be an array where every item passes `isSale`, at most 50 items, else `400 invalid-sales`. `commit` with check on `version` (`null` = key absent). Success `200 { sales, version: <new> }`, where the response is one re-read of the entry after the PUT, so `sales` and `version` always belong together; failed check `409 sales-changed` |
 
 - Auth: `Authorization: Bearer <ADMIN_TOKEN>`. Compared in constant time (HMAC both sides with a per-process random key, then compare digests). Missing or wrong token → `401 unauthorized`. If `ADMIN_TOKEN` is not set, both routes answer `404 not-found`, so the endpoint does not exist until configured.
 - Responses carry `Cache-Control: no-store`.
@@ -169,8 +169,8 @@ Commands, words and validation stay (`<eras> <days> <percent>`, `list`, `end`, `
 `serveStatic(req, { env, readFile })`:
 
 - `GET` and `HEAD` only (others → `405`).
-- Allowed: root files matching `^/[a-z0-9-]+\.html$`, and paths under `/assets/` and `/data/`. `/` → `/index.html`. Paths are decoded, normalized and rejected if they contain `..`, a backslash or a NUL. Anything else, or a missing file → `404.html` with status `404`.
-- `/assets/js/config.js` is generated, never read from disk: `export const API_BASE = ''; export const PAYPAL_CLIENT_ID = <JSON of env.PAYPAL_CLIENT_ID ?? 'test'>;`
+- Allowed: root files matching `^/[a-z0-9-]+\.html$`, and paths under `/assets/` and `/data/`. `/` → `/index.html`. Paths are decoded, and the decoded path must first match `^[A-Za-z0-9._/-]+$` (blocks double-encoded traversal through file-URL reads); it is then normalized and rejected if it contains `..`, a backslash or a NUL. Anything else, or a missing file → `404.html` with status `404`.
+- `/assets/js/config.js` (matched case-insensitively) is generated, never read from disk: `export const API_BASE = ''; export const PAYPAL_CLIENT_ID = <JSON of env.PAYPAL_CLIENT_ID ?? 'test'>;`
 - `/__error/<code>` (403, 404, 500, 502, 503, 504) serves that page with that status, only when `env.ENVIRONMENT === 'development'`.
 - A read error other than not-found → `500.html` with `500`.
 - Headers: content type from the table now in `scripts/dev.mjs` (plus `.ttf`, `.woff`, `.mp4`); `X-Content-Type-Options: nosniff`; `.html` → `Cache-Control: no-cache`, everything else → `public, max-age=3600`.
@@ -179,7 +179,7 @@ Commands, words and validation stay (`<eras> <days> <percent>`, `list`, `end`, `
 ## 11. Local development
 
 - `npm run dev` (and `deno task dev`) → `deno run -A --env-file=.env --watch main.js`. Site and API on `http://localhost:8000/`. `.env` replaces `worker/.dev.vars` and should hold `ENVIRONMENT=development`, `NEWSLETTER_KEY`, `ADMIN_TOKEN`, `SITE_URL=http://localhost:8000`.
-- KV is in memory locally (data resets on restart), matching Deploy's local default.
+- Local KV is kept by Deno on this machine, separate from production; it persists between runs.
 - `npm run error <code>` prints `http://localhost:8000/__error/<code>` and tells the user to start `npm run dev` if it is not running.
 - `.claude/launch.json`: one config `evincus` running `deno task dev` on port 8000.
 - `package.json` scripts: drop `dev:api` and `deploy:api`; `dev` runs Deno; keep `test`, `new-era`, `discount`, `error`. devDependencies: `@deno/kv` replaces `wrangler`. `engines` keeps Node ≥ 22 for tests and scripts; README states Deno ≥ 2.4 is needed to run the app.

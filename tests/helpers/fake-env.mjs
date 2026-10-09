@@ -97,7 +97,7 @@ export function captureLogs() {
   return { lines, restore() { console.log = original; } };
 }
 
-// One request through the Worker, with waitUntil work finished before returning.
+// One request through the app, with waitUntil work finished before returning.
 export async function call(method, path, { body, raw, headers = {}, ip, env = makeEnv(), clock = () => NOW, data = FIXTURE } = {}) {
   const app = createApp({ data, clock });
   const ctx = makeCtx(ip);

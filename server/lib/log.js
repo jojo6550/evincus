@@ -1,4 +1,4 @@
-// One JSON object per line, readable by Workers Logs' query builder. PII never reaches a log.
+// One JSON object per line, readable in the Deno Deploy logs. PII never reaches a log.
 export const PII_KEYS = new Set(['payer', 'shipTo', 'email', 'name', 'address', 'phone']);
 
 export function redact(value) {

@@ -1,4 +1,4 @@
-// Fixed-window rate limiter in Deno KV with the interface of Cloudflare's rate limit binding: limit({ key }) → { success }.
+// Fixed-window rate limiter in Deno KV: limit({ key }) → { success }.
 // Refused hits write nothing. Every write clash means another hit's count landed, so limit + 2 attempts always settle; if they somehow don't, the hit is refused.
 
 export function kvLimiter(kv, name, { limit, period, now = Date.now }) {

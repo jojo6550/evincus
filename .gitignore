@@ -1,8 +1,6 @@
+# Local copy of the old CI-written config; the server generates config.js now.
 assets/js/config.js
 node_modules/
 .remember/
 .claude/
 .env
-.dev.vars
-.wrangler/
-_site/

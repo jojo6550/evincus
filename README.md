@@ -1,7 +1,7 @@
 # Evincus storefront
 
-Static store on GitHub Pages plus an API on a Cloudflare Worker. Vanilla ES modules, with no build step.
-Checkout places orders directly. **No payment service is used and no payment is collected.**
+One Deno Deploy app serves the static store and its API (`/api/*`) from the same origin. Vanilla ES modules, with
+no build step. Checkout places orders directly. **No payment service is used and no payment is collected.**
 
 ## Layout
 
@@ -13,7 +13,9 @@ Checkout places orders directly. **No payment service is used and no payment is 
   `data/eras/index.js` sets the order (newest first). `data/site.json` holds site copy.
 - `assets/img/`: every photo that doesn't belong to an era (logo, favicon, `site/` lookbook and banners).
 - `data/catalog.js`: catalog rules shared by the site and the API (era status, what's visible, what's buyable).
-- `worker/`: the API (`wrangler.toml`, `src/index.js` router, `src/routes`, `src/lib`, `src/emails`).
+- `main.js`: the Deno entry (KV, cron, `Deno.serve`). `server/`: the API router (`index.js`), `routes`, `lib`,
+  `emails`, and the static file server (`static.js`). Only `main.js` uses Deno APIs; `server/` also runs under Node
+  for the tests.
 - `policies.html`: customer-facing privacy, shipping, refund, terms and FAQ content,
   linked from the store, eras page and checkout. Refund requests have a 24-hour
   window from purchase. `docs/policies/original-evincus-shop.md` preserves the
@@ -21,20 +23,17 @@ Checkout places orders directly. **No payment service is used and no payment is 
 
 ## Run locally
 
+Needs Deno 2.4 or later for the app and Node 22 for the tests and scripts.
+
 ```bash
-npm install
-cp assets/js/config.example.js assets/js/config.js   # API_BASE = 'http://localhost:8787'
-npm run dev:api                                        # API on http://localhost:8787
-npx http-server -p 5180 -c-1 .                         # site on http://localhost:5180/ (or /index.html)
+npm install                 # test dependencies
+cp .env.example .env        # local settings; .env is never committed
+npm run dev                 # site and API on http://localhost:8000/
 ```
 
-`worker/.dev.vars` (next to `wrangler.toml`, gitignored) holds local secrets and `ENVIRONMENT=development`
-(which lets localhost through CORS):
-
-```
-ENVIRONMENT=development
-RESEND_API_KEY=...
-```
+Local KV is separate from production, so test orders, subscribers and sales never touch the live store.
+`ENVIRONMENT=development` in `.env` lets other localhost origins through CORS and turns on the error page preview:
+`npm run error 503` prints its URL.
 
 ## Catalog changes
 
@@ -56,8 +55,9 @@ Then `npm test` and push to `main`. Tests check folder names, photos and data be
 
 ### Sales
 
-Sales change live prices with no deploy. They're stored in the API's `ORDERS` KV (key `config:sales`), show a countdown
-banner on the site, and reach shoppers within about a minute. Start and end times are exact.
+Sales change live prices with no deploy. They're stored in KV (key `config:sales`), written through the
+token-protected `/api/admin/sales` endpoint, show a countdown banner on the site, and apply on the next page load.
+Start and end times are exact.
 
 | Task | How |
 | --- | --- |
@@ -68,25 +68,27 @@ banner on the site, and reach shoppers within about a minute. Start and end time
 | See sales | `npm run discount list` |
 | End a sale early | `npm run discount end <id>` or `end all` |
 
-Add `staging` for staging, `local` for `npm run dev:api`, `dry-run` to preview (plain words, no dashes: npm keeps `--flags` for itself in PowerShell). Overlapping sales don't stack: each
-product gets its era's deepest one. A PayPal order approved in the last 15 minutes of a sale still captures at the sale price.
-Everything in `data/` is published to Pages, so an era's folder (`era.js`, photos) can be fetched from the live site
+Add `local` for `npm run dev`, `url=<deployment URL>` for a branch preview, `dry-run` to preview (plain words, no
+dashes: npm keeps `--flags` for itself in PowerShell). The command needs `ADMIN_TOKEN`, the same value as the
+server's, in your environment or `.env`. Overlapping sales don't stack: each product gets its era's deepest one. A
+PayPal order approved in the last 15 minutes of a sale still captures at the sale price.
+Everything in `data/` is served with the site, so an era's folder (`era.js`, photos) can be fetched from the live site
 once it's pushed, even with a private repo. The API keeps an upcoming era unbuyable, but it isn't secret. To keep a drop
 secret, push its folder on drop day.
 
 ### Newsletter
 
-The footer form signs people up (double opt-in: they get a confirm email first). Subscribers are stored in the `ORDERS`
-KV as `sub:<id>`. Every day after `NEWSLETTER_HOUR` (Jamaica time, `worker/wrangler.toml`) the cron sends a "What's new"
-email to every confirmed subscriber with whatever changed since the last one: drops that went live, sales that started,
-drops in the next 48 hours, and sales ending in the next 24 hours. Nothing new means no email.
+The footer form signs people up (double opt-in: they get a confirm email first). Subscribers are stored in KV as
+`sub:<id>`. Every day after `NEWSLETTER_HOUR` (Jamaica time) the cron sends a "What's new" email to every confirmed
+subscriber with whatever changed since the last one: drops that went live, sales that started, drops in the next
+48 hours, and sales ending in the next 24 hours. Nothing new means no email.
 
 | Setting | Where |
 | --- | --- |
-| Send hour, or off | `NEWSLETTER_HOUR` in `worker/wrangler.toml` (`"10"` = 10:00, `""` = off) |
-| Link signing key | `npx wrangler secret put NEWSLETTER_KEY --config worker/wrangler.toml` (falls back to `ORDER_HMAC_KEY`) |
+| Send hour, or off | `NEWSLETTER_HOUR` (`10` = 10:00, blank = off) |
+| Link signing key | `NEWSLETTER_KEY` secret (falls back to `ORDER_HMAC_KEY`) |
 | Links and images | `SITE_URL` (the public site) |
-| One-click unsubscribe in Gmail/Apple Mail | `API_URL` (this Worker's public URL) |
+| One-click unsubscribe in Gmail/Apple Mail | `API_URL` (the public site too: the API is same-origin) |
 | Postal address in the footer (required for marketing email in many countries) | `POSTAL_ADDRESS` |
 
 Emails go through Resend (`RESEND_API_KEY`, `EMAIL_FROM`) in batches of 100. Each batch has a fixed idempotency key,
@@ -96,51 +98,51 @@ so cron retries never send anyone the same issue twice.
 ## Tests
 
 ```bash
+npm install
 node --test
 ```
 
+The KV adapter and rate limiter tests use real in-memory Deno KV from the `@deno/kv` package.
+
 ## Deploy
 
-Push to `main`: CI runs the tests, deploys the Worker, then deploys Pages. Run the workflow manually with `staging` to
-deploy only the staging Worker.
+Deno Deploy builds and deploys `main` on every push (app `evincus`, `https://evincus.jojo6550.deno.net`). Every other
+branch gets its own preview timeline with its own KV database and cron. GitHub Actions only runs the tests.
 
-| Where | What |
-| --- | --- |
-| `worker/wrangler.toml` `[vars]` | `PAYMENT_MODE = "none"`, `SHIPPING_USD`, `DELIVERY_EXCLUDED_COUNTRIES`, `OWNER_EMAIL`, `EMAIL_FROM`, `ALLOWED_ORIGINS` |
-| `wrangler secret put` | `RESEND_API_KEY` |
-| GitHub secrets | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
-| GitHub variables | `API_BASE` (written into `assets/js/config.js` at deploy) |
+### First deploy checklist (Deno Deploy console)
 
-### First deploy checklist
+1. App `evincus`, Edit app config: runtime **Dynamic**, entrypoint `main.js`, install and build commands empty.
+2. Databases, Provision Database, **Deno KV**, then Assign it to `evincus` (status: Connected).
+3. Environment variables, **Production** context:
 
-`worker/wrangler.toml` ships with `REPLACE_WITH_*` placeholders (owner email, staging KV id) and
-production KV `id = "local-orders"`. Before the first deploy:
+   | Variable | Value |
+   | --- | --- |
+   | `ENVIRONMENT` | `production` |
+   | `PAYMENT_MODE` | `none` |
+   | `SHIPPING_USD` | flat delivery charge, e.g. `0` |
+   | `DELIVERY_EXCLUDED_COUNTRIES` | comma-separated ISO codes, or blank |
+   | `OWNER_EMAIL` | where order summaries and alerts go |
+   | `EMAIL_FROM` | `Evincus <orders@evincus.shop>` |
+   | `ALLOWED_ORIGINS` | other sites allowed to call the API, e.g. `https://evincus.shop,https://www.evincus.shop` |
+   | `NEWSLETTER_HOUR` | `10` |
+   | `SITE_URL`, `API_URL` | `https://evincus.jojo6550.deno.net` until the custom domain is attached |
+   | `POSTAL_ADDRESS` | printed in newsletter footers |
+   | Secrets: `RESEND_API_KEY`, `ORDER_HMAC_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | long random values. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
 
-1. `npx wrangler login`.
-2. Create the KV namespaces `ORDERS` and `ORDERS_STAGING` and paste their ids into `worker/wrangler.toml`.
-3. Fill in every `REPLACE_WITH_*` value.
-4. Run `npx wrangler secret put RESEND_API_KEY --config worker/wrangler.toml`, for both
-   environments (default and `--env staging`).
-5. GitHub secrets: `CLOUDFLARE_API_TOKEN` (scoped to Workers Scripts: Edit and Workers KV Storage: Edit) and
-   `CLOUDFLARE_ACCOUNT_ID`.
-6. GitHub variable: `API_BASE` pointing to the deployed Worker.
-7. Settings, Pages, Source = GitHub Actions.
-8. Verify the sending domain in Resend.
-9. The rate limit `namespace_id` values (`1001`–`1004`, beacon and order limits) must be unique in your Cloudflare
-   account. Change them if another Worker already uses them.
-10. Deploy staging from your machine: `npm run deploy:api -- --env staging`. Test a delivery and a pickup order: run
-    the site on localhost with `API_BASE` in `assets/js/config.js` set to the staging Worker URL, and temporarily add
-    `http://localhost:5180` to the staging `ALLOWED_ORIGINS`. Only then merge to `main`: merging is the first
-    production deploy (the workflow refuses to run while `wrangler.toml` still has placeholders).
-11. Keep `PAYMENT_MODE = "none"`. The Durable Object binding and SQLite migration are deployed with the Worker.
-12. Merging deletes the Netlify functions. If Netlify still deploys this repo, disconnect it only after Pages and the
-    Worker are confirmed live.
-13. If the `evincus.shop` DNS is on Cloudflare, add the custom-domain route for the Worker.
+4. Environment variables, **Development** context (branches and previews): `ENVIRONMENT=staging`,
+   `NEWSLETTER_HOUR` blank, `OWNER_EMAIL` set to a test inbox, and test values for the secrets. Branch timelines run
+   the cron too, so this keeps previews from emailing subscribers or the owner.
+5. Verify the sending domain in Resend.
+6. Push a branch and place a delivery and a pickup test order on its preview URL.
+7. Merge to `main`, then open `/api/health`: it must show `"ok":true` and `"kv":"ok"`.
+8. GitHub, Settings, Pages: turn Pages off. The site is no longer served from there.
+9. Custom domain: add `evincus.shop` in the app's settings, then set `SITE_URL`, `API_URL` and `ALLOWED_ORIGINS` to it.
+10. Keep `PAYMENT_MODE=none`.
 
 ## Orders and fulfillment
 
 `POST /api/orders` accepts `checkoutToken` (a UUID), `items`, `customer` (`name`, `email`, `phone`),
-`fulfillment`, optional `notes`, and `expectedTotalCents`. The Worker checks catalog prices, availability,
+`fulfillment`, optional `notes`, and `expectedTotalCents`. The server checks catalog prices, availability,
 variants and quantities; mismatched totals require reviewing the bag. Orders are `PLACED`, with
 `paymentStatus: NOT_COLLECTED`. `/api/orders/capture` is disabled. No PayPal SDK loads in checkout.
 
@@ -153,11 +155,12 @@ carrier restrictions must be configured before launch. Delivery uses the existin
 Manchester, Jamaica. Their addresses are intentionally empty until confirmed. Fill each `address` there;
 checkout and confirmations use the same settings. Customers are contacted when pickup is ready.
 
-A Durable Object serializes each checkout token and retains the order for two years. The same token and
-payload return the same order, even if catalog availability changes after placement. Different payloads
-using the same token are refused. The order and Jamaica-day index must reach KV before success is returned;
-a failed write can be repaired by retrying the same submission. The browser keeps an uncertain submission
-in session storage and retries it without creating a new order. Only ordered quantities are removed from the bag.
+Each checkout token maps to one order, kept for two years. The order, its Jamaica-day index, its confirmation retry
+job and the token's fingerprint are written in one Deno KV atomic commit that only succeeds if the token is new. The
+same token and payload return the same order, even if catalog availability changes after placement; different
+payloads using the same token are refused. A failed write saves nothing and is safe to retry. The browser keeps an
+uncertain submission in session storage and retries it without creating a new order. Only ordered quantities are
+removed from the bag.
 
 Customers receive a Resend confirmation after placement. The owner receives a daily summary of the previous
 Jamaica calendar day's orders at **08:00 America/Jamaica (13:00 UTC)**, including contact details, line items,
@@ -167,22 +170,22 @@ after 08:00 and retries failed deliveries with stable Resend idempotency keys an
 Completed summary markers prevent subsequent sends. A saved cursor catches up after missed cron days.
 Customer confirmations use the existing bounded backoff.
 
-Configure `OWNER_EMAIL`, `EMAIL_FROM`, the production/staging KV IDs and the `RESEND_API_KEY` secret,
-and verify the sending domain in Resend before deployment. Use a separate staging recipient so test orders
-do not enter the production mailbox. No real email delivery is verified by the automated tests.
+Configure `OWNER_EMAIL`, `EMAIL_FROM` and the `RESEND_API_KEY` secret, and verify the sending domain in Resend
+before deployment. Use a separate test recipient for previews so test orders do not enter the production mailbox.
+No real email delivery is verified by the automated tests.
 
 Legacy PayPal code remains available only behind explicit `PAYMENT_MODE = "paypal"` for future development;
 enabling it also requires restoring the payment UI and credentials. Do not change that setting for this release.
 
 ## Monitoring
 
-- **Logs:** Cloudflare dashboard, Workers, evincus-api, Logs. Every line is JSON with `event`, `reqId` and `route`.
-  Errors shown to shoppers include the request id. Live view: `npx wrangler tail --config worker/wrangler.toml`.
+- **Logs:** Deno Deploy console, app `evincus`, Logs. Every line is JSON with `event`, `reqId` and `route`.
+  Errors shown to shoppers include the request id.
 - **Alerts:** emailed to `OWNER_EMAIL` for unsaved paid orders, possible tampering, undelivered receipts,
   PayPal outages (5+ errors in 10 minutes) and unhandled errors. At most one per event type per hour.
 - **Uptime (set up once by hand):** create a free UptimeRobot or Better Stack **keyword (GET) monitor** for
-  `https://api.evincus.shop/api/health` that expects `"ok":true`. Do not use a plain HEAD/HTTP monitor:
-  `/api/health` answers GET only and returns 405 to HEAD. Add a second monitor for the Pages homepage. Check both
-  every 5 minutes, alerting by email or SMS. This catches the Worker being down, which it can't report itself.
-- **Free tier:** KV allows 1,000 writes/day (each order uses about 3). Move to Workers Paid ($5/month) above about
-  300 orders/day or for 7-day log retention.
+  `https://evincus.jojo6550.deno.net/api/health` (or the custom domain) that expects `"ok":true`. Do not use a plain
+  HEAD/HTTP monitor: `/api/health` answers GET only and returns 405 to HEAD. Add a second monitor for the homepage.
+  Check both every 5 minutes, alerting by email or SMS. This catches the app being down, which it can't report itself.
+- **Free tier:** Deno Deploy limits requests, bandwidth and CPU until the organization is verified (banner in the
+  console); verifying raises those limits 100x.

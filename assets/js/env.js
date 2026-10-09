@@ -1,6 +1,6 @@
-// Public site settings. config.js is gitignored and written by CI, so it can be missing
-// (for example when Pages serves the branch directly). Fall back to defaults instead of
-// letting a missing file stop every module that imports this one.
+// Public site settings. The server generates config.js from its environment (server/static.js); when the site is
+// opened without that server (a plain file server), the import fails and these defaults apply instead of
+// stopping every module that imports this one.
 const cfg = await import('./config.js').catch(() => ({}));
 
 export const PAYPAL_CLIENT_ID = cfg.PAYPAL_CLIENT_ID ?? 'test';

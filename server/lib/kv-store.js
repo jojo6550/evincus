@@ -1,9 +1,9 @@
-// Cloudflare-KV-shaped storage over Deno KV, so the libs keep calling get/put/delete/list with string keys.
+// A get/put/delete/list store over Deno KV, so the libs keep calling it with plain string keys.
 //
 // Each key has a head entry ['s', key] → { v, m, x, n, id }:
 //   v   the value as UTF-8 bytes, or null when it is split into chunks
 //   m   metadata (returned by list), or null
-//   x   expiry in epoch ms, or null. Expired entries read as missing, so TTLs are exact like Cloudflare's;
+//   x   expiry in epoch ms, or null. Expired entries read as missing, so TTLs are exact, not best-effort;
 //       Deno's own expireIn is set too, only to clean them up.
 //   n   chunk count, id  the chunk set's id
 // Deno KV caps a value at 64 KiB, so bigger values go to ['c', key, id, i], written in the same atomic commit as
