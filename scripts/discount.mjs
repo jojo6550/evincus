@@ -131,7 +131,7 @@ export function adminToken(env = process.env, readEnvFile = () => readFileSync(n
   if (env.ADMIN_TOKEN) return env.ADMIN_TOKEN;
   let text = '';
   try { text = readEnvFile(); } catch { /* no .env */ }
-  const token = /^\s*ADMIN_TOKEN\s*=\s*"?([^"\r\n]*)"?\s*$/m.exec(text)?.[1];
+  const token = /^[ \t]*ADMIN_TOKEN[ \t]*=[ \t]*(["']?)([^"'\r\n]*?)\1[ \t]*$/m.exec(text)?.[2];
   if (token) return token;
   throw new Error('Set ADMIN_TOKEN (the same value as on the server) in your environment or in .env.');
 }

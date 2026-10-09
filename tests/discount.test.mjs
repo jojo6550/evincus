@@ -32,6 +32,10 @@ test('adminToken reads the environment first, then .env', () => {
   assert.equal(adminToken({}, () => 'ADMIN_TOKEN=plain\r\nY=2'), 'plain');
   assert.throws(() => adminToken({}, () => { throw new Error('no file'); }), /ADMIN_TOKEN/);
   assert.throws(() => adminToken({}, () => 'ADMIN_TOKEN=\n'), /ADMIN_TOKEN/);
+  assert.throws(() => adminToken({}, () => 'ADMIN_TOKEN=\nRESEND_API_KEY=re_secret\n'), /ADMIN_TOKEN/);
+  assert.throws(() => adminToken({}, () => 'ADMIN_TOKEN=\r\nRESEND_API_KEY=re_secret\r\n'), /ADMIN_TOKEN/);
+  assert.equal(adminToken({}, () => "ADMIN_TOKEN='single'\n"), 'single');
+  assert.equal(adminToken({}, () => 'ADMIN_TOKEN=spaced   \n'), 'spaced');
 });
 
 test('read and write go through the admin endpoint with the version that was read', async () => {
