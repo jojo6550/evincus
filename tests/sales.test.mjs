@@ -4,7 +4,7 @@ import { call, makeEnv, fakeUpstreams } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 import { applySales, bestSale, salePrice } from '../data/catalog.js';
 import { SALES_KEY, SALE_GRACE_MS } from '../server/lib/sales.js';
-import { addSale, endSale, makeSale, parseArgs, parseStored } from '../scripts/discount.mjs';
+import { addSale, endSale, makeSale, parseArgs } from '../scripts/discount.mjs';
 
 const HOUR = 3_600_000;
 const iso = ms => new Date(ms).toISOString();
@@ -102,20 +102,21 @@ test('a PayPal order priced during a sale captures inside the grace window, and 
 // ---------- npm run discount ----------
 
 test('parseArgs reads a sale, list, end, and flags', () => {
-  assert.deepEqual(parseArgs(['catastrophe,core', '3', '20%', '--label', 'Fall', '--staging']),
-    { cmd: 'start', target: 'catastrophe,core', days: '3', percent: '20%', flags: { staging: true, local: false, dryRun: false, label: 'Fall', starts: null } });
+  assert.deepEqual(parseArgs(['catastrophe,core', '3', '20%', '--label', 'Fall', '--url', 'https://preview.test']),
+    { cmd: 'start', target: 'catastrophe,core', days: '3', percent: '20%', flags: { local: false, dryRun: false, label: 'Fall', starts: null, url: 'https://preview.test' } });
   assert.equal(parseArgs(['list']).cmd, 'list');
   assert.equal(parseArgs(['end', 'all']).id, 'all');
   assert.equal(parseArgs([]).cmd, 'help');
   assert.throws(() => parseArgs(['core', '3']), /Expected/);
   assert.throws(() => parseArgs(['core', '3', '20', '--nope']), /Unknown option/);
-  assert.throws(() => parseArgs(['list', 'staging', 'local']), /not both/);
+  assert.throws(() => parseArgs(['list', 'url=https://preview.test', 'local']), /not both/);
+  assert.throws(() => parseArgs(['list', 'staging']), /url=/);
 });
 
 test('parseArgs takes options as plain words too, so npm never swallows them', () => {
   assert.deepEqual(parseArgs(['catastrophe', '3', '20', 'local', 'dry-run', 'label=Fall sale', 'starts=2026-11-27T00:00:00-05:00']).flags,
-    { staging: false, local: true, dryRun: true, label: 'Fall sale', starts: '2026-11-27T00:00:00-05:00' });
-  assert.equal(parseArgs(['list', 'staging']).flags.staging, true);
+    { local: true, dryRun: true, label: 'Fall sale', starts: '2026-11-27T00:00:00-05:00', url: null });
+  assert.equal(parseArgs(['list', 'url=https://preview.test']).flags.url, 'https://preview.test');
   assert.equal(parseArgs(['end', 'all', '--local']).flags.local, true);
 });
 
@@ -149,12 +150,4 @@ test('addSale and endSale drop ended sales; endSale refuses unknown ids', () => 
   assert.deepEqual(endSale(list, 's1', NOW).map(s => s.id), ['s2']);
   assert.deepEqual(endSale(list, 'all', NOW), []);
   assert.throws(() => endSale(list, 'zzz', NOW), /No running or scheduled sale/);
-});
-
-test('parseStored reads wrangler output with or without a banner', () => {
-  assert.deepEqual(parseStored(''), []);
-  assert.deepEqual(parseStored('Value not found'), []);
-  assert.deepEqual(parseStored('[{"id":"a"}]'), [{ id: 'a' }]);
-  assert.deepEqual(parseStored(' ⛅️ wrangler 4.40.0\n-------\n[{"id":"a"}]\n'), [{ id: 'a' }]);
-  assert.throws(() => parseStored('{"id":"a"}'), Error);
 });
