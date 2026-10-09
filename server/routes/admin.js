@@ -44,5 +44,7 @@ export async function putSalesRoute(req, c) {
   const saved = await c.env.ORDERS.commit({ checks: [{ key: SALES_KEY, version }], puts: [{ key: SALES_KEY, value: JSON.stringify(sales) }] });
   if (!saved) return fail(c, 'sales-changed', 409);
   c.log.info('sales.updated', { count: sales.length });
-  return json({ sales, version: (await c.env.ORDERS.getEntry(SALES_KEY)).version }, 200, noStore);
+  // Return the stored entry's own list and version, so a write that lands after ours can't be paired with our list.
+  const cur = await c.env.ORDERS.getEntry(SALES_KEY);
+  return json({ sales: JSON.parse(cur.value), version: cur.version }, 200, noStore);
 }

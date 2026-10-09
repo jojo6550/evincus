@@ -70,3 +70,19 @@ test('a saved sale reprices the store on the next request', async () => {
   const era = await call('GET', '/api/eras/alpha', { env });
   assert.deepEqual(era.json.products.map(p => [p.id, p.priceCents]), [['alpha-tee', 2799], ['alpha-hood', 3679]]);
 });
+
+test('a PUT with the version just read succeeds, and the old version is then refused', async () => {
+  const env = makeEnv({ ADMIN_TOKEN: TOKEN });
+  assert.equal((await putSales(env, { sales: [sale()], version: null })).status, 200);
+  const v1 = (await getSales(env)).json.version;
+  assert.equal(typeof v1, 'string');
+  const second = await putSales(env, { sales: [sale({ id: 's2' })], version: v1 });
+  assert.equal(second.status, 200);
+  assert.deepEqual(second.json.sales, [sale({ id: 's2' })]);
+  assert.equal(typeof second.json.version, 'string');
+  assert.notEqual(second.json.version, v1);
+  const stale = await putSales(env, { sales: [sale({ id: 's3' })], version: v1 });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.json.error.code, 'sales-changed');
+  assert.deepEqual(JSON.parse(env.ORDERS.store.get(SALES_KEY).value), [sale({ id: 's2' })]);
+});
