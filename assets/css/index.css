@@ -154,6 +154,56 @@ section { padding-block: clamp(48px, 7vw, 104px); }
   .f3, .f4 { grid-column: span 6; }
 }
 
+/* ---------- model reel (mobile first) ---------- */
+.reel__track {
+  --peek: 9vw;
+  position: relative; display: flex; gap: 12px; list-style: none; margin: 0 calc(var(--gutter) * -1); padding: 0 var(--peek);
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none;
+}
+.reel__track::-webkit-scrollbar { display: none; }
+.reel__track:focus-visible { outline-offset: -2px; }
+.reel__slide { flex: 0 0 calc(100% - var(--peek) * 2); scroll-snap-align: center; scroll-snap-stop: always; }
+.reel__slide figure { position: relative; margin: 0; aspect-ratio: 3 / 4; overflow: hidden; background: var(--ash); }
+.reel__slide img {
+  width: 100%; height: 100%; object-fit: cover; filter: grayscale(.7) brightness(.5);
+  transform: scale(1.06); transition: filter .6s, transform 1.4s cubic-bezier(.2,.7,.2,1);
+}
+.reel__slide figcaption {
+  position: absolute; left: 10px; bottom: 10px; display: inline-flex; gap: 10px; align-items: center;
+  background: var(--ink); color: var(--bone); padding: 6px 10px; opacity: 0; transform: translateY(8px); transition: opacity .4s .15s, transform .4s .15s;
+}
+.reel__slide figcaption b { color: var(--hazard); font-weight: 500; }
+.reel__slide.is-on img { filter: contrast(1.05) saturate(.9); transform: scale(1); }
+.reel__slide.is-on figcaption { opacity: 1; transform: none; }
+.reel__bar { display: grid; grid-template-columns: auto 1fr; gap: 14px 16px; align-items: center; margin-top: 18px; }
+.reel__count { color: var(--smoke); font-variant-numeric: tabular-nums; }
+.reel__count b { color: var(--bone); font-weight: 500; }
+.reel__dots { display: flex; gap: 4px; min-width: 0; }
+.reel__dot { flex: 1; height: 18px; padding: 0; border: 0; background: none; cursor: pointer; position: relative; }
+.reel__dot::before, .reel__dot::after { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 2px; background: var(--char); }
+.reel__dot::after { background: var(--bone); transform: scaleX(0); transform-origin: left; }
+.reel__dot.is-done::after { transform: scaleX(1); }
+.reel__dot.is-on::after { animation: reelFill 5s linear forwards; }
+.reel.is-paused .reel__dot.is-on::after { animation-play-state: paused; }
+.reel.is-stopped .reel__dot.is-on::after { animation: none; transform: scaleX(1); }
+@keyframes reelFill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.reel__ctrl { grid-column: 1 / -1; display: flex; gap: 8px; }
+.reel__btn {
+  flex: 1; min-height: 48px; border: 1px solid var(--char); background: none; color: var(--bone); cursor: pointer;
+  font-size: 15px; letter-spacing: 0; transition: background .2s, color .2s, border-color .2s;
+}
+.reel__btn:hover { background: var(--bone); color: var(--ink); border-color: var(--bone); }
+.reel__btn[aria-pressed="true"] { color: var(--hazard); border-color: var(--hazard); }
+@media (min-width: 761px) {
+  .reel__track { gap: clamp(12px, 1.4vw, 20px); padding-inline: var(--gutter); scroll-padding-inline: var(--gutter); }
+  .reel__slide { flex-basis: clamp(280px, 30vw, 440px); scroll-snap-align: start; }
+  .reel__slide figcaption { left: 14px; bottom: 14px; }
+  .reel__bar { grid-template-columns: auto 1fr auto; margin-top: 24px; }
+  .reel__ctrl { grid-column: auto; }
+  .reel__btn { flex: 0 0 48px; min-height: 40px; }
+}
+@media (hover: none) { .reel__btn:hover { background: none; color: var(--bone); border-color: var(--char); } }
+
 /* ---------- socials ---------- */
 .socials { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--char); }
 .social { padding: clamp(24px, 4vw, 48px); display: grid; gap: 14px; text-decoration: none; position: relative; overflow: hidden; transition: background .25s, color .25s; min-width: 0; }
@@ -339,6 +389,8 @@ main, footer { overflow-x: clip; } /* contain tilted tape + rotated script witho
 .sr-only { position: absolute; left: -9999px; }
 .pos-62-50 { object-position: 62% 50%; }
 .pos-64-40 { object-position: 64% 40%; }
+.pos-45-35 { object-position: 45% 35%; }
+.pos-30-50 { object-position: 30% 50%; }
 .fit-contain { object-fit: contain; }
 
 /* ---------- dialogs: bag drawer + product view ---------- */
