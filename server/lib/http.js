@@ -30,6 +30,9 @@ export const MESSAGES = {
   'capture-unknown': "We couldn't confirm your payment. Don't pay again — check your PayPal account or email for a receipt, or DM @evincus.sw on Instagram with your order reference.",
   'payment-declined': 'Your payment method was declined and you were not charged. Try another card or PayPal account.',
   'paypal-error': "PayPal didn't respond and you were not charged. Try again in a minute.",
+  'unauthorized': 'That admin token is missing or wrong.',
+  'invalid-sales': 'That sales list is not valid.',
+  'sales-changed': 'Sales changed since you read them. Read them again, then retry.',
 };
 
 export function json(data, status = 200, headers = {}) {

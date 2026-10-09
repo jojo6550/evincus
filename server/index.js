@@ -16,6 +16,7 @@ import { checkoutOptions } from './routes/checkout.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
+import { getSalesRoute, putSalesRoute } from './routes/admin.js';
 
 // The fourth field marks routes that read prices: they get the catalog with running sales applied.
 const ROUTES = [
@@ -31,6 +32,8 @@ const ROUTES = [
   ['POST', /^\/api\/newsletter\/subscribe$/, subscribeRoute],
   ['POST', /^\/api\/newsletter\/confirm$/, confirmRoute],
   ['POST', /^\/api\/newsletter\/unsubscribe$/, unsubscribeRoute],
+  ['GET', /^\/api\/admin\/sales$/, getSalesRoute],
+  ['PUT', /^\/api\/admin\/sales$/, putSalesRoute],
 ];
 
 export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
