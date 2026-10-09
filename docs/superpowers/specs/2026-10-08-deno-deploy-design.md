@@ -100,7 +100,7 @@ Deno.serve((req, info) => new URL(req.url).pathname.startsWith('/api/')
 | `delete(key)` | Removes the entry and its chunks |
 | `list({ prefix, cursor, limit = 1000 })` | `{ keys: [{ name, metadata? }], list_complete, cursor }`, sorted by name, expired entries skipped |
 | `getEntry(key)` | `{ value, version }`; `value` is text or `null`, `version` the Deno versionstamp or `null` |
-| `commit({ checks = [], puts = [], deletes = [] })` | One atomic commit. `checks: [{ key, version }]` (`null` = must be absent). Returns `true` on success, `false` on a failed check |
+| `commit({ checks = [], puts = [], deletes = [] })` | One atomic commit. `checks: [{ key, version }]` with the version `getEntry` returned (`null` = no entry at all; an expired entry Deno has not removed yet still has a version). Returns `true` on success, `false` on a failed check |
 
 Encoding:
 
@@ -121,7 +121,7 @@ export async function submitOrder(env, id, fingerprint, record) → { record } |
 1. `getEntry('submission:' + id)`.
 2. Present: same `fingerprint` → `{ record: saved.record }`; different → `{ conflict: true }`.
 3. Absent and `record` is `null` → `{ record: null }` (caller then quotes and builds the record).
-4. Absent with a record → `commit` with check `submission:<id>` absent, putting:
+4. Absent with a record → `commit` with a check that `submission:<id>` still has the version step 1 read, putting:
    - `submission:<id>` → `{ fingerprint, record }`, TTL `ORDER_TTL`
    - `order:<id>` → record, TTL `ORDER_TTL`
    - `day:<day>:<id>` → `''`, TTL `ORDER_TTL` (same day rule as `saveOrder`, extracted to `dayKey(record)`)
@@ -135,7 +135,7 @@ export async function submitOrder(env, id, fingerprint, record) → { record } |
 `kvLimiter(kv, name, { limit, period, now = Date.now })` → `{ limit({ key }) → { success } }`.
 
 - Window `w = floor(now / (period*1000))`, key `['rl', name, key, w]`, `expireIn` two periods.
-- Read count with versionstamp, `atomic().check(entry).set(key, count + 1)`; retry on a failed check, up to 5 times, then allow (fail open, matching Cloudflare's limiter).
+- Read count with versionstamp, `atomic().check(entry).set(key, count + 1)`; retry on a failed check, up to 10 times, then allow (fail open, matching Cloudflare's limiter).
 - `success = count + 1 <= limit`.
 
 ## 7. Cron
