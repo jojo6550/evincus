@@ -35,7 +35,7 @@ test('no era.js has a TODO left', () => {
 test('era photos are bare, safely named files in their own img folder', () => {
   for (const e of eras) {
     const prefix = `data/eras/${e.slug}/img/`;
-    const files = readdirSync(new URL(`${e.slug}/img/`, erasDir)); // exact case: Pages is case-sensitive
+    const files = readdirSync(new URL(`${e.slug}/img/`, erasDir)); // exact case: the server's file system is case-sensitive
     const refs = [e.hero, ...products.filter(p => p.era === e.slug).flatMap(p => [
       ...(p.images ?? []),
       ...p.colors.flatMap(c => c.images ?? []),

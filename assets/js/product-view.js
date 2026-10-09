@@ -3,6 +3,7 @@ import { imagesFor, money } from '../../data/catalog.js';
 import { findProduct, eraName, isLive, site } from './store.js';
 import * as cart from './cart.js';
 import { openBag } from './bag.js';
+import { priceHtml } from './sale.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -50,7 +51,8 @@ function render() {
     <div class="pdp__info">
       <a class="mono u-hazard pdp__era" href="#era-${esc(p.era)}">${esc(eraName(p.era))} collection</a>
       <h2 id="pdpName">${esc(p.name)}</h2>
-      <p class="pdp__price"><span>${money(p.priceCents)}</span> <span class="mono u-smoke">USD</span></p>
+      <p class="pdp__price"><span>${priceHtml(p)}</span> <span class="mono u-smoke">USD</span></p>
+      ${p.sale ? `<p class="pdp__sale mono">−${p.sale.percent}% off until ${esc(new Date(p.sale.endsAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}</p>` : ''}
 
       <fieldset class="pdp__opt">
         <legend class="mono">Colour <span class="pdp__chosen" id="pdpColor">${esc(color)}</span></legend>

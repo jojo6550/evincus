@@ -79,3 +79,44 @@ export function imagesFor(product, colorName) {
 export const money = cents => '$' + (cents / 100).toFixed(2);
 
 export const findProduct = (products, id) => products.find(p => p.id === id);
+
+// ---------- sales ----------
+// A sale takes `percent` off every product in `eras` (null = every era) from startsAt until endsAt.
+// Sales are written by `npm run discount` and applied at request time, so start and end are exact to the second.
+export const SALE_MAX_PERCENT = 90;
+
+const isSlugList = v => v === null || (Array.isArray(v) && v.length > 0 && v.every(s => typeof s === 'string' && s));
+
+export const isSale = s =>
+  !!s && typeof s === 'object' && typeof s.id === 'string' &&
+  Number.isInteger(s.percent) && s.percent >= 1 && s.percent <= SALE_MAX_PERCENT &&
+  isSlugList(s.eras) && Number.isFinite(time(s.startsAt)) && Number.isFinite(time(s.endsAt)) && time(s.startsAt) < time(s.endsAt);
+
+// Valid sales that haven't ended. Upcoming ones are kept so caches can expire when they start.
+export const pendingSales = (sales, now) => (Array.isArray(sales) ? sales : []).filter(s => isSale(s) && +now < time(s.endsAt));
+
+export const activeSales = (sales, now) => pendingSales(sales, now).filter(s => time(s.startsAt) <= +now);
+
+export const salePrice = (cents, percent) => Math.round(cents * (100 - percent) / 100);
+
+// The deepest active sale on an era; ties go to the one that runs longest.
+export function bestSale(sales, slug, now) {
+  return activeSales(sales, now)
+    .filter(s => s.eras === null || s.eras.includes(slug))
+    .sort((a, b) => b.percent - a.percent || time(b.endsAt) - time(a.endsAt))[0] ?? null;
+}
+
+// Re-prices products under active sales. priceCents becomes the sale price; compareAtCents keeps the original.
+export function applySales(data, sales, now) {
+  const pending = pendingSales(sales, now);
+  const products = data.products.map(p => {
+    const s = bestSale(pending, p.era, now);
+    if (!s) return p;
+    return { ...p, priceCents: salePrice(p.priceCents, s.percent), compareAtCents: p.priceCents, sale: { id: s.id, percent: s.percent, endsAt: s.endsAt } };
+  });
+  return { ...data, products, sales: pending };
+}
+
+// What shoppers see about running sales.
+export const publicSales = (sales, now) =>
+  activeSales(sales, now).map(({ id, percent, eras, label, startsAt, endsAt }) => ({ id, percent, eras, label: label ?? null, startsAt, endsAt }));

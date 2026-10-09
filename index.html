@@ -16,6 +16,8 @@
   </div>
 </div>
 
+<aside class="sale" id="sale" aria-label="Sale" hidden></aside>
+
 <header>
   <nav class="nav wrap">
     <a class="brand" href="#top" aria-label="Evincus home"><img src="assets/img/logo.png" alt=""><b>EVINCUS</b></a>
@@ -70,6 +72,38 @@
     <div class="era-intro" id="eraIntro" aria-live="polite"></div>
     <div class="grid" id="grid" aria-live="polite"></div>
     <div class="teasers" id="teasers"></div>
+  </section>
+
+  <section class="wrap reel" id="models" aria-roledescription="carousel" aria-label="Evincus models">
+    <div class="head">
+      <h2>The Crew <em>worn loud</em></h2>
+      <a class="mono" href="https://www.instagram.com/evincus.sw/" target="_blank" rel="noopener">Shot for @evincus.sw ↗</a>
+    </div>
+    <ol class="reel__track" id="reelTrack" tabindex="0" aria-label="Model photos, use arrow keys to browse">
+      <li class="reel__slide" aria-roledescription="slide" aria-label="1 of 14"><figure><img class="pos-45-35" src="assets/img/site/ig/ig-09.jpg" alt="Model with copper-tipped curls holding up the collar of a white Evincus world-print tee" width="1200" height="1600"><figcaption class="mono"><b>01</b>World tour</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="2 of 14"><figure><img src="assets/img/site/ig/ig-01.jpg" alt="Three models in Evincus tees posing on old church steps" width="1200" height="1600"><figcaption class="mono"><b>02</b>Cathedral steps</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="3 of 14"><figure><img src="assets/img/site/ig/ig-07.jpg" alt="Model in the Evincus 99 jersey in front of a white car with its hood up at night" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>03</b>Under the hood</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="4 of 14"><figure><img class="pos-30-50" src="assets/img/site/ig/ig-08.jpg" alt="Model covering their face with a phone in a pink-print Evincus tee beside a black car" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>04</b>Don't look</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="5 of 14"><figure><img src="assets/img/site/ig/ig-10.jpg" alt="Skater in an Evincus 99 jersey sitting on a ledge with a board behind their head" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>05</b>Kickflip later</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="6 of 14"><figure><img src="assets/img/site/ig/ig-04.jpg" alt="Two models in cream Evincus tees against a concrete studio wall" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>06</b>Studio cut</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="7 of 14"><figure><img src="assets/img/site/ig/ig-03.jpg" alt="Three models in Evincus gear greeting each other under a stone archway" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>07</b>Dap up</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="8 of 14"><figure><img src="assets/img/site/ig/ig-05.jpg" alt="Model in an Evincus 99 jersey by motorbikes in front of a stone wall" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>08</b>Parked loud</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="9 of 14"><figure><img src="assets/img/site/ig/ig-13.jpg" alt="Two models in Evincus tees lounging in a white leather car interior" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>09</b>Back seat</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="10 of 14"><figure><img src="assets/img/site/ig/ig-12.jpg" alt="Skater in an Evincus 99 jersey holding a printed skateboard" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>10</b>Board check</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="11 of 14"><figure><img src="assets/img/site/ig/ig-02.jpg" alt="Four models in Evincus tees and caps on the steps of a stone arcade" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>11</b>The arcade</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="12 of 14"><figure><img src="assets/img/site/ig/ig-06.jpg" alt="Model in the Evincus 99 jersey and track pants standing by parked motorbikes" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>12</b>Night shift</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="13 of 14"><figure><img src="assets/img/site/ig/ig-14.jpg" alt="Model in an Evincus 99 jersey tipping a black cap" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>13</b>Hat tip</figcaption></figure></li>
+      <li class="reel__slide" aria-roledescription="slide" aria-label="14 of 14"><figure><img src="assets/img/site/ig/ig-11.jpg" alt="Skater seen from behind on a ledge under a grey sky in an Evincus jersey" width="1200" height="1600" loading="lazy"><figcaption class="mono"><b>14</b>Overcast</figcaption></figure></li>
+    </ol>
+    <div class="reel__bar">
+      <span class="reel__count mono" aria-live="polite"><b id="reelNow">01</b> / 14</span>
+      <div class="reel__dots" id="reelDots"></div>
+      <div class="reel__ctrl">
+        <button class="reel__btn mono" id="reelPrev" type="button" aria-label="Previous photo">←</button>
+        <button class="reel__btn mono" id="reelPlay" type="button" aria-pressed="false" aria-label="Pause slideshow">❚❚</button>
+        <button class="reel__btn mono" id="reelNext" type="button" aria-label="Next photo">→</button>
+      </div>
+    </div>
   </section>
 
   <section class="wrap lookbook" id="lookbook">
@@ -128,25 +162,36 @@
     <div class="foot">
       <div>
         <h3>Get the next warning first</h3>
-        <p>Drop alerts, early access and collabs. No spam.</p>
+        <p>Drop alerts, sales and early access. One email a day at most, only when something's new.</p>
         <form id="signup" novalidate>
           <label for="email" class="mono sr-only">Email</label>
-          <input id="email" type="email" placeholder="you@email.com" autocomplete="email">
+          <input id="email" type="email" placeholder="you@email.com" autocomplete="email" required>
+          <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
           <button type="submit">Join</button>
         </form>
         <div class="note mono" id="note" aria-live="polite"></div>
       </div>
-      <div class="links mono">
-        <a href="eras.html">All eras</a><a href="#shop">Shop all</a><a href="https://www.instagram.com/evincus.sw/" target="_blank" rel="noopener">Instagram</a>
-        <a href="#lookbook">Lookbook</a><a href="https://www.tiktok.com/@_evincus_" target="_blank" rel="noopener">TikTok</a>
-        <a href="#about">About</a><a href="#top">Back to top ↑</a>
-        <a href="policies.html#refund">Refund policy</a><a href="policies.html#shipping">Shipping policy</a>
-        <a href="policies.html#privacy">Privacy policy</a><a href="policies.html#terms">Terms of service</a>
-        <a href="policies.html#faq">FAQ</a><a href="policies.html#contact">Contact</a>
-      </div>
+      <nav class="links mono" aria-label="Footer">
+        <div>
+          <h4>Shop</h4>
+          <a href="#shop">Shop all</a><a href="eras.html">All eras</a><a href="#lookbook">Lookbook</a><a href="#about">About</a>
+        </div>
+        <div>
+          <h4>Follow</h4>
+          <a href="https://www.instagram.com/evincus.sw/" target="_blank" rel="noopener">Instagram</a><a href="https://www.tiktok.com/@_evincus_" target="_blank" rel="noopener">TikTok</a><a href="policies.html#contact">Contact</a>
+        </div>
+        <div>
+          <h4>Help</h4>
+          <a href="policies.html#shipping">Shipping</a><a href="policies.html#refund">Refunds</a><a href="policies.html#faq">FAQ</a>
+        </div>
+        <div>
+          <h4>Legal</h4>
+          <a href="policies.html#privacy">Privacy</a><a href="policies.html#terms">Terms</a>
+        </div>
+      </nav>
     </div>
     <div class="mega" aria-hidden="true">EVINCUS</div>
-    <div class="legal mono"><span>© 2026 Evincus. All rights reserved.</span><span>Worldwide delivery · Mandeville pickup</span></div>
+    <div class="legal mono"><span>© 2026 Evincus</span><span>Worldwide delivery · Mandeville pickup</span><a href="#top">Back to top ↑</a></div>
   </div>
 </footer>
 

@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeEnv, fakeUpstreams, captureLogs, call } from './helpers/fake-env.mjs';
 import { NOW } from './helpers/fixture.mjs';
-import { createLogger } from '../worker/src/lib/log.js';
-import { sendEmail } from '../worker/src/lib/email.js';
-import { alert, countPaypalError } from '../worker/src/lib/alerts.js';
+import { createLogger } from '../server/lib/log.js';
+import { sendEmail } from '../server/lib/email.js';
+import { alert, countPaypalError } from '../server/lib/alerts.js';
 
 const ctxFor = (env, now = NOW) => ({ env, log: createLogger({}), now: new Date(now), reqId: 'req-1', waitUntil: () => {} });
 

@@ -2,6 +2,7 @@ import { loadCatalog, products, eras } from './store.js';
 import * as cart from './cart.js';
 import { initBag } from './bag.js';
 import { initProductView } from './product-view.js';
+import { initSale, eraSaleNote } from './sale.js';
 
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = iso => new Date(iso).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' });
@@ -30,6 +31,7 @@ function card(era, count) {
       ${era.tagline ? `<p class="era-card__tag">${esc(era.tagline)}</p>` : ''}
       ${era.story ? `<p>${esc(era.story)}</p>` : ''}
       <p class="mono u-smoke">${[open && `${count} ${count === 1 ? 'piece' : 'pieces'}`, note(era)].filter(Boolean).map(esc).join(' · ')}</p>
+      ${era.status === 'live' && eraSaleNote(era.slug) ? `<p class="era-card__sale mono">${esc(eraSaleNote(era.slug))}</p>` : ''}
       ${open ? '<span class="era-card__go mono">Shop this era →</span>' : ''}
     </div>`;
   return open
@@ -38,6 +40,7 @@ function card(era, count) {
 }
 
 await loadCatalog();
+initSale();
 const all = products();
 const countIn = slug => all.filter(p => p.era === slug).length;
 const list = eras();

@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, captureLogs } from './helpers/fake-env.mjs';
 
-const send = (body, env = makeEnv(), headers = { 'CF-Connecting-IP': '1.2.3.4' }) =>
-  call('POST', '/api/beacon', { raw: typeof body === 'string' ? body : JSON.stringify(body), env, headers });
+const send = (body, env = makeEnv(), ip = '1.2.3.4') =>
+  call('POST', '/api/beacon', { raw: typeof body === 'string' ? body : JSON.stringify(body), env, ip });
 
 test('a valid beacon is logged as client.error and returns 204', async () => {
   const logs = captureLogs();
@@ -38,5 +38,12 @@ test('more than 10 beacons a minute from one IP are 429', async () => {
   const statuses = [];
   for (let i = 0; i < 11; i++) statuses.push((await send({ event: 'api-unreachable' }, env)).status);
   assert.deepEqual(statuses, [...Array(10).fill(204), 429]);
-  assert.equal((await send({ event: 'api-unreachable' }, env, { 'CF-Connecting-IP': '5.6.7.8' })).status, 204);
+  assert.equal((await send({ event: 'api-unreachable' }, env, '5.6.7.8')).status, 204);
+});
+
+test('the client IP comes from the connection, not a spoofable header', async () => {
+  const env = makeEnv();
+  for (let i = 0; i < 10; i++) await send({ event: 'api-unreachable' }, env);
+  const spoofed = await call('POST', '/api/beacon', { raw: JSON.stringify({ event: 'api-unreachable' }), env, ip: '1.2.3.4', headers: { 'X-Forwarded-For': '9.9.9.9' } });
+  assert.equal(spoofed.status, 429);
 });

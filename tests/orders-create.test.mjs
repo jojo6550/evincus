@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, fakeUpstreams, captureLogs } from './helpers/fake-env.mjs';
-import { verifyTag } from '../worker/src/lib/paypal.js';
+import { verifyTag } from '../server/lib/paypal.js';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 
 const item = (over = {}) => ({ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2, ...over });

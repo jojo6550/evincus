@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, makeCtx, fakeUpstreams, captureLogs } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
-import { createApp } from '../worker/src/index.js';
+import { createApp } from '../server/index.js';
 
 const MIN = 60_000;
 const item = { id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 };

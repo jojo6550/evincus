@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter } from './helpers/fake-env.mjs';
-import { createApp } from '../worker/src/index.js';
+import { createApp } from '../server/index.js';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 
 const envForOrders = over => makeEnv({ PAYMENT_MODE: 'none', ...over });
