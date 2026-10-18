@@ -1,0 +1,50 @@
+# Render Blueprint. One Docker web service runs the site, the API and the 15-minute Deno.cron in-process.
+# Deploys come from .github/workflows/ci.yml after the tests pass, so Render's own auto-deploy is off.
+services:
+  - type: web
+    name: evincus
+    runtime: docker
+    # Paid on purpose: free instances can't hold a disk and sleep when idle, which stops the cron.
+    plan: 0.5c-512mb
+    region: virginia
+    healthCheckPath: /api/health
+    autoDeployTrigger: "off"
+    # Orders, subscribers, sales and rate limits. Snapshotted daily by Render.
+    disk:
+      name: kv
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: KV_PATH
+        value: /var/data/kv.sqlite3
+      - key: ENVIRONMENT
+        value: production
+      - key: PAYMENT_MODE
+        value: none
+      - key: SHIPPING_USD
+        value: "0"
+      - key: NEWSLETTER_HOUR
+        value: "10"
+      - key: EMAIL_FROM
+        value: "Evincus <orders@evincus.shop>"
+      # Asked for once when the Blueprint is created.
+      - key: DELIVERY_EXCLUDED_COUNTRIES
+        sync: false
+      - key: OWNER_EMAIL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: SITE_URL
+        sync: false
+      - key: API_URL
+        sync: false
+      - key: POSTAL_ADDRESS
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ORDER_HMAC_KEY
+        sync: false
+      - key: NEWSLETTER_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
