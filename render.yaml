@@ -1,9 +1,11 @@
-# Render Blueprint. One Docker web service runs the site, the API and the 15-minute Deno.cron in-process.
+# Render Blueprint. One Node web service runs the site, the API and the 15-minute cron in-process.
 # Deploys come from .github/workflows/ci.yml after the tests pass, so Render's own auto-deploy is off.
 services:
   - type: web
     name: evincus
-    runtime: docker
+    runtime: node
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
     branch: prod
     # Paid on purpose: free instances can't hold a disk and sleep when idle, which stops the cron.
     plan: 0.5c-512mb

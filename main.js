@@ -1,16 +1,20 @@
-// Deno entry (Render's Docker image, npm run dev): the site and /api/* from one app. Everything
-// Deno-specific lives here; server/ stays runtime-neutral so its tests run under Node.
+// Node entry (Render, npm run dev): the site and /api/* from one app. Everything runtime-specific lives here;
+// server/ only uses web-standard Request/Response, so its tests run against the same code.
+import { createServer } from 'node:http';
+import { readFile as fsReadFile } from 'node:fs/promises';
+import { Readable } from 'node:stream';
+import { openKv } from '@deno/kv';
 import { createApp } from './server/index.js';
 import { serveStatic } from './server/static.js';
 import { kvStore } from './server/lib/kv-store.js';
 import { kvLimiter } from './server/lib/limiter.js';
 import { createLogger } from './server/lib/log.js';
 
-// KV_PATH puts KV in a SQLite file on Render's persistent disk. Unset, Deno picks its default store.
-const kv = await Deno.openKv(Deno.env.get('KV_PATH'));
+// KV_PATH puts KV in a SQLite file on Render's persistent disk. Unset (dev), a local file kept across --watch restarts.
+const kv = await openKv(process.env.KV_PATH ?? '.kv.sqlite3');
 const env = {
-  ...Deno.env.toObject(),
-  COMMIT_SHA: Deno.env.get('COMMIT_SHA') ?? Deno.env.get('RENDER_GIT_COMMIT') ?? 'dev',
+  ...process.env,
+  COMMIT_SHA: process.env.COMMIT_SHA ?? process.env.RENDER_GIT_COMMIT ?? 'dev',
   ORDERS: kvStore(kv),
   ORDER_LIMIT: kvLimiter(kv, 'order', { limit: 5, period: 60 }),
   BEACON_LIMIT: kvLimiter(kv, 'beacon', { limit: 10, period: 60 }),
@@ -18,8 +22,8 @@ const env = {
 const app = createApp();
 const log = createLogger({ route: 'background' });
 
-// Deno gives background work no lifetime past the response. Failures are logged, and anything that must happen
-// (order confirmations) is also queued in KV for the cron to retry.
+// Background work runs past the response in this long-lived process. Failures are logged, and anything that must
+// happen (order confirmations) is also queued in KV for the cron to retry.
 function context(ip) {
   const pending = [];
   return {
@@ -29,22 +33,48 @@ function context(ip) {
   };
 }
 
-// Registered at top level and runs for the life of the process. Awaiting settle() keeps a run alive until its work
-// is done. Emails carry fixed Resend idempotency keys, so a run that overlaps the previous one sends nothing twice.
-Deno.cron('jobs', '*/15 * * * *', async () => {
-  const ctx = context();
-  await app.scheduled({}, env, ctx);
-  await ctx.settle();
-});
+// Every 15 minutes on the clock (:00, :15, :30, :45), like the old '*/15 * * * *' cron. A run that is still going
+// skips the next tick. Emails carry fixed Resend idempotency keys, so a retried run sends nothing twice.
+const QUARTER = 15 * 60_000;
+let running = false;
+async function jobs() {
+  if (running) return;
+  running = true;
+  try {
+    const ctx = context();
+    await app.scheduled({}, env, ctx);
+    await ctx.settle();
+  } catch (err) {
+    log.error('cron.failed', { message: String(err?.message ?? err) });
+  } finally {
+    running = false;
+  }
+}
+setTimeout(() => { jobs(); setInterval(jobs, QUARTER); }, QUARTER - (Date.now() % QUARTER));
 
-const readFile = path => Deno.readFile(new URL(path, import.meta.url));
+const readFile = path => fsReadFile(new URL(path, import.meta.url));
 
-// On Render remoteAddr is the proxy, which would put every shopper in one rate-limit bucket.
+// On Render the socket address is the proxy, which would put every shopper in one rate-limit bucket.
 // shortcut: trusts Render's word that it sets the first X-Forwarded-For entry; if spoofable, read Cloudflare's CF-Connecting-IP.
-const clientIp = (req, info) =>
-  (env.RENDER && req.headers.get('x-forwarded-for')?.split(',')[0].trim()) || info.remoteAddr.hostname;
+const clientIp = req =>
+  (env.RENDER && req.headers['x-forwarded-for']?.split(',')[0].trim()) || req.socket.remoteAddress;
+
+// node:http to web Request/Response, so server/ stays runtime-neutral.
+async function handle(req, res) {
+  const url = `http://${req.headers.host ?? 'localhost'}${req.url}`;
+  const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : Readable.toWeb(req);
+  const request = new Request(url, { method: req.method, headers: req.headers, body, duplex: 'half' });
+  const response = new URL(url).pathname.startsWith('/api/')
+    ? await app.fetch(request, env, context(clientIp(req)))
+    : await serveStatic(request, { env, readFile });
+  res.statusCode = response.status;
+  res.setHeaders(response.headers);
+  if (!response.body || req.method === 'HEAD') return res.end();
+  Readable.fromWeb(response.body).on('error', () => res.destroy()).pipe(res);
+}
 
 // Render sets PORT; npm run dev uses 8000.
-Deno.serve({ port: Number(env.PORT ?? 8000) }, (req, info) => new URL(req.url).pathname.startsWith('/api/')
-  ? app.fetch(req, env, context(clientIp(req, info)))
-  : serveStatic(req, { env, readFile }));
+createServer((req, res) => handle(req, res).catch(err => {
+  log.error('request.failed', { message: String(err?.message ?? err) });
+  if (!res.headersSent) { res.statusCode = 500; res.end('Server error'); } else res.destroy();
+})).listen(Number(env.PORT ?? 8000));

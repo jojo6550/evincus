@@ -5,12 +5,13 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "test": "node --test",
-    "dev": "deno task dev",
+    "start": "node main.js",
+    "dev": "node --env-file-if-exists=.env --watch main.js",
     "error": "node scripts/error.mjs",
     "new-era": "node scripts/new-era.mjs",
     "discount": "node scripts/discount.mjs"
   },
-  "devDependencies": {
+  "dependencies": {
     "@deno/kv": "^0.14.0"
   }
 }

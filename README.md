@@ -1,6 +1,6 @@
 # Evincus storefront
 
-One Deno app on Render serves the static store and its API (`/api/*`) from the same origin. Vanilla ES modules, with
+One Node app on Render serves the static store and its API (`/api/*`) from the same origin. Vanilla ES modules, with
 no build step. Checkout places orders directly. **No payment service is used and no payment is collected.**
 
 ## Layout
@@ -13,9 +13,8 @@ no build step. Checkout places orders directly. **No payment service is used and
   `data/eras/index.js` sets the order (newest first). `data/site.json` holds site copy.
 - `assets/img/`: every photo that doesn't belong to an era (logo, favicon, `site/` lookbook and banners).
 - `data/catalog.js`: catalog rules shared by the site and the API (era status, what's visible, what's buyable).
-- `main.js`: the Deno entry (KV, cron, `Deno.serve`). `server/`: the API router (`index.js`), `routes`, `lib`,
-  `emails`, and the static file server (`static.js`). Only `main.js` uses Deno APIs; `server/` also runs under Node
-  for the tests.
+- `main.js`: the Node entry (KV, cron, `node:http`). `server/`: the API router (`index.js`), `routes`, `lib`,
+  `emails`, and the static file server (`static.js`). `server/` only uses web-standard `Request`/`Response`.
 - `policies.html`: customer-facing privacy, shipping, refund, terms and FAQ content,
   linked from the store, eras page and checkout. Refund requests have a 24-hour
   window from purchase. `docs/policies/original-evincus-shop.md` preserves the
@@ -23,10 +22,10 @@ no build step. Checkout places orders directly. **No payment service is used and
 
 ## Run locally
 
-Needs Deno 2.4 or later for the app and Node 22 for the tests and scripts.
+Needs Node 22.9 or later. KV is Deno KV via the `@deno/kv` npm package, stored in `.kv.sqlite3` locally.
 
 ```bash
-npm install                 # test dependencies
+npm install
 cp .env.example .env        # local settings; .env is never committed
 npm run dev                 # site and API on http://localhost:8000/
 ```
@@ -106,7 +105,7 @@ The KV adapter and rate limiter tests use real in-memory Deno KV from the `@deno
 
 ## Deploy
 
-Render runs one Docker web service (`Dockerfile`, `render.yaml`): site, API and the 15-minute cron in one process,
+Render runs one native Node web service (`render.yaml`: `npm ci --omit=dev`, `npm start`): site, API and the 15-minute cron in one process,
 with KV in a SQLite file on a 1 GB persistent disk (`KV_PATH=/var/data/kv.sqlite3`, snapshotted daily by Render).
 `.github/workflows/ci.yml` runs the tests on every push; on `prod` it then triggers a Render deploy of that exact
 commit, waits until `/api/health` reports it with `"ok":true`, and smoke-tests the pages, assets and API. Render's
