@@ -1,6 +1,6 @@
 # Evincus storefront
 
-One Deno Deploy app serves the static store and its API (`/api/*`) from the same origin. Vanilla ES modules, with
+One Deno app on Render serves the static store and its API (`/api/*`) from the same origin. Vanilla ES modules, with
 no build step. Checkout places orders directly. **No payment service is used and no payment is collected.**
 
 ## Layout
@@ -51,7 +51,7 @@ lowercase-kebab (`core-tee-black-1.jpg`), max 500 KB each.
 | Sold out | `soldOut: true` for a whole product, or `soldOutVariants: ['Black\|XL']` for one colour and size |
 | Replace a stand-in photo | Overwrite the file in `img/` with the same name |
 
-Then `npm test` and push to `main`. Deno Deploy deploys every push to `main` straight away and CI runs alongside it without blocking the deploy, so run `npm test` before you push; the tests check folder names, photos and data.
+Then `npm test` and push to `main`. CI deploys to Render only after the tests pass; the tests check folder names, photos and data.
 
 ### Sales
 
@@ -68,7 +68,7 @@ Start and end times are exact.
 | See sales | `npm run discount list` |
 | End a sale early | `npm run discount end <id>` or `end all` |
 
-Add `local` for `npm run dev`, `url=<deployment URL>` for a branch preview, `dry-run` to preview (plain words, no
+Add `local` for `npm run dev`, `url=https://evincus.onrender.com` before the domain points at Render, `dry-run` to preview (plain words, no
 dashes: npm keeps `--flags` for itself in PowerShell). The command needs `ADMIN_TOKEN`, the same value as the
 server's, in your environment or `.env`. Overlapping sales don't stack: each product gets its era's deepest one. A
 PayPal order approved in the last 15 minutes of a sale still captures at the sale price.
@@ -106,38 +106,39 @@ The KV adapter and rate limiter tests use real in-memory Deno KV from the `@deno
 
 ## Deploy
 
-Deno Deploy builds and deploys `main` on every push (app `evincus`, `https://evincus.jojo6550.deno.net`). Every other
-branch gets its own preview timeline with its own KV database and cron. GitHub Actions only runs the tests.
+Render runs one Docker web service (`Dockerfile`, `render.yaml`): site, API and the 15-minute cron in one process,
+with KV in a SQLite file on a 1 GB persistent disk (`KV_PATH=/var/data/kv.sqlite3`, snapshotted daily by Render).
+`.github/workflows/ci.yml` runs the tests on every push; on `main` it then triggers a Render deploy of that exact
+commit, waits until `/api/health` reports it with `"ok":true`, and smoke-tests the pages, assets and API. Render's
+own auto-deploy is off, so a failing test never ships. Other branches are tested but not deployed.
 
-### First deploy checklist (Deno Deploy console)
+The disk needs a paid instance and keeps the service at one instance, so each deploy has a few seconds of downtime.
+Do not move to the free plan: it has no disk, and it sleeps when idle, which stops the cron.
 
-1. App `evincus`, Edit app config: runtime **Dynamic**, entrypoint `main.js`, install and build commands empty.
-2. Databases, Provision Database, **Deno KV**, then Assign it to `evincus` (status: Connected).
-3. Environment variables, **Production** context:
+### First deploy checklist (Render)
+
+Render hosts everything: the app, the KV disk, the `evincus.shop` domain and its TLS, and the deploys. Email is the
+only outside service (Resend). `render.yaml` sets every fixed value, including `SITE_URL` and `API_URL`
+(`https://evincus.shop`). The API is same-origin, so `ALLOWED_ORIGINS` stays unset.
+
+1. Render, New, **Blueprint**, pick this repo. It creates the service, disk and domain, and asks once for:
 
    | Variable | Value |
    | --- | --- |
-   | `ENVIRONMENT` | `production` |
-   | `PAYMENT_MODE` | `none` |
-   | `SHIPPING_USD` | flat delivery charge, e.g. `0` |
    | `DELIVERY_EXCLUDED_COUNTRIES` | comma-separated ISO codes, or blank |
    | `OWNER_EMAIL` | where order summaries and alerts go |
-   | `EMAIL_FROM` | `Evincus <orders@evincus.shop>` |
-   | `ALLOWED_ORIGINS` | other sites allowed to call the API, e.g. `https://evincus.shop,https://www.evincus.shop` |
-   | `NEWSLETTER_HOUR` | `10` |
-   | `SITE_URL`, `API_URL` | `https://evincus.jojo6550.deno.net` until the custom domain is attached |
    | `POSTAL_ADDRESS` | printed in newsletter footers |
    | Secrets: `RESEND_API_KEY`, `ORDER_HMAC_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | long random values. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
 
-4. Environment variables, **Development** context (branches and previews): `ENVIRONMENT=staging`,
-   `NEWSLETTER_HOUR` blank, `OWNER_EMAIL` set to a test inbox, and test values for the secrets. Branch timelines run
-   the cron too, so this keeps previews from emailing subscribers or the owner.
-5. Verify the sending domain in Resend.
-6. Push a branch and place a delivery and a pickup test order on its preview URL.
-7. Merge to `main`, then open `/api/health`: it must show `"ok":true` and `"kv":"ok"`.
-8. GitHub, Settings, Pages: turn Pages off. The site is no longer served from there.
-9. Custom domain: add `evincus.shop` in the app's settings, then set `SITE_URL`, `API_URL` and `ALLOWED_ORIGINS` to it.
-10. Keep `PAYMENT_MODE=none`.
+2. Service `evincus`, Settings, **Deploy Hook**: copy the URL into GitHub, Settings, Secrets and variables, Actions,
+   as the secret `RENDER_DEPLOY_HOOK_URL`.
+3. Service `evincus`, Settings, Custom Domains: add the DNS records Render shows for `evincus.shop` at the registrar.
+   Until they resolve, add the GitHub Actions variable `RENDER_URL=https://evincus.onrender.com` so CI checks that
+   address, and pass `url=https://evincus.onrender.com` to `npm run discount`. Delete the variable afterwards.
+4. Verify the sending domain in Resend.
+5. Push to `main`. The Actions run must end green, then place a delivery and a pickup test order on the live site.
+6. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
+7. Keep `PAYMENT_MODE=none`.
 
 ## Orders and fulfillment
 
@@ -179,13 +180,13 @@ enabling it also requires restoring the payment UI and credentials. Do not chang
 
 ## Monitoring
 
-- **Logs:** Deno Deploy console, app `evincus`, Logs. Every line is JSON with `event`, `reqId` and `route`.
+- **Logs:** Render dashboard, service `evincus`, Logs. Every line is JSON with `event`, `reqId` and `route`.
   Errors shown to shoppers include the request id.
 - **Alerts:** emailed to `OWNER_EMAIL` for unsaved paid orders, possible tampering, undelivered receipts,
   PayPal outages (5+ errors in 10 minutes) and unhandled errors. At most one per event type per hour.
 - **Uptime (set up once by hand):** create a free UptimeRobot or Better Stack **keyword (GET) monitor** for
-  `https://evincus.jojo6550.deno.net/api/health` (or the custom domain) that expects `"ok":true`. Do not use a plain
+  `<live URL>/api/health` that expects `"ok":true`. Do not use a plain
   HEAD/HTTP monitor: `/api/health` answers GET only and returns 405 to HEAD. Add a second monitor for the homepage.
   Check both every 5 minutes, alerting by email or SMS. This catches the app being down, which it can't report itself.
-- **Free tier:** Deno Deploy limits requests, bandwidth and CPU until the organization is verified (banner in the
-  console); verifying raises those limits 100x.
+- **Deploys:** a failed deploy shows as a red `deploy` job in GitHub Actions; Render keeps the previous version
+  running when a new one fails its health check.

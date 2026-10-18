@@ -4,3 +4,5 @@ node_modules/
 .remember/
 .claude/
 .env
+.env.*
+!.env.example

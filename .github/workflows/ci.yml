@@ -1,4 +1,6 @@
-# Tests only. Deno Deploy builds and deploys the app itself on every push.
+# Tests every push and PR. A push to main that passes is deployed to Render, then checked live.
+# Needs the RENDER_DEPLOY_HOOK_URL secret. Set the RENDER_URL variable (https://evincus.onrender.com) only while
+# evincus.shop's DNS doesn't point at Render yet.
 name: CI
 
 on:
@@ -18,3 +20,39 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: node --test
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # One deploy at a time; a newer push to main replaces a waiting one.
+    concurrency:
+      group: render-production
+      cancel-in-progress: true
+    env:
+      SITE: ${{ vars.RENDER_URL || 'https://evincus.shop' }}
+    steps:
+      - name: Deploy this commit
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: curl -fsS -X POST "$HOOK&ref=$GITHUB_SHA"
+
+      # /api/health checks the catalog and KV and reports the running commit.
+      - name: Wait until this commit is live and healthy
+        run: |
+          for i in $(seq 1 60); do
+            body=$(curl -fsS "$SITE/api/health") && echo "$body" | grep -q '"ok":true' \
+              && echo "$body" | grep -q "\"commit\":\"${GITHUB_SHA:0:7}" && exit 0
+            sleep 15
+          done
+          echo "::error::$GITHUB_SHA not live and healthy after 15 minutes"
+          exit 1
+
+      - name: Smoke-test pages, assets and API
+        run: |
+          for path in / /eras.html /policies.html /newsletter.html /assets/css/index.css /assets/js/index.js \
+            /assets/js/config.js /data/site.json /api/eras /api/checkout/options; do
+            curl -fsS -o /dev/null "$SITE$path" || { echo "::error::$path failed"; exit 1; }
+          done
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE/no-such-page.html")
+          [ "$code" = 404 ] || { echo "::error::missing page returned $code, not 404"; exit 1; }

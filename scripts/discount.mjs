@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SALE_MAX_PERCENT, isSale, pendingSales } from '../data/catalog.js';
 
-export const PROD_URL = 'https://evincus.jojo6550.deno.net';
+export const PROD_URL = 'https://evincus.shop';
 export const LOCAL_URL = 'http://localhost:8000';
 
 export const SALES_KEY = 'config:sales';
@@ -26,7 +26,7 @@ Options (plain words, so npm and PowerShell pass them through):
   label="Text"     headline on the sale banner (default: the era names)
   starts=<ISO>     schedule the start, e.g. starts=2026-11-27T09:00:00-05:00 (default: now)
   local            use the local server (npm run dev)
-  url=<base>       use another deployment, e.g. a branch preview URL
+  url=<base>       use another address, e.g. https://evincus.onrender.com
   dry-run          print the change without saving it
 Needs ADMIN_TOKEN (the server's value) in your environment or in .env.
 
@@ -146,7 +146,7 @@ async function request(base, token, init, fetchFn) {
 
 async function problem(res) {
   if (res.status === 401) return 'The API refused the admin token. Check ADMIN_TOKEN matches the server.';
-  if (res.status === 404) return 'The API has no admin endpoint. Set ADMIN_TOKEN on the server (Deno Deploy environment variables, or .env for npm run dev).';
+  if (res.status === 404) return 'The API has no admin endpoint. Set ADMIN_TOKEN on the server (Render environment variables, or .env for npm run dev).';
   let message = '';
   try { message = (await res.json())?.error?.message ?? ''; } catch { /* not JSON */ }
   return `The API answered ${res.status}${message ? `: ${message}` : ''}.`;
