@@ -52,6 +52,12 @@ async function jobs() {
 }
 setTimeout(() => { jobs(); setInterval(jobs, QUARTER); }, QUARTER - (Date.now() % QUARTER));
 
+// Free Render instances sleep after 15 idle minutes, which also stops the cron. Only the public URL counts as
+// traffic, so the service calls itself through Render's proxy. Set only on the free dev service, never on prod.
+if (env.KEEPALIVE_URL) {
+  setInterval(() => fetch(env.KEEPALIVE_URL).catch(err => log.error('keepalive.failed', { message: String(err?.message ?? err) })), 10 * 60_000);
+}
+
 const readFile = path => fsReadFile(new URL(path, import.meta.url));
 
 // On Render the socket address is the proxy, which would put every shopper in one rate-limit bucket.

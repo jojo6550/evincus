@@ -114,6 +114,8 @@ own auto-deploy is off, so a failing test never ships. Other branches are tested
 
 The disk needs a paid instance and keeps the service at one instance, so each deploy has a few seconds of downtime.
 Do not move to the free plan: it has no disk, and it sleeps when idle, which stops the cron.
+The `evincus-dev` service (branch `dev`, values in the gitignored `.env.render-dev`) can run free: `KEEPALIVE_URL`
+makes it call its own `/api/health` every 10 minutes so it never sleeps, and its KV in `/tmp` resets on each deploy.
 
 ### First deploy checklist (Render)
 
