@@ -69,7 +69,7 @@ export function makeEnv(over = {}) {
     EMAIL_FROM: 'Evincus <orders@evincus.shop>',
     OWNER_EMAIL: 'owner@evincus.shop',
     SHIPPING_USD: '5',
-    ALLOWED_ORIGINS: 'https://evincus.shop,https://jojo6550.github.io',
+    ALLOWED_ORIGINS: 'https://evincus.shop',
     COMMIT_SHA: 'abc1234',
     ORDERS: fakeKV(),
     BEACON_LIMIT: fakeLimiter(10),
