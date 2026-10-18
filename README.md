@@ -45,6 +45,7 @@ lowercase-kebab (`core-tee-black-1.jpg`), max 500 KB each.
 | Schedule a drop | Set `dropsAt` (ISO with offset, e.g. `2026-11-20T18:00:00-05:00`). Until then the API shows only a teaser |
 | Retire an era | Set `endsAt`. Its products stay visible but can't be bought, and old links keep working |
 | Delete an era | Delete its folder and its two lines in `data/eras/index.js` |
+| Add photos | `npm run photos -- <era> <product-id> [--color "<Colour>"] <photo...>`, or `npm run photos -- <era> hero <photo>`. Any size or format in: they're turned upright, fit to 1800 px, saved as webp under 500 KB with the next free name, and added to `era.js` |
 | Add, edit or remove a product | Edit that era's `products` array and add or remove its photos |
 | Move a product to another era | Move its object and its photos to the other folder |
 | Sold out | `soldOut: true` for a whole product, or `soldOutVariants: ['Black\|XL']` for one colour and size |

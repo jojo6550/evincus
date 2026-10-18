@@ -2,16 +2,22 @@
   "name": "evincus",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --test",
     "start": "node main.js",
     "dev": "node --env-file-if-exists=.env --watch main.js",
     "error": "node scripts/error.mjs",
     "new-era": "node scripts/new-era.mjs",
+    "photos": "node scripts/photos.mjs",
     "discount": "node scripts/discount.mjs"
   },
   "dependencies": {
     "@deno/kv": "^0.14.0"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.5"
   }
 }
