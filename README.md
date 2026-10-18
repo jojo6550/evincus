@@ -51,7 +51,7 @@ lowercase-kebab (`core-tee-black-1.jpg`), max 500 KB each.
 | Sold out | `soldOut: true` for a whole product, or `soldOutVariants: ['Black\|XL']` for one colour and size |
 | Replace a stand-in photo | Overwrite the file in `img/` with the same name |
 
-Then `npm test` and push to `main`. CI deploys to Render only after the tests pass; the tests check folder names, photos and data.
+Then `npm test`, push to `dev`, merge into `main`, then into `prod`. Only `prod` deploys, and only after the tests pass; the tests check folder names, photos and data.
 
 ### Sales
 
@@ -108,7 +108,7 @@ The KV adapter and rate limiter tests use real in-memory Deno KV from the `@deno
 
 Render runs one Docker web service (`Dockerfile`, `render.yaml`): site, API and the 15-minute cron in one process,
 with KV in a SQLite file on a 1 GB persistent disk (`KV_PATH=/var/data/kv.sqlite3`, snapshotted daily by Render).
-`.github/workflows/ci.yml` runs the tests on every push; on `main` it then triggers a Render deploy of that exact
+`.github/workflows/ci.yml` runs the tests on every push; on `prod` it then triggers a Render deploy of that exact
 commit, waits until `/api/health` reports it with `"ok":true`, and smoke-tests the pages, assets and API. Render's
 own auto-deploy is off, so a failing test never ships. Other branches are tested but not deployed.
 
@@ -136,7 +136,7 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
    Until they resolve, add the GitHub Actions variable `RENDER_URL=https://evincus.onrender.com` so CI checks that
    address, and pass `url=https://evincus.onrender.com` to `npm run discount`. Delete the variable afterwards.
 4. Verify the sending domain in Resend.
-5. Push to `main`. The Actions run must end green, then place a delivery and a pickup test order on the live site.
+5. Merge `main` into `prod` and push. The Actions run must end green, then place a delivery and a pickup test order on the live site.
 6. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
 7. Keep `PAYMENT_MODE=none`.
 

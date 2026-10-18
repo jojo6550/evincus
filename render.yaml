@@ -4,6 +4,7 @@ services:
   - type: web
     name: evincus
     runtime: docker
+    branch: prod
     # Paid on purpose: free instances can't hold a disk and sleep when idle, which stops the cron.
     plan: 0.5c-512mb
     region: virginia

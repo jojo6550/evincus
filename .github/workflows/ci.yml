@@ -1,4 +1,4 @@
-# Tests every push and PR. A push to main that passes is deployed to Render, then checked live.
+# Tests every push and PR. A push to prod that passes is deployed to Render, then checked live.
 # Needs the RENDER_DEPLOY_HOOK_URL secret. Set the RENDER_URL variable (https://evincus.onrender.com) only while
 # evincus.shop's DNS doesn't point at Render yet.
 name: CI
@@ -23,9 +23,9 @@ jobs:
 
   deploy:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/prod'
     runs-on: ubuntu-latest
-    # One deploy at a time; a newer push to main replaces a waiting one.
+    # One deploy at a time; a newer push to prod replaces a waiting one.
     concurrency:
       group: render-production
       cancel-in-progress: true
