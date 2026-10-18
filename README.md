@@ -68,7 +68,7 @@ Start and end times are exact.
 | See sales | `npm run discount list` |
 | End a sale early | `npm run discount end <id>` or `end all` |
 
-Add `local` for `npm run dev`, `url=<deployment URL>` for a branch preview, `dry-run` to preview (plain words, no
+Add `local` for `npm run dev`, `url=https://evincus.onrender.com` before the domain points at Render, `dry-run` to preview (plain words, no
 dashes: npm keeps `--flags` for itself in PowerShell). The command needs `ADMIN_TOKEN`, the same value as the
 server's, in your environment or `.env`. Overlapping sales don't stack: each product gets its era's deepest one. A
 PayPal order approved in the last 15 minutes of a sale still captures at the sale price.
@@ -117,34 +117,28 @@ Do not move to the free plan: it has no disk, and it sleeps when idle, which sto
 
 ### First deploy checklist (Render)
 
-1. Render, New, **Blueprint**, pick this repo. It reads `render.yaml` and asks for every `sync: false` value below.
-   Copy `ORDER_HMAC_KEY`, `NEWSLETTER_KEY` and `ADMIN_TOKEN` from the old host so existing order tokens and
-   newsletter links keep working.
-2. Service `evincus`, Settings, **Deploy Hook**: copy the URL into GitHub, Settings, Secrets and variables, Actions,
-   as the secret `RENDER_DEPLOY_HOOK_URL`. Add the variable `RENDER_URL` (e.g. `https://evincus.onrender.com`).
-3. Environment variables (`render.yaml` sets the fixed ones):
+Render hosts everything: the app, the KV disk, the `evincus.shop` domain and its TLS, and the deploys. Email is the
+only outside service (Resend). `render.yaml` sets every fixed value, including `SITE_URL` and `API_URL`
+(`https://evincus.shop`). The API is same-origin, so `ALLOWED_ORIGINS` stays unset.
+
+1. Render, New, **Blueprint**, pick this repo. It creates the service, disk and domain, and asks once for:
 
    | Variable | Value |
    | --- | --- |
-   | `ENVIRONMENT` | `production` |
-   | `PAYMENT_MODE` | `none` |
-   | `SHIPPING_USD` | flat delivery charge, e.g. `0` |
    | `DELIVERY_EXCLUDED_COUNTRIES` | comma-separated ISO codes, or blank |
    | `OWNER_EMAIL` | where order summaries and alerts go |
-   | `EMAIL_FROM` | `Evincus <orders@evincus.shop>` |
-   | `ALLOWED_ORIGINS` | other sites allowed to call the API, e.g. `https://evincus.shop,https://www.evincus.shop` |
-   | `NEWSLETTER_HOUR` | `10` |
-   | `SITE_URL`, `API_URL` | the `onrender.com` URL until the custom domain is attached |
    | `POSTAL_ADDRESS` | printed in newsletter footers |
    | Secrets: `RESEND_API_KEY`, `ORDER_HMAC_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | long random values. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
 
+2. Service `evincus`, Settings, **Deploy Hook**: copy the URL into GitHub, Settings, Secrets and variables, Actions,
+   as the secret `RENDER_DEPLOY_HOOK_URL`.
+3. Service `evincus`, Settings, Custom Domains: add the DNS records Render shows for `evincus.shop` at the registrar.
+   Until they resolve, add the GitHub Actions variable `RENDER_URL=https://evincus.onrender.com` so CI checks that
+   address, and pass `url=https://evincus.onrender.com` to `npm run discount`. Delete the variable afterwards.
 4. Verify the sending domain in Resend.
-5. Push to `main`. The Actions run must end green, then place a delivery and a pickup test order on the live URL.
-6. Custom domain: add `evincus.shop` in the service's settings, point DNS at Render (it issues TLS), then set
-   `SITE_URL`, `API_URL`, `ALLOWED_ORIGINS` and the `RENDER_URL` variable to it.
-7. `npm run discount` defaults to `PROD_URL` in `scripts/discount.mjs`: set it to the live URL.
-8. Once Render serves the domain, disconnect the Deno Deploy app so it stops running its own cron and emails.
-9. Keep `PAYMENT_MODE=none`.
+5. Push to `main`. The Actions run must end green, then place a delivery and a pickup test order on the live site.
+6. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
+7. Keep `PAYMENT_MODE=none`.
 
 ## Orders and fulfillment
 

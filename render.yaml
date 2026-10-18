@@ -9,6 +9,9 @@ services:
     region: virginia
     healthCheckPath: /api/health
     autoDeployTrigger: "off"
+    # Render issues TLS and adds www.evincus.shop as a redirect to the root.
+    domains:
+      - evincus.shop
     # Orders, subscribers, sales and rate limits. Snapshotted daily by Render.
     disk:
       name: kv
@@ -27,16 +30,15 @@ services:
         value: "10"
       - key: EMAIL_FROM
         value: "Evincus <orders@evincus.shop>"
+      # Email links and images. The API is same-origin, so no ALLOWED_ORIGINS.
+      - key: SITE_URL
+        value: https://evincus.shop
+      - key: API_URL
+        value: https://evincus.shop
       # Asked for once when the Blueprint is created.
       - key: DELIVERY_EXCLUDED_COUNTRIES
         sync: false
       - key: OWNER_EMAIL
-        sync: false
-      - key: ALLOWED_ORIGINS
-        sync: false
-      - key: SITE_URL
-        sync: false
-      - key: API_URL
         sync: false
       - key: POSTAL_ADDRESS
         sync: false

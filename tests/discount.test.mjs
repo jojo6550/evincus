@@ -23,7 +23,7 @@ function appFetch(env) {
 test('apiBase picks production, local, or a given URL without a trailing slash', () => {
   assert.equal(apiBase({ local: false, url: null }), PROD_URL);
   assert.equal(apiBase({ local: true, url: null }), LOCAL_URL);
-  assert.equal(apiBase({ local: false, url: 'https://evincus-dev.jojo6550.deno.net/' }), 'https://evincus-dev.jojo6550.deno.net');
+  assert.equal(apiBase({ local: false, url: 'https://evincus.onrender.com/' }), 'https://evincus.onrender.com');
 });
 
 test('adminToken reads the environment first, then .env', () => {

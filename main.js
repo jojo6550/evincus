@@ -1,4 +1,4 @@
-// Deno entry (Render's Docker image, Deno Deploy, npm run dev): the site and /api/* from one app. Everything
+// Deno entry (Render's Docker image, npm run dev): the site and /api/* from one app. Everything
 // Deno-specific lives here; server/ stays runtime-neutral so its tests run under Node.
 import { createApp } from './server/index.js';
 import { serveStatic } from './server/static.js';
@@ -10,7 +10,7 @@ import { createLogger } from './server/lib/log.js';
 const kv = await Deno.openKv(Deno.env.get('KV_PATH'));
 const env = {
   ...Deno.env.toObject(),
-  COMMIT_SHA: Deno.env.get('COMMIT_SHA') ?? Deno.env.get('RENDER_GIT_COMMIT') ?? Deno.env.get('DENO_DEPLOYMENT_ID') ?? 'dev',
+  COMMIT_SHA: Deno.env.get('COMMIT_SHA') ?? Deno.env.get('RENDER_GIT_COMMIT') ?? 'dev',
   ORDERS: kvStore(kv),
   ORDER_LIMIT: kvLimiter(kv, 'order', { limit: 5, period: 60 }),
   BEACON_LIMIT: kvLimiter(kv, 'beacon', { limit: 10, period: 60 }),
@@ -29,8 +29,8 @@ function context(ip) {
   };
 }
 
-// Registered at top level so Deploy discovers it. Awaiting settle() keeps a run alive until its work is done,
-// and Deploy skips a run while the previous one is still going.
+// Registered at top level and runs for the life of the process. Awaiting settle() keeps a run alive until its work
+// is done. Emails carry fixed Resend idempotency keys, so a run that overlaps the previous one sends nothing twice.
 Deno.cron('jobs', '*/15 * * * *', async () => {
   const ctx = context();
   await app.scheduled({}, env, ctx);
@@ -44,7 +44,7 @@ const readFile = path => Deno.readFile(new URL(path, import.meta.url));
 const clientIp = (req, info) =>
   (env.RENDER && req.headers.get('x-forwarded-for')?.split(',')[0].trim()) || info.remoteAddr.hostname;
 
-// Render sets PORT. Deno Deploy ignores the port.
+// Render sets PORT; npm run dev uses 8000.
 Deno.serve({ port: Number(env.PORT ?? 8000) }, (req, info) => new URL(req.url).pathname.startsWith('/api/')
   ? app.fetch(req, env, context(clientIp(req, info)))
   : serveStatic(req, { env, readFile }));
