@@ -106,7 +106,7 @@ The KV adapter and rate limiter tests use real in-memory Deno KV from the `@deno
 
 ## Deploy
 
-Render runs one native Node web service (`render.yaml`: `npm ci --omit=dev`, `npm start`): site, API and the 15-minute cron in one process,
+Render builds `Dockerfile` (`node:22-slim`, `npm ci --omit=dev`, `node main.js`) for both services in `render.yaml`: site, API and the 15-minute cron in one process,
 with KV in a SQLite file on a 1 GB persistent disk (`KV_PATH=/var/data/kv.sqlite3`, snapshotted daily by Render).
 `.github/workflows/ci.yml` runs the tests on every push; on `prod` it then triggers a Render deploy of that exact
 commit, waits until `/api/health` reports it with `"ok":true`, and smoke-tests the pages, assets and API. Render's
@@ -114,8 +114,9 @@ own auto-deploy is off, so a failing test never ships. Other branches are tested
 
 The disk needs a paid instance and keeps the service at one instance, so each deploy has a few seconds of downtime.
 Do not move to the free plan: it has no disk, and it sleeps when idle, which stops the cron.
-The `evincus-dev` service (branch `dev`, values in the gitignored `.env.render-dev`) can run free: `KEEPALIVE_URL`
-makes it call its own `/api/health` every 10 minutes so it never sleeps, and its KV in `/tmp` resets on each deploy.
+The `evincus-dev` service (same Blueprint, branch `dev`, values in the gitignored `.env.render-dev`) runs free and
+deploys itself once a `dev` push passes CI (`autoDeployTrigger: checksPass`): `KEEPALIVE_URL` makes it call its own
+`/api/health` every 10 minutes so it never sleeps, and its KV in `/tmp` resets on each deploy.
 
 ### First deploy checklist (Render)
 

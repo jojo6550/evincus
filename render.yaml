@@ -1,11 +1,11 @@
-# Render Blueprint. One Node web service runs the site, the API and the 15-minute cron in-process.
-# Deploys come from .github/workflows/ci.yml after the tests pass, so Render's own auto-deploy is off.
+# Render Blueprint. Two Docker web services from the same Dockerfile; each runs the site, the API and the
+# 15-minute cron in-process. Prod deploys come from .github/workflows/ci.yml after the tests pass, so its
+# auto-deploy is off. Dev deploys itself from the dev branch once GitHub checks pass.
 services:
   - type: web
     name: evincus
-    runtime: node
-    buildCommand: npm ci --omit=dev
-    startCommand: npm start
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     branch: prod
     # Paid on purpose: free instances can't hold a disk and sleep when idle, which stops the cron.
     plan: 0.5c-512mb
@@ -44,6 +44,60 @@ services:
       - key: OWNER_EMAIL
         sync: false
       - key: POSTAL_ADDRESS
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ORDER_HMAC_KEY
+        sync: false
+      - key: NEWSLETTER_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+
+  - type: web
+    name: evincus-dev
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    branch: dev
+    # Free: no disk, so KV in /tmp resets on each deploy. KEEPALIVE_URL stops the idle sleep.
+    plan: free
+    region: virginia
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: KV_PATH
+        value: /tmp/kv.sqlite3
+      - key: ENVIRONMENT
+        value: staging
+      # Sandbox PayPal: fake money only.
+      - key: PAYMENT_MODE
+        value: paypal
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: SHIPPING_USD
+        value: "0"
+      - key: EMAIL_FROM
+        value: "Evincus <orders@evincus.shop>"
+      # NEWSLETTER_HOUR unset keeps the newsletter cron off on dev.
+      # Asked for once when the Blueprint is created; values in the gitignored .env.render-dev.
+      # SITE_URL, API_URL and KEEPALIVE_URL are the service's onrender.com URL (KEEPALIVE_URL + /api/health).
+      - key: SITE_URL
+        sync: false
+      - key: API_URL
+        sync: false
+      - key: KEEPALIVE_URL
+        sync: false
+      - key: DELIVERY_EXCLUDED_COUNTRIES
+        sync: false
+      # Test inbox: dev must never email the real owner mailbox or subscribers.
+      - key: OWNER_EMAIL
+        sync: false
+      - key: POSTAL_ADDRESS
+        sync: false
+      # Fresh secrets, never prod's.
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
         sync: false
       - key: RESEND_API_KEY
         sync: false

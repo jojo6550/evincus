@@ -1,0 +1,14 @@
+.git
+.github
+.claude
+.remember
+.superpowers
+.playwright-mcp
+.wrangler
+.env
+.env.*
+.kv.sqlite3*
+node_modules
+docs
+scripts
+tests
