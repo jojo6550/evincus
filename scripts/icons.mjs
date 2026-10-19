@@ -23,7 +23,9 @@ const icon = async size => {
 };
 
 const sizes = [16, 32, 48, 64, 128, 256];
-const frames = await Promise.all(sizes.map(icon));
+// Use the full tab width without clipping the mark; home-screen icons keep their padding.
+const frames = await Promise.all(sizes.map(size =>
+  sharp(logo).resize(size, size, { fit: 'contain', background: '#00000000' }).png().toBuffer()));
 const header = Buffer.alloc(6 + sizes.length * 16);
 header.writeUInt16LE(1, 2);
 header.writeUInt16LE(sizes.length, 4);
