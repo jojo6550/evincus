@@ -8,6 +8,7 @@ const FILES = {
   'index.html': 'home', 'eras.html': 'eras', '404.html': 'not found', '500.html': 'broken', '503.html': 'down',
   'assets/css/index.css': 'body{}', 'assets/js/config.js': 'FROM DISK', 'assets/fonts/CruJones.ttf': 'font',
   'data/site.json': '{}', 'data/eras/core/img/core-tee-black-1.jpg': 'jpg', 'assets/.hidden': 'x',
+  'assets/img/favicon.ico': 'icon',
   'README.md': 'readme', 'server/index.js': 'code', '.env': 'ADMIN_TOKEN=x', 'package.json': '{}',
 };
 const readFile = async path => {
@@ -49,6 +50,17 @@ test('nothing outside the allowlist is served, however the path is written', asy
     assert.equal(r.status, 404, path);
     assert.equal(await r.text(), 'not found', path);
   }
+});
+
+test('the conventional favicon URL serves the current icon, including HEAD requests', async () => {
+  const response = await get('/favicon.ico');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'image/x-icon');
+  assert.equal(await response.text(), 'icon');
+  const head = await get('/favicon.ico', { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get('content-type'), 'image/x-icon');
+  assert.equal(await head.text(), '');
 });
 
 test('config.js is generated from env, never read from disk', async () => {

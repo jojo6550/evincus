@@ -12,6 +12,7 @@
     "error": "node scripts/error.mjs",
     "new-era": "node scripts/new-era.mjs",
     "photos": "node scripts/photos.mjs",
+    "icons": "node scripts/icons.mjs",
     "discount": "node scripts/discount.mjs"
   },
   "dependencies": {
