@@ -42,6 +42,7 @@ export async function serveStatic(req, { env = {}, readFile }) {
     let path;
     try { path = decodeURIComponent(new URL(req.url).pathname); } catch { return await errorPage(404); }
     if (path === '/') path = '/index.html';
+    if (path === '/favicon.ico') path = '/assets/img/favicon.ico';
     if (path.toLowerCase() === '/assets/js/config.js') return send(configJs(env), '/assets/js/config.js', 200, 'no-cache');
     const forced = /^\/__error\/(\d{3})$/.exec(path);
     if (forced && env.ENVIRONMENT === 'development' && ERROR_CODES.includes(Number(forced[1]))) return await errorPage(Number(forced[1]));
