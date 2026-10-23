@@ -12,7 +12,7 @@ test('sendEmail posts to Resend with the idempotency key', async () => {
   const up = fakeUpstreams();
   await sendEmail(makeEnv(), { to: 'a@b.c', subject: 'Hi', html: '<p>x</p>', idempotencyKey: 'k1' });
   assert.equal(up.emails.length, 1);
-  assert.deepEqual(up.emails[0], { from: 'Evincus <orders@evincus.shop>', to: ['a@b.c'], subject: 'Hi', html: '<p>x</p>', idempotencyKey: 'k1' });
+  assert.deepEqual(up.emails[0], { from: 'Evincus <no-reply@evincus.shop>', to: ['a@b.c'], subject: 'Hi', html: '<p>x</p>', idempotencyKey: 'k1' });
   assert.equal(up.calls[0].headers.get('Authorization'), 'Bearer re_test');
 });
 
