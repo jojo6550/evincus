@@ -27,6 +27,8 @@ services:
         value: production
       - key: PAYMENT_MODE
         value: none
+      - key: CSP_MODE
+        value: report-only
       - key: SHIPPING_USD
         value: "0"
       - key: NEWSLETTER_HOUR
@@ -69,9 +71,13 @@ services:
         value: /tmp/kv.sqlite3
       - key: ENVIRONMENT
         value: staging
-      # Sandbox PayPal: fake money only.
+      # Exercise the same no-payment flow as production.
       - key: PAYMENT_MODE
-        value: paypal
+        value: none
+      - key: CSP_MODE
+        value: enforce
+      - key: EMAIL_DISABLED
+        value: "true"
       - key: PAYPAL_ENV
         value: sandbox
       - key: SHIPPING_USD

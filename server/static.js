@@ -1,4 +1,5 @@
 import { createLogger } from './lib/log.js';
+import { secureResponse } from './lib/security.js';
 
 // The public site: root .html pages, /assets/ and /data/. Nothing else in the repo (server code, docs, .env,
 // package files) is ever served. Missing pages get 404.html with a real 404 status.
@@ -9,7 +10,7 @@ const TYPES = {
   '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
-  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.mp4': 'video/mp4',
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.mp4': 'video/mp4', '.avif': 'image/avif',
   '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf',
 };
 const PAGE = /^\/[a-z0-9-]+\.html$/;
@@ -29,7 +30,7 @@ function allowed(path) {
 // The site's runtime settings. The API is same-origin, so API_BASE is always ''.
 const configJs = env => `export const API_BASE = '';\nexport const PAYPAL_CLIENT_ID = ${JSON.stringify(env.PAYPAL_CLIENT_ID ?? 'test')};\n`;
 
-export async function serveStatic(req, { env = {}, readFile }) {
+async function staticResponse(req, { env = {}, readFile, statFile }) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
   const send = (body, path, status = 200, cache = extension(path) === '.html' ? 'no-cache' : 'public, max-age=600') =>
     new Response(req.method === 'HEAD' ? null : body, {
@@ -47,7 +48,23 @@ export async function serveStatic(req, { env = {}, readFile }) {
     const forced = /^\/__error\/(\d{3})$/.exec(path);
     if (forced && env.ENVIRONMENT === 'development' && ERROR_CODES.includes(Number(forced[1]))) return await errorPage(Number(forced[1]));
     if (allowed(path)) {
-      try { return send(await readFile(path.slice(1)), path); }
+      try {
+        const file = path.slice(1);
+        const info = await statFile?.(file);
+        const noneMatch = req.headers.get('if-none-match');
+        const unchanged = info && (noneMatch
+          ? noneMatch.split(',').some(tag => tag.trim() === '*' || tag.trim().replace(/^W\//, '') === info.etag.replace(/^W\//, ''))
+          : req.headers.get('if-modified-since') && Date.parse(req.headers.get('if-modified-since')) >= Date.parse(info.modified));
+        const immutable = /^\/assets\/img\/responsive\/[a-f0-9]{16}-\d+\.webp$/.test(path);
+        const res = send(unchanged || (info && req.method === 'HEAD') ? null : await readFile(file, info), path, unchanged ? 304 : 200,
+          immutable ? 'public, max-age=31536000, immutable' : undefined);
+        if (info) {
+          res.headers.set('ETag', info.etag);
+          res.headers.set('Last-Modified', info.modified);
+          if (!unchanged) res.headers.set('Content-Length', String(info.size));
+        }
+        return res;
+      }
       catch (err) { if (!missing(err)) throw err; }
     }
     return await errorPage(404);
@@ -55,4 +72,8 @@ export async function serveStatic(req, { env = {}, readFile }) {
     createLogger({ route: `${req.method} static` }).error('static.failed', { message: String(err?.message ?? err) });
     try { return await errorPage(500); } catch { return new Response('Server error', { status: 500 }); }
   }
+}
+
+export async function serveStatic(req, options) {
+  return secureResponse(await staticResponse(req, options), options.env);
 }

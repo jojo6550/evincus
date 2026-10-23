@@ -12,3 +12,8 @@ node_modules
 docs
 scripts
 tests
+.verification
+*.pem
+*.key
+.audit-result.json
+.test-results.txt

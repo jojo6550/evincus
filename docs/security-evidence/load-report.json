@@ -1,0 +1,15 @@
+{
+  "testedAt": "2026-10-19T04:09:59.151Z",
+  "environment": "isolated local Node server; email disabled; temporary KV",
+  "requests": 110,
+  "concurrency": 10,
+  "failures": [],
+  "p95Ms": 76,
+  "maxMs": 125,
+  "durationMs": 505,
+  "duplicateSubmissions": 5,
+  "uniqueOrders": 1,
+  "rssBytes": 76374016,
+  "heapUsedBytes": 14783928,
+  "eventLoopP95Ms": 32
+}

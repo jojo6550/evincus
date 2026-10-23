@@ -16,6 +16,10 @@ export async function beacon(req, c) {
     OPTIONAL.every(k => body[k] === undefined || (typeof body[k] === 'string' && body[k].length <= 200));
   if (!valid) return fail(c, 'invalid-beacon', 400);
 
-  c.log.warn('client.error', { clientEvent: body.event, code: body.code, clientRoute: body.route, clientReqId: body.reqId });
+  // Never log arbitrary caller-supplied text or a hash containing customer data.
+  const safeCode = /^[a-z0-9-]{1,80}$/.test(body.code ?? '') ? body.code : undefined;
+  const safeRoute = /^#\/(?:checkout|bag|shop)?$/.test(body.route ?? '') ? body.route : '#/';
+  const safeId = /^[a-z0-9-]{1,80}$/i.test(body.reqId ?? '') ? body.reqId : undefined;
+  c.log.warn('client.error', { clientEvent: body.event, code: safeCode, clientRoute: safeRoute, clientReqId: safeId });
   return new Response(null, { status: 204 });
 }

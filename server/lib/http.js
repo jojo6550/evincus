@@ -49,10 +49,37 @@ export function fail(c, code, status, extra = {}) {
 
 // Parses a JSON body. Returns undefined for unparseable bodies; throws 413 for oversized ones.
 export async function readJson(req, maxBytes = 16384) {
-  if (Number(req.headers.get('content-length') ?? 0) > maxBytes) throw new HttpError('too-large', 413);
-  const text = await req.text();
-  if (new TextEncoder().encode(text).length > maxBytes) throw new HttpError('too-large', 413);
+  if (Number(req.headers.get('content-length') ?? 0) > maxBytes) {
+    if (req.body) void req.body.cancel().catch(() => {});
+    throw new HttpError('too-large', 413);
+  }
+  if (!req.body) return undefined;
+  const reader = req.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '', bytes = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        void reader.cancel().catch(() => {});
+        throw new HttpError('too-large', 413);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally { reader.releaseLock(); }
   try { return JSON.parse(text); } catch { return undefined; }
+}
+
+// Limit before parsing or reading prices. A storage outage fails closed.
+export async function enforceLimit(c, limiter, namespace = '') {
+  if (!limiter) return;
+  let result;
+  try { result = await limiter.limit({ key: `${namespace}${c.ip}` }); }
+  catch { throw new HttpError('server-error', 503); }
+  if (!result.success) throw new HttpError('rate-limited', 429);
 }
 
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;

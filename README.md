@@ -131,7 +131,7 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
    | `DELIVERY_EXCLUDED_COUNTRIES` | comma-separated ISO codes, or blank |
    | `OWNER_EMAIL` | where order summaries and alerts go |
    | `POSTAL_ADDRESS` | printed in newsletter footers |
-   | Secrets: `RESEND_API_KEY`, `ORDER_HMAC_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | long random values. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
+   | Secrets: `RESEND_API_KEY`, `ORDER_HMAC_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | Use the provider-issued Resend key and distinct random values of at least 32 characters for the other three. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
 
 2. Service `evincus`, Settings, **Deploy Hook**: copy the URL into GitHub, Settings, Secrets and variables, Actions,
    as the secret `RENDER_DEPLOY_HOOK_URL`.
@@ -182,6 +182,12 @@ Legacy PayPal code remains available only behind explicit `PAYMENT_MODE = "paypa
 enabling it also requires restoring the payment UI and credentials. Do not change that setting for this release.
 
 ## Monitoring
+
+Use the [security and optimization checklist](docs/security-and-optimization-checklist.md) to track release checks, security improvements, performance work, and recurring maintenance.
+
+The [operations guide](docs/security-operations.md) covers credential rotation, isolated restore checks, retention, monitoring, and rollback compatibility. Production starts only with distinct signing/admin secrets and `PAYMENT_MODE=none`. Security headers apply to the site and API; production CSP starts in report-only mode for rollout, while staging enforces it and disables email. The app monitors free disk and overdue cron completion through `/api/health`.
+
+Run `npm run optimize:images` after adding photos. Responsive versions preserve the originals; generated photo URLs have content versions and long cache lifetimes. `npm run check:performance`, `npm run check:load`, and `npm run check:restore` provide repeatable local checks. Load and restore checks use disposable storage and never send real email. CI also checks private-file exclusions, dependencies, and the unprivileged production container.
 
 - **Logs:** Render dashboard, service `evincus`, Logs. Every line is JSON with `event`, `reqId` and `route`.
   Errors shown to shoppers include the request id.

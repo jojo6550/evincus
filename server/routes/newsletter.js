@@ -1,4 +1,4 @@
-import { json, fail, readJson } from '../lib/http.js';
+import { json, fail, readJson, HttpError } from '../lib/http.js';
 import { sendEmail } from '../lib/email.js';
 import { PENDING_TTL, linkToken, normalizeEmail, pageLink, siteUrl, subKey, subscriberId, verifyLink } from '../lib/newsletter.js';
 import { confirmEmail } from '../emails/newsletter.js';
@@ -19,16 +19,22 @@ export async function subscribeRoute(req, c) {
   if (!email) return fail(c, 'invalid-email', 400);
 
   const id = await subscriberId(email);
-  const existing = await c.env.ORDERS.get(subKey(id), 'json');
-  if (existing?.status === 'active') return ok();
-
-  const link = pageLink(c.env, 'confirm', id, await linkToken(c.env, id));
-  const record = { email, status: 'pending', createdAt: existing?.createdAt ?? c.now.toISOString() };
-  await c.env.ORDERS.put(subKey(id), JSON.stringify(record), { metadata: { email, status: 'pending' }, expirationTtl: PENDING_TTL });
-  c.waitUntil(sendEmail(c.env, { to: email, ...confirmEmail(link, siteUrl(c.env)), idempotencyKey: `newsletter-confirm-${id}-${Math.floor(+c.now / 3_600_000)}` })
+  let record, returning = false;
+  for (let round = 0; round < 4; round++) {
+    const entry = await c.env.ORDERS.getEntry(subKey(id));
+    const existing = entry.value ? JSON.parse(entry.value) : null;
+    if (existing?.status === 'active') return ok();
+    returning = !!existing;
+    const next = { email, status: 'pending', generation: existing?.generation ?? crypto.randomUUID(), createdAt: existing?.createdAt ?? c.now.toISOString() };
+    const saved = await c.env.ORDERS.commit({ checks: [{ key: subKey(id), version: entry.version }], puts: [{ key: subKey(id), value: JSON.stringify(next), opts: { metadata: { email, status: 'pending' }, expirationTtl: PENDING_TTL } }] });
+    if (saved) { record = next; break; }
+  }
+  if (!record) throw new HttpError('server-error', 503);
+  const link = pageLink(c.env, 'confirm', id, await linkToken(c.env, id, record.generation));
+  c.waitUntil(sendEmail(c.env, { to: email, ...confirmEmail(link, siteUrl(c.env)), idempotencyKey: `newsletter-confirm-${id}-${record.generation}-${Math.floor(+c.now / 3_600_000)}` })
     .then(() => c.log.info('newsletter.confirm_sent'))
     .catch(err => c.log.error('newsletter.confirm_failed', { message: String(err?.message ?? err) })));
-  c.log.info('newsletter.subscribe', { returning: !!existing });
+  c.log.info('newsletter.subscribe', { returning });
   return ok();
 }
 

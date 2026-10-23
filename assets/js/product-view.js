@@ -4,6 +4,7 @@ import { findProduct, eraName, isLive, site } from './store.js';
 import * as cart from './cart.js';
 import { openBag } from './bag.js';
 import { priceHtml } from './sale.js';
+import { imageAttrs, updateImage } from './images.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -31,13 +32,13 @@ function galleryHtml() {
     <div class="pdp__thumbs">
       ${imgs.map((src, i) => `
         <button type="button" class="pdp__thumb" data-src="${esc(src)}" aria-label="Show image ${i + 1} of ${imgs.length}"${i === 0 ? ' aria-current="true"' : ''}>
-          <img src="${esc(src)}" alt="" loading="lazy">
+          <img ${imageAttrs(src, '80px')} alt="" loading="lazy">
         </button>`).join('')}
     </div>` : '';
   return `
     <div class="pdp__main">
       <i class="crop tl"></i><i class="crop br"></i>
-      ${imgs[0] ? `<img id="pdpMain" src="${esc(imgs[0])}" alt="${esc(`${p.name} in ${color}`)}">` : ''}
+      ${imgs[0] ? `<img id="pdpMain" ${imageAttrs(imgs[0], '(max-width: 760px) 92vw, 50vw')} alt="${esc(`${p.name} in ${color}`)}">` : ''}
     </div>
     ${thumbs}`;
 }
@@ -121,7 +122,7 @@ function onClick(e) {
   }
   const thumb = e.target.closest('.pdp__thumb');
   if (thumb) {
-    body.querySelector('#pdpMain').src = thumb.dataset.src;
+    updateImage(body.querySelector('#pdpMain'), thumb.dataset.src, '(max-width: 760px) 92vw, 50vw');
     body.querySelectorAll('.pdp__thumb').forEach(t => t.removeAttribute('aria-current'));
     thumb.setAttribute('aria-current', 'true');
     return;

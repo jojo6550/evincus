@@ -13,7 +13,12 @@
     "new-era": "node scripts/new-era.mjs",
     "photos": "node scripts/photos.mjs",
     "icons": "node scripts/icons.mjs",
-    "discount": "node scripts/discount.mjs"
+    "discount": "node scripts/discount.mjs",
+    "optimize:images": "node scripts/optimize-images.mjs",
+    "check:security": "node scripts/security-check.mjs",
+    "check:performance": "node scripts/performance-check.mjs",
+    "check:load": "node scripts/load-check.mjs",
+    "check:restore": "node scripts/restore-check.mjs --fixture"
   },
   "dependencies": {
     "@deno/kv": "^0.14.0"

@@ -2,7 +2,8 @@ import { CATALOG } from './lib/catalog.js';
 import { applySales } from '../data/catalog.js';
 import { loadSales } from './lib/sales.js';
 import { createLogger } from './lib/log.js';
-import { HttpError, corsHeaders, fail } from './lib/http.js';
+import { HttpError, corsHeaders, fail, enforceLimit } from './lib/http.js';
+import { secureResponse } from './lib/security.js';
 import { alert } from './lib/alerts.js';
 import { retryEmails } from './lib/delivery.js';
 import { health } from './routes/health.js';
@@ -55,6 +56,9 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
           if (!matches.length) res = fail(c, 'not-found', 404);
           else if (!hit) res = fail(c, 'method-not-allowed', 405);
           else {
+            if (url.pathname.startsWith('/api/admin/')) await enforceLimit(c, env.ADMIN_LIMIT);
+            if (url.pathname === '/api/bag/quote') await enforceLimit(c, env.QUOTE_LIMIT);
+            if (url.pathname === '/api/newsletter/confirm' || url.pathname === '/api/newsletter/unsubscribe') await enforceLimit(c, env.LINK_LIMIT);
             c.params = url.pathname.match(hit[1]).slice(1);
             if (hit[3]) {
               c.base = data;
@@ -74,7 +78,8 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
         }
       }
 
-      res = new Response(res.body, res);
+      res = secureResponse(res, env);
+      if (!res.headers.has('Cache-Control')) res.headers.set('Cache-Control', 'no-store');
       for (const [k, v] of Object.entries(corsHeaders(req.headers.get('Origin'), env))) res.headers.set(k, v);
       res.headers.set('x-request-id', reqId);
       const level = res.status >= 500 ? 'error' : res.status >= 400 ? 'warn' : 'info';
@@ -84,7 +89,7 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
     async scheduled(event, env, ctx) {
       const log = createLogger({ route: 'cron' });
       const now = clock();
-      const c = { env, data, now: new Date(now), reqId: `cron-${now}`, log, waitUntil: p => ctx.waitUntil(p), params: [] };
+      const c = { env, data, now: new Date(now), deadline: Date.now() + 45000, reqId: `cron-${now}`, log, waitUntil: p => ctx.waitUntil(p), params: [] };
       const logFailure = err => log.error('unhandled', { message: String(err?.message ?? err) });
       ctx.waitUntil((async () => {
         await retryEmails(c);

@@ -14,7 +14,7 @@ const byCategory = list => [...list].sort((a, b) => rank(a) - rank(b));
 let state = { eras: [], products: [], sales: [], skewMs: 0, site: DEFAULT_SITE, live: false };
 
 async function fetchJson(file) {
-  const res = await fetch(new URL(`../../data/${file}`, import.meta.url));
+  const res = await fetch(new URL(`../../data/${file}`, import.meta.url), { signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`${file} failed to load (${res.status})`);
   return res.json();
 }
@@ -41,17 +41,17 @@ async function fromStatic() {
 
 export async function loadCatalog() {
   // Site copy is decoration; without it the store still has to render.
-  const site = await fetchJson('site.json').catch(err => {
+  const sitePromise = fetchJson('site.json').catch(err => {
     console.error(err);
     return DEFAULT_SITE;
   });
   try {
     const loaded = await fromApi();
-    state = { ...loaded, products: byCategory(loaded.products), site, live: true };
+    state = { ...loaded, products: byCategory(loaded.products), site: await sitePromise, live: true };
   } catch {
     beaconOnce('api-unreachable');
     const loaded = await fromStatic();
-    state = { ...loaded, products: byCategory(loaded.products), site, live: false };
+    state = { ...loaded, products: byCategory(loaded.products), site: await sitePromise, live: false };
   }
 }
 

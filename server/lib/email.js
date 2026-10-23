@@ -1,6 +1,9 @@
 // Resend REST API. The idempotency key stops retries from sending twice.
 async function post(env, path, payload, idempotencyKey) {
+  if (env.EMAIL_DISABLED === 'true') throw new Error('Email disabled in this environment');
   if (!env.RESEND_API_KEY) throw new Error('RESEND_API_KEY not set');
+  const recipients = path === '/emails/batch' ? payload.flatMap(e => e.to) : payload.to;
+  if (env.EMAIL_TEST_RECIPIENT && recipients.some(to => to !== env.EMAIL_TEST_RECIPIENT)) throw new Error('Recipient blocked in test environment');
   const res = await fetch(`https://api.resend.com${path}`, {
     method: 'POST',
     headers: {
@@ -9,6 +12,7 @@ async function post(env, path, payload, idempotencyKey) {
       'Idempotency-Key': idempotencyKey,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error(`Resend failed (${res.status})`);
 }

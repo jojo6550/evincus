@@ -1,0 +1,28 @@
+name: Scheduled security review
+on:
+  schedule:
+    - cron: '0 14 1 * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run check:security
+      - run: docker build -t evincus:security .
+      - name: Scan production container dependencies
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: evincus:security
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true

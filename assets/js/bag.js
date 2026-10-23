@@ -3,6 +3,7 @@ import { money, MAX_QTY } from '../../data/catalog.js';
 import * as cart from './cart.js';
 import * as quote from './quote.js';
 import { mountCheckout } from './checkout.js';
+import { imageAttrs } from './images.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -23,7 +24,7 @@ function lineHtml(l) {
   const canChange = BUYABLE.has(l.status);
   return `
     <li class="line${canChange ? '' : ' is-unavailable'}" data-key="${esc(l.key)}">
-      <span class="line__img">${l.image ? `<img src="${esc(l.image)}" alt="" loading="lazy">` : ''}</span>
+      <span class="line__img">${l.image ? `<img ${imageAttrs(l.image, '96px')} alt="" loading="lazy">` : ''}</span>
       <div class="line__info">
         <h3 class="line__name">${esc(l.name ?? 'Item no longer available')}</h3>
         <span class="line__meta mono">${esc(l.color)}, size ${esc(l.size)}</span>

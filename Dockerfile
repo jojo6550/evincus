@@ -3,5 +3,7 @@ FROM node:22-slim
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY . .
+COPY --chown=node:node . .
+RUN mkdir -p /var/data && chown node:node /var/data /app
+USER node
 CMD ["node", "main.js"]

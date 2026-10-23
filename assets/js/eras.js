@@ -3,6 +3,7 @@ import * as cart from './cart.js';
 import { initBag } from './bag.js';
 import { initProductView } from './product-view.js';
 import { initSale, eraSaleNote } from './sale.js';
+import { imageAttrs } from './images.js';
 
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = iso => new Date(iso).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' });
@@ -24,7 +25,7 @@ function card(era, count) {
   const [label, cls] = STATUS[era.status] ?? STATUS.live;
   const open = era.status !== 'upcoming';
   const body = `
-    <div class="era-card__img">${era.hero ? `<img src="${esc(era.hero)}" alt="${esc(era.name)} collection" loading="lazy">` : ''}</div>
+    <div class="era-card__img">${era.hero ? `<img ${imageAttrs(era.hero, '(max-width: 760px) 92vw, 46vw')} alt="${esc(era.name)} collection" loading="lazy">` : ''}</div>
     <div class="era-card__copy">
       <span class="era-card__status mono ${cls}">${label}</span>
       <h2>${esc(era.name)}</h2>

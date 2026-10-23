@@ -15,11 +15,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - run: npm ci
+      - run: npm run check:security
+      - run: npm audit --audit-level=high
       - run: node --test
+      - run: npm run check:performance
+      - run: npm run check:load
+      - run: npm run check:restore
+      - name: Verify unprivileged container and excluded files
+        run: |
+          docker build -t evincus:check .
+          test "$(docker inspect --format '{{.Config.User}}' evincus:check)" = node
+          docker run --rm --entrypoint sh evincus:check -c 'test ! -e /app/.env && test ! -d /app/.git && test ! -e /app/.kv.sqlite3 && test ! -d /app/.verification && touch /var/data/permission-check && rm /var/data/permission-check'
+      - name: Scan production container dependencies
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: evincus:check
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
 
   deploy:
     needs: test
@@ -56,3 +75,12 @@ jobs:
           done
           code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE/no-such-page.html")
           [ "$code" = 404 ] || { echo "::error::missing page returned $code, not 404"; exit 1; }
+          for path in /.env /.git/config /server/index.js /.kv.sqlite3 /__error/503; do
+            code=$(curl --max-time 15 -s -o /dev/null -w '%{http_code}' "$SITE$path")
+            [ "$code" = 404 ] || { echo "::error::$path is exposed ($code)"; exit 1; }
+          done
+          headers=$(curl --max-time 15 -fsSI "$SITE/")
+          echo "$headers" | grep -qi 'x-content-type-options: nosniff'
+          echo "$headers" | grep -qi 'x-frame-options: DENY'
+          echo "$headers" | grep -qi 'referrer-policy: no-referrer'
+          echo "$headers" | grep -qi 'content-security-policy'

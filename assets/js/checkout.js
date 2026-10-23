@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, ApiError } from './api.js';
 import * as cart from './cart.js';
 import { money } from '../../data/catalog.js';
 
@@ -101,6 +101,7 @@ export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
     error.hidden = true;
     try {
       const order = await api('POST', '/api/orders', pending);
+      if (typeof order?.id !== 'string' || order.status !== 'PLACED' || order.paymentStatus !== 'NOT_COLLECTED') throw new ApiError(0, null);
       const ordered = pending.items;
       remember(null);
       onPlaced(order, ordered);
