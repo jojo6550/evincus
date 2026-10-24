@@ -22,6 +22,10 @@ record when WiPay confirmed payment and the WiPay transaction ID, and the receip
 5. Customer details are stored in the existing Render disk database and encrypted inside it.
 6. Receipt email after payment, carrying paid time (Jamaica time), WiPay transaction ID and amount.
 7. Policies page updated so it no longer says no payment is collected.
+8. The cart shows the full breakdown before checkout: subtotal, GCT, WiPay processing fee, total. The total in the
+   cart is exactly what WiPay charges.
+9. Visitors can view prices in their own currency (detected from the browser, changeable), as estimates. Checkout
+   always charges USD.
 
 ## Non-goals
 
@@ -33,7 +37,8 @@ record when WiPay confirmed payment and the WiPay transaction ID, and the receip
   later. Follow-up, not forgotten (see Risks).
 - WAPI transaction retrieve (needs a separate WAPI key). Possible later cross-check.
 - Moving to Postgres or any new database service.
-- Saved cards, accounts, partial payments, multiple currencies.
+- Saved cards, accounts, partial payments, charging in any currency other than USD.
+- IP geolocation. Country comes from the browser's language settings, so no visitor IP goes to a third party.
 
 ## Anti-goals (would be a failure even if it "works")
 
@@ -51,7 +56,9 @@ record when WiPay confirmed payment and the WiPay transaction ID, and the receip
 | Database | Existing Deno KV in SQLite on the Render persistent disk (`KV_PATH=/var/data/kv.sqlite3`) |
 | Fulfillment | Customer chooses pickup or shipping at checkout. Shipping cost and timing are arranged by the owner after purchase |
 | Address scope | Anywhere: country picker, free-form state/province, optional postal code |
-| WiPay fee | `fee_structure: customer_pay`. WiPay adds its fee on its page; the charge is above the cart total |
+| WiPay fee | Customer pays it, shown as a cart line before checkout. WiPay Basic Free plan: 4.20% + 15% GCT on the fee = 4.83% |
+| Tax | GCT 15%, added on top of listed prices, on every order |
+| Currency | Converted prices are estimates for any country; checkout always charges USD |
 | Encryption | Yes: customer details encrypted in the database with a new secret key |
 | Fee on refunds | WiPay's processing fee is non-refundable; a refund covers the order total |
 | Payment flow | Hosted page, paid only once WiPay confirms, receipt with transaction ID and paid time, refunds by hand in the WiPay dashboard |
@@ -89,9 +96,12 @@ Order record `order:<id>` changes:
 
 - `status`: `AWAITING_PAYMENT` until paid, then `PLACED`.
 - `paymentStatus`: `UNPAID` then `PAID`. Legacy records keep `NOT_COLLECTED` and must still read.
+- `taxCents`, `feeCents`, plus the `taxBps`/`feeBps` used, next to the existing `subtotalCents`; `totalCents` is
+  their sum. Legacy records have neither (read as 0).
 - `payment`: `{ provider: 'wipay', transactionId, paidAt, chargedTotal, currency }` once paid. `paidAt` is the
   server time the hash was verified; it is the "purchase completed" time for the refund window. `chargedTotal` is
-  WiPay's reported customer-facing total, stored as informational only (the hash does not cover it).
+  WiPay's reported total, stored as informational only (the hash does not cover it). It should equal `totalCents`;
+  a difference logs `payment.total_mismatch`.
 - `pii`: encrypted envelope (see Encryption) holding `customer` (`firstName`, `lastName`, `email`, `phone`),
   `address` (`line1`, `line2`, `city`, `region`, `postalCode`, `country`) and `notes`. The plaintext `customer`,
   `payer` and `notes` fields go away on new records.
@@ -102,6 +112,7 @@ New keys:
 
 - `payment-attempt:<attemptId>`: `{ orderId, totalCents, currency, url, wipayTransactionId, createdAt, state }`,
   `state` being `open`, `failed` or `paid`. TTL 2 years.
+- `fx:latest`: `{ fetchedAt, updatedAt, rates }` exchange-rate cache (see Currency display).
 - `wipay-txn:<transaction_id>`: `{ orderId, attemptId, duplicate: boolean }`. Written once per WiPay transaction.
   This is the dedupe key: its absence is checked in the same atomic commit that marks the order paid.
 
@@ -126,7 +137,7 @@ once paid (or encrypts it the same way; builder's choice) so personal data is no
      order at it (`order.attemptId`), checked against the order version read at the start. If the commit loses a
      race, re-read and return the winning attempt's `url`; the losing WiPay session is simply never shown.
    - WiPay request: `account_number`, `country_code: 'JM'`, `currency: 'USD'`, `environment`,
-     `fee_structure: 'customer_pay'`, `method: 'credit_card_co'`, `order_id: attemptId`, `origin: 'evincus'`,
+     `fee_structure: 'merchant_absorb'`, `method: 'credit_card_co'`, `order_id: attemptId`, `origin: 'evincus'`,
      `response_url: ${API_URL}/api/payments/wipay/return`, `total` from `order.totalCents` as `"12.34"` using
      integer math, `email`, `fname`, `lname`, `phone` only when it normalizes to E.164, `country`, `version` from
      `COMMIT_SHA` truncated to 16. Address is not sent (WiPay's `state` wants ISO 3166-2 codes; our region is
@@ -198,7 +209,7 @@ Fields, all trimmed, control characters rejected (existing `field` helper in `se
 | City / town | required for shipping, max 60 |
 | State / province / parish | optional, max 60 |
 | Postal code | optional, max 20 |
-| Country | required for shipping, ISO 3166-1 alpha-2 from a fixed list in `data/`, names shown via `Intl.DisplayNames` |
+| Country | required for shipping, a code from `data/countries.js`, names shown via `Intl.DisplayNames` |
 | Notes | optional, max 1000 (unchanged) |
 
 Address fields show only when shipping is chosen; the server rejects address fields on a pickup order and a missing
@@ -206,6 +217,50 @@ pickup location on a pickup order. Shipping shows "We'll contact you about shipp
 WiPay's `country` prefill uses the shipping country when there is one, else `JM`.
 
 Mobile-first layout and existing form styles. No inline CSS or JS.
+
+### Tax and processing fee
+
+Rates live in a new `data/fees.js`, shared by the site and the API like `data/fulfillment.js`:
+`TAX = { label: 'GCT', bps: 1500 }`, `PROCESSING_FEE = { label: 'Processing fee', bps: 483 }`. Changing a rate is a
+commit, not an env var.
+
+`quote()` in `server/lib/pricing.js` computes, with integer math and half-up rounding to the cent, once per order:
+
+- `taxCents = round(subtotalCents * 1500 / 10000)`
+- `feeCents = round((subtotalCents + taxCents) * 483 / 10000)` (the fee is on the amount charged, which includes GCT)
+- `totalCents = subtotalCents + taxCents + feeCents`
+
+The quote response adds `taxCents`, `feeCents`, and `tax`/`fee` objects `{ label, bps }` so the client renders lines
+without hard-coding rates. `expectedTotalCents` at place-order is compared against this full total, so a rate change
+between cart and checkout returns the existing `bag-changed` 409.
+
+WiPay is sent `totalCents` with `fee_structure: merchant_absorb`, so WiPay adds nothing and its page shows exactly the
+cart total. Our call: WiPay then deducts its 4.83% from the whole charge, including the fee line, so the store
+absorbs about 0.23% of each order (fee on the fee). Exact totals for the customer beat grossing the fee up.
+
+Cart breakdown (bag and checkout summary, same rows): Subtotal, `GCT (15%)`, `Processing fee (4.83%,
+non-refundable)`, Total `USD`. Rates shown come from the quote. Receipt and daily summary show the same rows.
+
+### Currency display
+
+- New `GET /api/currencies`: `{ base: 'USD', updatedAt, rates: { JMD: 157.2, EUR: 0.92, ... } }`. Rates come from
+  ExchangeRate-API's open endpoint (`https://open.er-api.com/v6/latest/USD`, no key, updates daily; its terms
+  require an attribution link). The server caches the response in KV `fx:latest` and refetches at most every 12
+  hours, on request or from the 15-minute cron, with a 10 s timeout. If the source fails it serves the last good
+  rates; with none ever fetched it returns USD only and the site hides the picker. Concurrent refreshes are
+  harmless: last write wins on an identical-shaped value. `Cache-Control: public, max-age=3600`. Rates are
+  validated (positive finite numbers, 3-letter codes) before caching.
+- New `data/countries.js`: ISO 3166-1 alpha-2 country code to ISO 4217 currency. Used both for the shipping country
+  picker and for currency detection.
+- Detection: first region subtag in `navigator.languages` (`en-JM` to `JM` to `JMD`); none, or a currency without a
+  rate, falls back to USD. A currency picker (house `select` styles, names via `Intl.DisplayNames`) in the header
+  or footer overrides it; the choice is kept in `localStorage` (wrapped in try/catch, works without it).
+- Display: one client helper formats cents in the chosen currency with `Intl.NumberFormat`; every client price
+  (product cards, product view, sale prices, bag lines, breakdown) goes through it and re-renders on change. Non-USD
+  amounts show as estimates (`≈ JMD 7,860`). The checkout summary, Pay button, receipt and policies always state
+  the USD amount actually charged: "You'll be charged $45.20 USD. Other currencies are estimates; your bank sets
+  the final rate." Attribution link sits next to the picker.
+- Server-side money (emails, summary, WiPay) stays USD only.
 
 ### Encryption
 
@@ -240,7 +295,7 @@ public sandbox values; the CI secret scan must still pass.
 ### Emails, summary, policies
 
 - Receipt (`server/emails/receipt.js`): sent only after paid. Shows paid time in Jamaica time, WiPay transaction
-  ID, order total, the charged amount WiPay reported with "includes WiPay processing fee (non-refundable)", pickup
+  ID, order total, the subtotal, GCT, processing fee (non-refundable) and USD total rows, pickup
   location or the shipping address with the "we'll contact you about shipping" line, and the 24-hour refund line
   linking the policy. Drops "No payment was collected".
 - Daily summary (`server/lib/digest.js`, `recordRows`): lists paid orders by paid day, with name, email, phone,
@@ -248,12 +303,13 @@ public sandbox values; the CI secret scan must still pass.
 - Policies (`policies.html`): line 75 and line 61 rewritten. Payment is taken by WiPay on its hosted page, WiPay
   adds a processing fee, card details go to WiPay and never to Evincus. Privacy lists the postal address, WiPay as
   a service provider receiving name, email, phone and country, and that personal details are encrypted at rest.
-  Refund policy: approved refunds cover the order total; WiPay's processing fee is non-refundable (keeping the
-  existing mandatory-rights line). New shipping section: shipping is optional, arranged by hand after purchase,
+  Refund policy: approved refunds cover the items and their GCT; the processing fee is non-refundable (keeping
+  the existing mandatory-rights line). Terms: prices are listed and charged in USD, GCT is added at checkout,
+  converted prices are estimates. Privacy: the currency choice is kept in browser storage. New shipping section: shipping is optional, arranged by hand after purchase,
   cost and timing confirmed with the customer and paid separately. Pickup section says pickup is one of two options.
   "Last updated" date bumped. README "no payment is collected" and "no delivery or shipping" text updated.
-- Checkout copy: the "No payment is collected at checkout" line goes. The Pay button says the fee is added on the
-  WiPay page.
+- Checkout copy: the "No payment is collected at checkout" line goes. The summary shows the full breakdown and the
+  USD amount charged.
 
 ### Logging and alerts
 
@@ -277,6 +333,11 @@ Use the existing `node --test` setup with in-memory KV.
 - `failed` return: order unpaid, attempt `failed`, a later `pay` makes a new attempt.
 - Return and status routes work with `STATUS=maintenance`.
 - Encryption round trip; legacy plaintext order still renders in receipt and summary; disk value contains no email.
+- Tax and fee: rounding at half-cent edges, zero subtotal, totals equal the sum of rows, `expectedTotalCents`
+  mismatch after a rate change returns `bag-changed`.
+- Currencies: cache fresh, stale refetch, source down serves last good, never fetched returns USD only, bad rate
+  values rejected; the source fetch is stubbed.
+- Client: `en-JM` detects JMD, unknown region falls back to USD, formatting shows `≈` for non-USD.
 - Validation: each new field's limits; phone optional; pickup needs a location and takes no address; shipping
   needs line 1, city and country.
 - WiPay HTTP call is injected or stubbed; tests never reach WiPay.
@@ -296,6 +357,9 @@ Use the existing `node --test` setup with in-memory KV.
   WiPay holds the money. The order still exists with encrypted contact details. Follow-up: WiPay `payment.success`
   webhook calling `confirmPayment` (HMAC-SHA256 over `timestamp.rawBody`, `X-WiPay-Webhook-Id` as dedupe key),
   once WiPay enables merchant webhooks and the payload is known.
-- **USD on the Jamaica platform.** Check WiPay's `getCurrencies` helper for `JM` before building. If USD is not
-  offered, stop and ask the owner: switching to JMD changes prices.
+- **USD on the Jamaica platform:** confirmed 2026-10-24,
+  `GET https://jm.wipayfinancial.com/plugins/get/currencies?country_code=JM` returns `["JMD","USD"]`.
 - **Email over 50 characters** cannot pay through WiPay; the form says so up front.
+- **GCT on top assumes the business is GCT-registered.** Owner's decision; the rate is one line in `data/fees.js`.
+- **Fee rate must match the WiPay plan.** Upgrading to a paid plan means changing `bps` to 437 (3.80% + GCT).
+- **Exchange-rate source** is a free third-party service; if it disappears the site falls back to USD.
