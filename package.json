@@ -10,7 +10,7 @@
     "start": "node main.js",
     "dev": "node --env-file-if-exists=.env --watch main.js",
     "error": "node scripts/error.mjs",
-    "test-email": "node --env-file-if-exists=.env scripts/test-email.mjs",
+    "test-email": "node --env-file-if-exists=.env scripts/send-test-email.mjs",
     "new-era": "node scripts/new-era.mjs",
     "photos": "node scripts/photos.mjs",
     "icons": "node scripts/icons.mjs",
