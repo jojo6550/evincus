@@ -2,7 +2,16 @@
 // Canonical URLs always name the production site, so staging copies never compete with it in search.
 import { publicView } from '../../data/catalog.js';
 
-export const SITE = 'https://evincus.shop';
+// www is the live host: Render answers the bare domain with a 301 to it.
+export const SITE = 'https://www.evincus.shop';
+const HOST = new URL(SITE).hostname;
+
+// Crawling is allowed only on the real domain, so onrender.com and local copies stay out of search. The Host header
+// decides, not ENVIRONMENT, so a missing env var can't hide the live site.
+export function crawlable(host) {
+  const name = String(host ?? '').toLowerCase().replace(/:\d+$/, '');
+  return name === HOST || name === HOST.replace(/^www\./, '');
+}
 export const BRAND = 'Evincus Streetwear';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -12,8 +21,7 @@ const list = words => words.length < 2 ? words.join('') : `${words.slice(0, -1).
 
 export const productImages = p => [...new Set([...(p.images ?? []), ...p.colors.flatMap(c => c.images ?? [])])];
 
-// Staging and local copies ask not to be crawled at all.
-export const robotsTxt = production => production
+export const robotsTxt = allowed => allowed
   ? `User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${SITE}/sitemap.xml\n`
   : 'User-agent: *\nDisallow: /\n';
 

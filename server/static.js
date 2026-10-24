@@ -3,7 +3,7 @@ import { secureResponse } from './lib/security.js';
 import { CATALOG } from './lib/catalog.js';
 import { loadSales } from './lib/sales.js';
 import { applySales, publicView } from '../data/catalog.js';
-import { robotsTxt, sitemapXml, productHead } from './lib/seo.js';
+import { robotsTxt, sitemapXml, productHead, crawlable } from './lib/seo.js';
 
 // The public site: root .html pages, /assets/ and /data/. Nothing else in the repo (server code, docs, .env,
 // package files) is ever served. Missing pages get 404.html with a real 404 status.
@@ -70,7 +70,7 @@ async function staticResponse(req, { env = {}, readFile, statFile, data = CATALO
     if (path === '/') path = '/index.html';
     if (path === '/favicon.ico') path = '/assets/img/favicon.ico';
     if (path.toLowerCase() === '/assets/js/config.js') return send(configJs(env), '/assets/js/config.js', 200, 'no-cache');
-    if (path === '/robots.txt') return send(robotsTxt(env.ENVIRONMENT === 'production'), path, 200, 'public, max-age=3600');
+    if (path === '/robots.txt') return send(robotsTxt(crawlable(req.headers.get('host'))), path, 200, 'public, max-age=3600');
     if (path === '/sitemap.xml') return send(sitemapXml(data, now), path, 200, 'public, max-age=3600');
     if (path === '/speculation-rules.json') return send(SPECULATION_RULES, path, 200, 'public, max-age=3600');
     const product = /^\/products\/([a-z0-9-]+)$/.exec(path);

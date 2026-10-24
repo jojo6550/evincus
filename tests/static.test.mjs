@@ -126,14 +126,19 @@ test('every real error page resolves links from the site root', () => {
   for (const code of ERROR_CODES) assert.match(readFileSync(new URL(`../${code}.html`, import.meta.url), 'utf8'), /<base href="\/">/, `${code}.html`);
 });
 
-test('robots.txt allows crawling only in production and points at the sitemap', async () => {
-  const prod = await get('/robots.txt', { env: { ENVIRONMENT: 'production' } });
-  assert.equal(prod.headers.get('content-type'), 'text/plain; charset=utf-8');
-  const text = await prod.text();
-  assert.match(text, /^Allow: \/$/m);
-  assert.match(text, /^Disallow: \/api\/$/m);
-  assert.match(text, /^Sitemap: https:\/\/evincus\.shop\/sitemap\.xml$/m);
-  assert.match(await (await get('/robots.txt', { env: { ENVIRONMENT: 'staging' } })).text(), /^Disallow: \/$/m);
+test('robots.txt allows crawling only on the live domain, whatever ENVIRONMENT says, and points at the sitemap', async () => {
+  const robots = host => serveStatic(new Request('https://shop.test/robots.txt', { headers: host ? { host } : {} }), { env: {}, readFile });
+  for (const host of ['www.evincus.shop', 'evincus.shop', 'WWW.Evincus.shop:443']) {
+    const r = await robots(host);
+    assert.equal(r.headers.get('content-type'), 'text/plain; charset=utf-8');
+    const text = await r.text();
+    assert.match(text, /^Allow: \/$/m, host);
+    assert.match(text, /^Disallow: \/api\/$/m, host);
+    assert.match(text, /^Sitemap: https:\/\/www\.evincus\.shop\/sitemap\.xml$/m, host);
+  }
+  for (const host of ['evincus-dev.onrender.com', 'localhost:8000', 'evincus.shop.evil.test', null]) {
+    assert.match(await (await robots(host)).text(), /^Disallow: \/$/m, String(host));
+  }
 });
 
 test('sitemap.xml lists released products with their images and hides unreleased ones', async () => {
@@ -147,8 +152,8 @@ test('sitemap.xml lists released products with their images and hides unreleased
   const r = await serveStatic(new Request('https://shop.test/sitemap.xml'), { env: {}, readFile, data });
   assert.equal(r.headers.get('content-type'), 'application/xml; charset=utf-8');
   const xml = await r.text();
-  assert.match(xml, /<loc>https:\/\/evincus\.shop\/products\/shown-tee<\/loc>/);
-  assert.match(xml, /<image:loc>https:\/\/evincus\.shop\/data\/eras\/live\/img\/a\.jpg<\/image:loc>/);
+  assert.match(xml, /<loc>https:\/\/www\.evincus\.shop\/products\/shown-tee<\/loc>/);
+  assert.match(xml, /<image:loc>https:\/\/www\.evincus\.shop\/data\/eras\/live\/img\/a\.jpg<\/image:loc>/);
   assert.doesNotMatch(xml, /secret-tee/);
 });
 
@@ -160,7 +165,7 @@ test('/products/<id> serves the storefront with that product in the head, and 40
   assert.equal(r.headers.get('content-type'), 'text/html; charset=utf-8');
   const html = await r.text();
   assert.match(html, /<title>Disaster Zone Tee \| Evincus Streetwear<\/title>/);
-  assert.match(html, /<link rel="canonical" href="https:\/\/evincus\.shop\/products\/disaster-zone-tee">/);
+  assert.match(html, /<link rel="canonical" href="https:\/\/www\.evincus\.shop\/products\/disaster-zone-tee">/);
   assert.doesNotMatch(html, /<title>Home<\/title>/);
   assert.match(html, /shop$/);
   const ld = JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/.exec(html)[1]);
