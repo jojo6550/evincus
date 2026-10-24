@@ -22,7 +22,7 @@ grid.innerHTML = PRODUCTS.map(p => {
   const [front, back] = [imgs[0], imgs[1] || imgs[0]];
   const tag = !p.buyable && isLive() ? [p.soldOut ? 'Sold out' : 'Ended'] : p.sale ? [saleTag(p), true] : TAGS[p.id];
   const colors = p.colors.length > 1 ? p.colors.length + ' colors' : p.colors[0].name;
-  return `<a class="card" href="#p-${esc(p.id)}" data-product="${esc(p.id)}" data-era="${esc(p.era)}">
+  return `<a class="card" href="/products/${esc(p.id)}" data-product="${esc(p.id)}" data-era="${esc(p.era)}">
     <div class="card__img">
       ${tag ? `<span class="tag ${tag[1] ? 'tag--hot ' : ''}mono">${esc(tag[0])}</span>` : ''}
       <img ${imageAttrs(front)} alt="${esc(p.name)}" loading="lazy">
@@ -75,7 +75,7 @@ initProductView();
 initBag();
 refreshQuote();
 const fromHash = () => {
-  const m = /^#p-(.+)$/.exec(location.hash); if (m) { openProduct(m[1]); return; }
+  const m = /^\/products\/([a-z0-9-]+)$/.exec(location.pathname) ?? /^#p-(.+)$/.exec(location.hash); if (m) { openProduct(m[1]); return; }
   const e = /^#era-(.+)$/.exec(location.hash); if (e) setEra(e[1], { scroll: true, push: false });
 };
 fromHash();

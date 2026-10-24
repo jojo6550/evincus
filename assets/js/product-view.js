@@ -1,4 +1,4 @@
-// Product view: a native <dialog> opened from the grid or a #p-<id> link.
+// Product view: a native <dialog> opened from the grid, a /products/<id> URL or an old #p-<id> link.
 import { imagesFor, money } from '../../data/catalog.js';
 import { findProduct, eraName, isLive, site } from './store.js';
 import * as cart from './cart.js';
@@ -12,6 +12,7 @@ let dialog, body;
 let p = null;
 let color = '';
 let size = '';
+const HOME_TITLE = 'Evincus Streetwear | Heavyweight Tees, Hoodies & Track Sets';
 
 function buttonState(p, color, size) {
   if (!isLive()) return { text: 'Checking availability', disabled: true };
@@ -117,6 +118,7 @@ function onClick(e) {
     e.preventDefault();
     const hash = era.getAttribute('href');
     dialog.close();
+    history.replaceState(null, '', '/');
     location.hash = hash;
     return;
   }
@@ -137,14 +139,15 @@ function onClick(e) {
 export function openProduct(id) {
   const found = findProduct(id);
   if (!found) {
-    history.replaceState(null, '', '#shop');
+    history.replaceState(null, '', '/#shop');
     return;
   }
   p = found;
   color = p.colors[0].name;
   size = p.sizes.length === 1 ? p.sizes[0] : '';
   render();
-  history.replaceState(null, '', `#p-${p.id}`);
+  history.replaceState(null, '', `/products/${p.id}`);
+  document.title = `${p.name} | Evincus Streetwear`;
   if (!dialog.open) dialog.showModal();
   body.scrollTop = 0;
 }
@@ -160,5 +163,8 @@ export function initProductView() {
     const r = dialog.getBoundingClientRect();
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
   });
-  dialog.addEventListener('close', () => { if (location.hash.startsWith('#p-')) history.replaceState(null, '', '#shop'); });
+  dialog.addEventListener('close', () => {
+    document.title = HOME_TITLE;
+    if (location.pathname.startsWith('/products/') || location.hash.startsWith('#p-')) history.replaceState(null, '', '/#shop');
+  });
 }

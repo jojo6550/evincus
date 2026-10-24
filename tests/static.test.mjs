@@ -125,3 +125,51 @@ test('traversal stays blocked when files resolve through file URLs, as in produc
 test('every real error page resolves links from the site root', () => {
   for (const code of ERROR_CODES) assert.match(readFileSync(new URL(`../${code}.html`, import.meta.url), 'utf8'), /<base href="\/">/, `${code}.html`);
 });
+
+test('robots.txt allows crawling only in production and points at the sitemap', async () => {
+  const prod = await get('/robots.txt', { env: { ENVIRONMENT: 'production' } });
+  assert.equal(prod.headers.get('content-type'), 'text/plain; charset=utf-8');
+  const text = await prod.text();
+  assert.match(text, /^Allow: \/$/m);
+  assert.match(text, /^Disallow: \/api\/$/m);
+  assert.match(text, /^Sitemap: https:\/\/evincus\.shop\/sitemap\.xml$/m);
+  assert.match(await (await get('/robots.txt', { env: { ENVIRONMENT: 'staging' } })).text(), /^Disallow: \/$/m);
+});
+
+test('sitemap.xml lists released products with their images and hides unreleased ones', async () => {
+  const data = {
+    eras: [{ slug: 'live', name: 'Live', dropsAt: null, endsAt: null }, { slug: 'soon', name: 'Soon', dropsAt: '2999-01-01T00:00:00Z', endsAt: null }],
+    products: [
+      { id: 'shown-tee', era: 'live', sizes: ['M'], colors: [{ name: 'Black', images: ['data/eras/live/img/a.jpg'] }] },
+      { id: 'secret-tee', era: 'soon', sizes: ['M'], colors: [{ name: 'Black' }] },
+    ],
+  };
+  const r = await serveStatic(new Request('https://shop.test/sitemap.xml'), { env: {}, readFile, data });
+  assert.equal(r.headers.get('content-type'), 'application/xml; charset=utf-8');
+  const xml = await r.text();
+  assert.match(xml, /<loc>https:\/\/evincus\.shop\/products\/shown-tee<\/loc>/);
+  assert.match(xml, /<image:loc>https:\/\/evincus\.shop\/data\/eras\/live\/img\/a\.jpg<\/image:loc>/);
+  assert.doesNotMatch(xml, /secret-tee/);
+});
+
+test('/products/<id> serves the storefront with that product in the head, and 404s unknown ids', async () => {
+  const page = { 'index.html': '<head><!-- seo --><title>Home</title><!-- /seo --></head>shop', '404.html': 'not found' };
+  const readPage = async path => { if (!(path in page)) throw Object.assign(new Error('missing'), { code: 'ENOENT' }); return new TextEncoder().encode(page[path]); };
+  const r = await serveStatic(new Request('https://shop.test/products/disaster-zone-tee'), { env: {}, readFile: readPage });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'text/html; charset=utf-8');
+  const html = await r.text();
+  assert.match(html, /<title>Disaster Zone Tee \| Evincus Streetwear<\/title>/);
+  assert.match(html, /<link rel="canonical" href="https:\/\/evincus\.shop\/products\/disaster-zone-tee">/);
+  assert.doesNotMatch(html, /<title>Home<\/title>/);
+  assert.match(html, /shop$/);
+  const ld = JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/.exec(html)[1]);
+  assert.equal(ld['@type'], 'Product');
+  assert.equal(ld.offers.price, '34.99');
+  assert.equal(ld.offers.priceCurrency, 'USD');
+  assert.equal(ld.offers.availability, 'https://schema.org/InStock');
+  assert.equal(ld.brand.name, 'Evincus Streetwear');
+  for (const path of ['/products/nope', '/products/', '/products/disaster-zone-tee/x']) {
+    assert.equal((await serveStatic(new Request(`https://shop.test${path}`), { env: {}, readFile: readPage })).status, 404, path);
+  }
+});

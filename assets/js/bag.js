@@ -113,7 +113,7 @@ function renderPay() {
   title.textContent = TITLES.pay;
   body.innerHTML = `
     <div class="pay">
-      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="policies.html#shipping" target="_blank" rel="noopener">shipping policy</a> and <a href="policies.html#terms" target="_blank" rel="noopener">terms</a> before placing your order.</p>
+      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="/policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="/policies.html#shipping" target="_blank" rel="noopener">shipping policy</a> and <a href="/policies.html#terms" target="_blank" rel="noopener">terms</a> before placing your order.</p>
       <div class="checkout-mount"></div>
     </div>`;
   foot.innerHTML = '';

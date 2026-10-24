@@ -1,5 +1,9 @@
 import { createLogger } from './lib/log.js';
 import { secureResponse } from './lib/security.js';
+import { CATALOG } from './lib/catalog.js';
+import { loadSales } from './lib/sales.js';
+import { applySales, publicView } from '../data/catalog.js';
+import { robotsTxt, sitemapXml, productHead } from './lib/seo.js';
 
 // The public site: root .html pages, /assets/ and /data/. Nothing else in the repo (server code, docs, .env,
 // package files) is ever served. Missing pages get 404.html with a real 404 status.
@@ -8,7 +12,7 @@ export const ERROR_CODES = [403, 404, 500, 502, 503, 504];
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
+  '.json': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.mp4': 'video/mp4', '.avif': 'image/avif',
   '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf',
@@ -30,7 +34,18 @@ function allowed(path) {
 // The site's runtime settings. The API is same-origin, so API_BASE is always ''.
 const configJs = env => `export const API_BASE = '';\nexport const PAYPAL_CLIENT_ID = ${JSON.stringify(env.PAYPAL_CLIENT_ID ?? 'test')};\n`;
 
-async function staticResponse(req, { env = {}, readFile, statFile }) {
+// /products/<id>: the storefront with that product's title, description, social card and Product JSON-LD in the
+// <head>, so search engines and link previews see the product. The page's own script opens the product view.
+async function productPage(id, { env, readFile, data, now }) {
+  const sales = env.ORDERS ? await loadSales(env, createLogger({ route: 'GET product page' })) : [];
+  const view = publicView(applySales(data, sales, now), now);
+  const p = view.products.find(x => x.id === id);
+  if (!p) return null;
+  const html = new TextDecoder().decode(await readFile('index.html'));
+  return html.replace(/<!-- seo -->[\s\S]*?<!-- \/seo -->/, productHead(p, view.eras.find(e => e.slug === p.era)));
+}
+
+async function staticResponse(req, { env = {}, readFile, statFile, data = CATALOG, now = new Date() }) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
   const send = (body, path, status = 200, cache = extension(path) === '.html' ? 'no-cache' : 'public, max-age=600') =>
     new Response(req.method === 'HEAD' ? null : body, {
@@ -45,6 +60,13 @@ async function staticResponse(req, { env = {}, readFile, statFile }) {
     if (path === '/') path = '/index.html';
     if (path === '/favicon.ico') path = '/assets/img/favicon.ico';
     if (path.toLowerCase() === '/assets/js/config.js') return send(configJs(env), '/assets/js/config.js', 200, 'no-cache');
+    if (path === '/robots.txt') return send(robotsTxt(env.ENVIRONMENT === 'production'), path, 200, 'public, max-age=3600');
+    if (path === '/sitemap.xml') return send(sitemapXml(data, now), path, 200, 'public, max-age=3600');
+    const product = /^\/products\/([a-z0-9-]+)$/.exec(path);
+    if (product) {
+      const html = await productPage(product[1], { env, readFile, data, now });
+      return html ? send(html, '/index.html') : await errorPage(404);
+    }
     const forced = /^\/__error\/(\d{3})$/.exec(path);
     if (forced && env.ENVIRONMENT === 'development' && ERROR_CODES.includes(Number(forced[1]))) return await errorPage(Number(forced[1]));
     if (allowed(path)) {

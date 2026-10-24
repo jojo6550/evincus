@@ -40,7 +40,7 @@ test('real HTTP adapter serves compressed content, conditional requests, streami
             assert.equal(res.headers['content-encoding'], encoding);
             assert.match(res.headers.vary, /Accept-Encoding/);
             const body = (encoding === 'gzip' ? gunzipSync : brotliDecompressSync)(Buffer.concat(chunks));
-            assert.match(body.toString(), /Evincus Catastrophe/); resolve();
+            assert.match(body.toString(), /Evincus Streetwear/); resolve();
           } catch (error) { reject(error); }
         });
       }).on('error', reject);
