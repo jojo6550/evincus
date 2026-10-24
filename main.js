@@ -17,11 +17,10 @@ import { HTTP_OPTIONS, requestBody, sendResponse } from './server/lib/runtime.js
 import { secureResponse } from './server/lib/security.js';
 
 if (process.env.ENVIRONMENT === 'production') {
-  const keys = ['ADMIN_TOKEN', 'ORDER_HMAC_KEY', 'NEWSLETTER_KEY'];
+  const keys = ['ADMIN_TOKEN', 'NEWSLETTER_KEY'];
   if (keys.some(key => !process.env[key] || process.env[key].length < 32 || /local-dev-only|example/i.test(process.env[key])) || new Set(keys.map(key => process.env[key])).size !== keys.length) {
-    throw new Error('Production requires distinct ADMIN_TOKEN, ORDER_HMAC_KEY and NEWSLETTER_KEY secrets of at least 32 characters');
+    throw new Error('Production requires distinct ADMIN_TOKEN and NEWSLETTER_KEY secrets of at least 32 characters');
   }
-  if (process.env.PAYMENT_MODE !== 'none') throw new Error('This release requires PAYMENT_MODE=none');
 }
 
 // KV_PATH puts KV in a SQLite file on Render's persistent disk. Unset (dev), a local file kept across --watch restarts.

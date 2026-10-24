@@ -64,11 +64,10 @@ test('the conventional favicon URL serves the current icon, including HEAD reque
 });
 
 test('config.js is generated from env, never read from disk', async () => {
-  const r = await get('/assets/js/config.js', { env: { PAYPAL_CLIENT_ID: 'live-"id' } });
+  const r = await get('/assets/js/config.js');
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-type'), 'text/javascript; charset=utf-8');
-  assert.equal(await r.text(), `export const API_BASE = '';\nexport const PAYPAL_CLIENT_ID = "live-\\"id";\n`);
-  assert.match(await (await get('/assets/js/config.js')).text(), /PAYPAL_CLIENT_ID = "test"/);
+  assert.equal(await r.text(), `export const API_BASE = '';\n`);
   // A case-insensitive filesystem would otherwise resolve this to the stale file on disk.
   const cased = await get('/assets/JS/config.js');
   assert.equal(cased.status, 200);
@@ -188,4 +187,24 @@ test('pages name the speculation rules, which prefetch site links but never API 
   const rules = await r.json();
   assert.equal(rules.prerender, undefined);
   assert.deepEqual(rules.prefetch[0].where.and[1].not.href_matches, ['/api/*', '/products/*', '/newsletter.html']);
+});
+
+test('STATUS closes the public domain with a 503 page, never the onrender.com dev link', async () => {
+  const pages = { ...FILES, 'newsletter.html': 'nl', 'restocking.html': 'restocking' };
+  const at = (STATUS, host, path) => serveStatic(new Request(`https://${host}${path}`, { headers: { host } }), { env: { STATUS }, readFile: async p => new TextEncoder().encode(pages[p]) });
+  for (const path of ['/', '/eras.html', '/products/x', '/robots.txt']) {
+    const r = await at('stocking', 'WWW.Evincus.shop:443', path);
+    assert.equal(r.status, 503, path);
+    assert.equal(await r.text(), 'restocking', path);
+    assert.equal(r.headers.get('cache-control'), 'no-store', path);
+  }
+  assert.equal(await (await at('maintenance', 'evincus.shop', '/')).text(), 'down');
+  assert.equal(await (await at('stockng', 'evincus.shop', '/')).text(), 'down', 'a typo closes the store');
+  assert.equal(await (await at('live', 'evincus.shop', '/')).text(), 'home');
+  assert.equal((await at('stocking', 'evincus.shop', '/assets/css/index.css')).status, 200);
+  assert.equal((await at('stocking', 'evincus.shop', '/newsletter.html')).status, 200);
+  const dev = await at('stocking', 'evincus-dev.onrender.com', '/');
+  assert.equal(dev.status, 200);
+  assert.equal(await dev.text(), 'home');
+  assert.equal((await get('/')).status, 200, 'unset STATUS is live');
 });

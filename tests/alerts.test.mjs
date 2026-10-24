@@ -4,7 +4,7 @@ import { makeEnv, fakeUpstreams, captureLogs, call } from './helpers/fake-env.mj
 import { NOW } from './helpers/fixture.mjs';
 import { createLogger } from '../server/lib/log.js';
 import { sendEmail } from '../server/lib/email.js';
-import { alert, countPaypalError } from '../server/lib/alerts.js';
+import { alert } from '../server/lib/alerts.js';
 
 const ctxFor = (env, now = NOW) => ({ env, log: createLogger({}), now: new Date(now), reqId: 'req-1', waitUntil: () => {} });
 
@@ -58,17 +58,6 @@ test('alert email escapes values', async () => {
   await alert(ctxFor(makeEnv()), 'unhandled', { subject: 'x', rows: [['Name', 'Alpha <Tee>']] });
   assert.ok(up.emails[0].html.includes('Alpha &lt;Tee&gt;'));
   assert.ok(!up.emails[0].html.includes('<Tee>'));
-});
-
-test('PayPal error burst alerts once at the 5th error in a 10-minute bucket', async () => {
-  const up = fakeUpstreams();
-  const env = makeEnv();
-  for (let i = 0; i < 6; i++) await countPaypalError(ctxFor(env));
-  assert.equal(up.emails.length, 1);
-  assert.match(up.emails[0].subject, /PayPal/);
-  const key = `paypal-errors:${Math.floor(NOW / 600000)}`;
-  assert.equal(env.ORDERS.store.get(key).value, '6');
-  assert.equal(env.ORDERS.store.get(key).opts.expirationTtl, 1200);
 });
 
 test('unhandled errors alert the owner', async () => {

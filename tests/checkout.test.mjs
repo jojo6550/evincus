@@ -4,8 +4,8 @@ import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter } from './helpers/fa
 import { createApp } from '../server/index.js';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 
-const envForOrders = over => makeEnv({ PAYMENT_MODE: 'none', ...over });
-const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'delivery', address: { address_line_1: '1 Main St', admin_area_2: 'Toronto', admin_area_1: 'Ontario', postal_code: 'M5V 1A1', country_code: 'CA' } }, notes: '<please pack carefully>', expectedTotalCents: 7498 });
+const envForOrders = makeEnv;
+const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, notes: '<please pack carefully>', expectedTotalCents: 6998 });
 const place = (b, env) => call('POST', '/api/orders', { body: b, env });
 async function cron(env, iso) {
   const ctx = makeCtx();
@@ -13,7 +13,7 @@ async function cron(env, iso) {
   await ctx.settle();
 }
 
-test('direct delivery stores an unpaid order and confirms by Resend without PayPal', async () => {
+test('direct pickup stores an unpaid order and confirms by Resend', async () => {
   const up = fakeUpstreams();
   const env = envForOrders();
   const r = await place(body(), env);
@@ -21,9 +21,8 @@ test('direct delivery stores an unpaid order and confirms by Resend without PayP
   assert.equal(r.json.paymentStatus, 'NOT_COLLECTED');
   const record = await env.ORDERS.get(`order:${r.json.id}`, 'json');
   assert.equal(record.status, 'PLACED');
-  assert.equal(record.totalCents, 7498);
-  assert.equal(record.fulfillment.address.country_code, 'CA');
-  assert.equal(up.calls.some(c => c.host.includes('paypal')), false);
+  assert.equal(record.totalCents, 6998);
+  assert.equal(record.fulfillment.location.id, 'trendy-hats');
   assert.equal(up.emails.length, 1);
   assert.match(up.emails[0].html, /No payment was collected/);
   assert.equal(env.ORDERS.store.has(`email-retry:${r.json.id}`), false);
@@ -42,35 +41,31 @@ test('customer markup is escaped in receipts and daily summaries', async () => {
   }
 });
 
-test('both pickup locations need no delivery address and have zero shipping', async () => {
+test('both pickup locations place orders', async () => {
   fakeUpstreams();
   for (const locationId of ['trendy-hats', 'evincus-store']) {
     const env = envForOrders();
-    const b = { ...body(), fulfillment: { type: 'pickup', locationId }, expectedTotalCents: 6998 };
+    const b = { ...body(), fulfillment: { type: 'pickup', locationId } };
     const r = await place(b, env);
     assert.equal(r.status, 201);
     const record = await env.ORDERS.get(`order:${r.json.id}`, 'json');
-    assert.equal(record.shippingCents, 0);
     assert.equal(record.fulfillment.location.id, locationId);
     assert.equal(record.fulfillment.location.address, null);
   }
 });
 
-test('invalid contact, address, pickup and unsupported countries do not save orders', async () => {
+test('invalid contact, unknown pickup and delivery requests do not save orders', async () => {
   fakeUpstreams();
-  for (const modify of [b => { b.customer.email = 'bad'; }, b => { b.customer.phone = 'abc'; }, b => { b.fulfillment.address.address_line_1 = ''; }, b => { b.fulfillment.address.postal_code = ''; }, b => { b.fulfillment.address.country_code = 'XX'; }, b => { b.fulfillment = { type: 'pickup', locationId: 'made-up' }; }]) {
+  for (const modify of [b => { b.customer.email = 'bad'; }, b => { b.customer.phone = 'abc'; }, b => { b.fulfillment = { type: 'pickup', locationId: 'made-up' }; }, b => { b.fulfillment = { type: 'delivery', address: { address_line_1: '1 Main St', admin_area_2: 'Toronto', country_code: 'CA' } }; }]) {
     const env = envForOrders(); const b = body(); modify(b);
-    assert.equal((await place(b, env)).status, 400);
+    assert.equal((await place(b, env)).json.error.code, 'invalid-checkout');
     assert.equal([...env.ORDERS.store.keys()].filter(k => k.startsWith('order:')).length, 0);
   }
-  assert.equal((await place(body(), envForOrders({ DELIVERY_EXCLUDED_COUNTRIES: 'CA' }))).json.error.code, 'unsupported-country');
 });
 
-test('USA and Canada are offered and excluded countries disappear from checkout', async () => {
-  const r = await call('GET', '/api/checkout/options', { env: envForOrders({ DELIVERY_EXCLUDED_COUNTRIES: 'AQ' }) });
-  assert.ok(r.json.countries.includes('US'));
-  assert.ok(r.json.countries.includes('CA'));
-  assert.ok(!r.json.countries.includes('AQ'));
+test('checkout options offer only the pickup locations', async () => {
+  const r = await call('GET', '/api/checkout/options', { env: envForOrders() });
+  assert.deepEqual(Object.keys(r.json), ['pickupLocations']);
   assert.equal(r.json.pickupLocations.length, 2);
 });
 
@@ -149,11 +144,11 @@ test('daily digest failures retry with stable content and idempotency key', asyn
   assert.equal(await env.ORDERS.get('digest-pending:2026-10-03'), null);
 });
 
-test('orders around midnight use the Jamaica day and payment capture is disabled', async () => {
+test('orders around midnight use the Jamaica day and the payment capture route is gone', async () => {
   fakeUpstreams(); const env = envForOrders();
   const r = await call('POST', '/api/orders', { body: body(), env, clock: () => Date.parse('2026-10-04T04:59:00Z') });
   assert.ok(env.ORDERS.store.has(`day:2026-10-03:${r.json.id}`));
-  assert.equal((await call('POST', '/api/orders/capture', { body: {}, env })).status, 403);
+  assert.equal((await call('POST', '/api/orders/capture', { body: {}, env })).status, 404);
 });
 
 test('order rate limiting prevents excess submissions', async () => {

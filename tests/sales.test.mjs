@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { call, makeEnv, fakeUpstreams } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 import { applySales, bestSale, salePrice } from '../data/catalog.js';
-import { SALES_KEY, SALE_GRACE_MS } from '../server/lib/sales.js';
+import { SALES_KEY } from '../server/lib/sales.js';
 import { addSale, endSale, makeSale, parseArgs } from '../scripts/discount.mjs';
 
 const HOUR = 3_600_000;
@@ -81,22 +81,6 @@ test('a sale that cannot be read prices at full price', async () => {
   env.ORDERS.failGets = key => key === SALES_KEY;
   const { json } = await call('POST', '/api/bag/quote', { body: { items: [item()] }, env });
   assert.equal(json.lines[0].unitCents, 3499);
-});
-
-test('a PayPal order priced during a sale captures inside the grace window, and is refused after it', async () => {
-  fakeUpstreams();
-  const ends = NOW + 1000;
-  const env = envWith([sale({ endsAt: iso(ends) })]);
-  const id = (await call('POST', '/api/orders', { body: { items: [item()] }, env })).json.id;
-
-  const inGrace = await call('POST', '/api/orders/capture', { body: { orderID: id }, env, clock: () => ends + SALE_GRACE_MS - 1000 });
-  assert.equal(inGrace.status, 200);
-  assert.equal(inGrace.json.totalCents, 5598 + 500);
-
-  const id2 = (await call('POST', '/api/orders', { body: { items: [item()] }, env })).json.id;
-  const late = await call('POST', '/api/orders/capture', { body: { orderID: id2 }, env, clock: () => ends + SALE_GRACE_MS + 1000 });
-  assert.equal(late.status, 409);
-  assert.equal(late.json.error.code, 'capture-refused');
 });
 
 // ---------- npm run discount ----------

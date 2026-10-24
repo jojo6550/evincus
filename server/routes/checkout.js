@@ -1,13 +1,13 @@
 import { json, fail, readJson, HttpError } from '../lib/http.js';
 import { CartError, quote } from '../lib/pricing.js';
-import { parseCheckout, checkoutShipping, directRecord } from '../lib/checkout.js';
+import { parseCheckout, directRecord } from '../lib/checkout.js';
 import { sendOrderEmails } from '../lib/delivery.js';
-import { PICKUP_LOCATIONS, deliveryCountries } from '../../data/fulfillment.js';
+import { PICKUP_LOCATIONS } from '../../data/fulfillment.js';
 import { findOrder } from '../lib/orders.js';
 import { submitOrder } from '../lib/submissions.js';
 
 export function checkoutOptions(req, c) {
-  return json({ pickupLocations: PICKUP_LOCATIONS, countries: deliveryCountries(c.env), deliveryShippingCents: checkoutShipping(c.env, 'delivery') }, 200, { 'Cache-Control': 'no-store' });
+  return json({ pickupLocations: PICKUP_LOCATIONS }, 200, { 'Cache-Control': 'no-store' });
 }
 
 export async function placeOrderRoute(req, c) {
@@ -17,7 +17,7 @@ export async function placeOrderRoute(req, c) {
     const result = await c.env.ORDER_LIMIT.limit({ key: c.ip });
     if (!result.success) return fail(c, 'rate-limited', 429);
   }
-  const details = parseCheckout(body, c.env);
+  const details = parseCheckout(body);
   if (!Array.isArray(body.items) || !body.items.every(i => i && typeof i === 'object')) return fail(c, 'invalid-cart', 400);
   const bytes = new TextEncoder().encode(JSON.stringify({ items: body.items.map(({ id, color, size, qty }) => ({ id, color, size, qty })), ...details, expectedTotalCents: body.expectedTotalCents }));
   const fingerprint = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
@@ -27,7 +27,7 @@ export async function placeOrderRoute(req, c) {
   let { record } = result;
   if (!record) {
     let q;
-    try { q = quote(c.data, c.now, body?.items, checkoutShipping(c.env, details.fulfillment.type)); }
+    try { q = quote(c.data, c.now, body?.items); }
     catch (err) { if (err instanceof CartError) return fail(c, 'invalid-cart', 400); throw err; }
     // Never silently accept a changed price or capped quantity.
     if (!q.checkoutReady || q.lines.some(l => l.status !== 'ok') || body.expectedTotalCents !== q.totalCents) return fail(c, 'bag-changed', 409, { lines: q.lines });
@@ -38,7 +38,7 @@ export async function placeOrderRoute(req, c) {
   c.log.info('order.placed', { orderId: id, totalCents: record.totalCents });
   c.waitUntil((async () => {
     const latest = await findOrder(c.env, id);
-    await sendOrderEmails(c, latest ?? record, { persisted: true });
+    await sendOrderEmails(c, latest ?? record);
   })().catch(err => c.log.error('email.failed', { orderId: id, message: String(err.message) })));
   return json({ id, status: record.status, paymentStatus: record.paymentStatus, name: record.customer.name, email: record.customer.email, fulfillment: record.fulfillment, totalCents: record.totalCents }, 201, { 'Cache-Control': 'no-store' });
 }

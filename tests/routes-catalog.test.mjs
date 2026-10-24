@@ -151,3 +151,15 @@ test('GET /api/catalog returns every era and every released product in one respo
   assert.deepEqual(json.sales, []);
   assert.equal(res.headers.get('cache-control'), 'public, max-age=60');
 });
+
+test('STATUS refuses the API on the public domain with 503, except health and newsletter links', async () => {
+  const env = makeEnv({ STATUS: 'stocking' });
+  const down = await call('POST', '/api/orders', { env, headers: { host: 'evincus.shop' }, body: {} });
+  assert.equal(down.status, 503);
+  assert.equal(down.json.error.code, 'stocking');
+  assert.equal((await call('GET', '/api/eras', { env: makeEnv({ STATUS: 'maintenance' }), headers: { host: 'evincus.shop' } })).json.error.code, 'maintenance');
+  assert.equal((await call('GET', '/api/eras', { env, headers: { host: 'evincus.shop' } })).status, 503);
+  assert.notEqual((await call('GET', '/api/health', { env, headers: { host: 'evincus.shop' } })).status, 503);
+  assert.notEqual((await call('POST', '/api/newsletter/unsubscribe', { env, headers: { host: 'evincus.shop' }, body: {} })).status, 503);
+  assert.equal((await call('GET', '/api/eras', { env, headers: { host: 'evincus-dev.onrender.com' } })).status, 200);
+});

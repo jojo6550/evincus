@@ -3,9 +3,6 @@
 // because they're checked against the request clock.
 export const SALES_KEY = 'config:sales';
 
-// A PayPal order priced in the last minutes of a sale can still be captured at that price.
-export const SALE_GRACE_MS = 15 * 60 * 1000;
-
 // A read failure prices at full price: checkout then refuses sale-priced orders rather than undercharging silently.
 export async function loadSales(env, log) {
   try {

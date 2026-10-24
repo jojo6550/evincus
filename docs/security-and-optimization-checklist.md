@@ -17,7 +17,7 @@ See the [implementation report](security-implementation-report.md) and [operatio
 
 ### Configuration and access
 
-- [ ] **Production mode:** startup requires unpaid checkout; local SDK/capture/preview behavior is verified. Inspect actual Render settings and post-deploy endpoints.
+- [ ] **Production mode:** no payment integration exists; local preview behavior is verified. Inspect actual Render settings and post-deploy endpoints.
 - [ ] **Production secrets:** guards reject missing, short, example, or duplicate signing/admin secrets. Actual creation, rotation, revocation, and provider verification require account access.
 - [ ] **Private files/history:** local pattern-based scans pass across working files and 88 commits. Built-image exclusions and provider secret scanning still need CI/account evidence; patterns cannot detect every secret format.
 - [x] **Admin access:** tests verify wrong/missing tokens, unavailable unconfigured routes, `no-store`, and stale-version conflicts. Tokens remain server/operator-side.
@@ -26,9 +26,9 @@ See the [implementation report](security-implementation-report.md) and [operatio
 
 ### Orders, content, and customer data
 
-- [x] **Authoritative pricing:** tests cover prices, discounts, variants, quantities, availability, sale boundaries, shipping, and tampered totals.
+- [x] **Authoritative pricing:** tests cover prices, discounts, variants, quantities, availability, sale boundaries, and tampered totals.
 - [x] **Order idempotency:** concurrent submissions, payload conflicts, atomic failures, and persisted replay after restart pass; five duplicate submissions create one order.
-- [x] **Input validation:** customer/address/notes limits, countries, pickup choices, carts, malformed JSON, and unsupported methods pass.
+- [x] **Input validation:** customer/notes limits, pickup choices, carts, malformed JSON, and unsupported methods pass.
 - [x] **HTML/URL handling:** markup is escaped in receipts and summaries; labels are escaped, status uses `textContent`, and responsive-image URLs reject unsafe schemes.
 - [x] **Static boundaries:** encoded/double-encoded traversal and private-file tests pass. File access also rejects symlinks and paths outside the public root.
 - [ ] **Unreleased material:** published era modules and all photo variants remain public. Owners must review unpublished content before each push; never deploy secret drops early.
@@ -44,7 +44,7 @@ See the [implementation report](security-implementation-report.md) and [operatio
 - [ ] **Production disk:** local persistence/restart passes; disk reserve and overdue-cron health signals exist. Verify the actual mount, snapshot schedule, capacity alerts, and single instance.
 - [ ] **Release and rollback:** all 230 tests pass; CI gates and tested-commit deployment checks are configured. Publish/run CI and rehearse a compatible rollback; format-2 newsletter jobs have documented precautions.
 - [ ] **External monitors:** health signals and five-minute GET monitor instructions are ready. Create/verify monitors, notification delivery, repeated-5xx alerts, and overdue-summary alerts in the provider.
-- [ ] **Fulfillment:** delivery charge, excluded countries, and pickup street addresses are still **unconfirmed by the owner**. Existing values are preserved; confirm before launch. Receipts state that payment was not collected.
+- [ ] **Fulfillment:** pickup street addresses are still **unconfirmed by the owner**. Existing values are preserved; confirm before launch. Receipts state that payment was not collected.
 
 ## P2 — Performance and reliability
 

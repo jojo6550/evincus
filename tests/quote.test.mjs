@@ -13,8 +13,7 @@ test('prices from the catalog, ignores client prices, keeps comma colour names i
     status: 'ok', name: 'Alpha <Tee>', image: 'https://img.test/a1.png', unitCents: 3499, totalCents: 6998,
   });
   assert.equal(json.subtotalCents, 6998);
-  assert.equal(json.shippingCents, 500);
-  assert.equal(json.totalCents, 7498);
+  assert.equal(json.totalCents, 6998);
   assert.equal(json.checkoutReady, true);
 });
 
@@ -30,7 +29,7 @@ test('one bad line does not fail the bag; only countable lines are totalled', as
   assert.equal(status, 200);
   assert.deepEqual(json.lines.map(l => l.status), ['ok', 'sold-out', 'sold-out', 'not-released', 'era-ended', 'unknown-item']);
   assert.equal(json.subtotalCents, 6998);
-  assert.equal(json.totalCents, 7498);
+  assert.equal(json.totalCents, 6998);
   assert.equal(json.checkoutReady, false);
 });
 
@@ -49,9 +48,8 @@ test('absurd quantities are capped at 10 and stay checkout-ready', async () => {
   assert.equal(json.checkoutReady, true);
 });
 
-test('shipping is zero when nothing is countable', async () => {
+test('total is zero when nothing is countable', async () => {
   const { json } = await quote([{ id: 'old-tee', color: 'Black', size: 'M', qty: 1 }]);
-  assert.equal(json.shippingCents, 0);
   assert.equal(json.totalCents, 0);
   assert.equal(json.checkoutReady, false);
 });
@@ -81,5 +79,5 @@ test('quote logs status counts and total', async () => {
   try { await quote([item(), { id: 'old-tee', color: 'Black', size: 'M', qty: 1 }]); } finally { logs.restore(); }
   const line = logs.lines.find(l => l.event === 'bag.quoted');
   assert.deepEqual(line.statuses, { ok: 1, 'era-ended': 1 });
-  assert.equal(line.totalCents, 7498);
+  assert.equal(line.totalCents, 6998);
 });

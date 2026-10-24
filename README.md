@@ -6,7 +6,7 @@ no build step. Checkout places orders directly. **No payment service is used and
 ## Layout
 
 - `index.html`: the whole site, a single dark "Catastrophe" landing page with an era filter, product view dialog,
-  bag drawer and in-drawer delivery / pickup checkout.
+  bag drawer and in-drawer pickup checkout.
 - `assets/js`: `index.js`, `store.js`, `api.js`, `cart.js`, `quote.js`, `bag.js`, `product-view.js`, `checkout.js`.
   Styles are in `assets/css/index.css`.
 - `data/eras/<slug>/`: one folder per era. `era.js` holds the era and its products; `img/` holds that era's photos.
@@ -15,7 +15,7 @@ no build step. Checkout places orders directly. **No payment service is used and
 - `data/catalog.js`: catalog rules shared by the site and the API (era status, what's visible, what's buyable).
 - `main.js`: the Node entry (KV, cron, `node:http`). `server/`: the API router (`index.js`), `routes`, `lib`,
   `emails`, and the static file server (`static.js`). `server/` only uses web-standard `Request`/`Response`.
-- `policies.html`: customer-facing privacy, shipping, refund, terms and FAQ content,
+- `policies.html`: customer-facing privacy, pickup, refund, terms and FAQ content,
   linked from the store, eras page and checkout. Refund requests have a 24-hour
   window from purchase. `docs/policies/original-evincus-shop.md` preserves the
   recovered homepage source and records the adaptation decisions.
@@ -70,8 +70,7 @@ Start and end times are exact.
 
 Add `local` for `npm run dev`, `url=https://evincus.onrender.com` before the domain points at Render, `dry-run` to preview (plain words, no
 dashes: npm keeps `--flags` for itself in PowerShell). The command needs `ADMIN_TOKEN`, the same value as the
-server's, in your environment or `.env`. Overlapping sales don't stack: each product gets its era's deepest one. A
-PayPal order approved in the last 15 minutes of a sale still captures at the sale price.
+server's, in your environment or `.env`. Overlapping sales don't stack: each product gets its era's deepest one.
 Everything in `data/` is served with the site, so an era's folder (`era.js`, photos) can be fetched from the live site
 once it's pushed, even with a private repo. The API keeps an upcoming era unbuyable, but it isn't secret. To keep a drop
 secret, push its folder on drop day.
@@ -86,7 +85,7 @@ subscriber with whatever changed since the last one: drops that went live, sales
 | Setting | Where |
 | --- | --- |
 | Send hour, or off | `NEWSLETTER_HOUR` (`10` = 10:00, blank = off) |
-| Link signing key | `NEWSLETTER_KEY` secret (falls back to `ORDER_HMAC_KEY`) |
+| Link signing key | `NEWSLETTER_KEY` secret |
 | Links and images | `SITE_URL` (the public site) |
 | One-click unsubscribe in Gmail/Apple Mail | `API_URL` (the public site too: the API is same-origin) |
 | Postal address in the footer (required for marketing email in many countries) | `POSTAL_ADDRESS` |
@@ -128,10 +127,9 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
 
    | Variable | Value |
    | --- | --- |
-   | `DELIVERY_EXCLUDED_COUNTRIES` | comma-separated ISO codes, or blank |
    | `OWNER_EMAIL` | where order summaries and alerts go |
    | `POSTAL_ADDRESS` | printed in newsletter footers |
-   | Secrets: `RESEND_API_KEY`, `ORDER_HMAC_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | Use the provider-issued Resend key and distinct random values of at least 32 characters for the other three. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
+   | Secrets: `RESEND_API_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | Use the provider-issued Resend key and distinct random values of at least 32 characters for the other two. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
 
 2. Service `evincus`, Settings, **Deploy Hook**: copy the URL into GitHub, Settings, Secrets and variables, Actions,
    as the secret `RENDER_DEPLOY_HOOK_URL`.
@@ -139,21 +137,18 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
    Until they resolve, add the GitHub Actions variable `RENDER_URL=https://evincus.onrender.com` so CI checks that
    address, and pass `url=https://evincus.onrender.com` to `npm run discount`. Delete the variable afterwards.
 4. Verify the sending domain in Resend.
-5. Merge `main` into `prod` and push. The Actions run must end green, then place a delivery and a pickup test order on the live site.
+5. Merge `main` into `prod` and push. The Actions run must end green, then place a pickup test order on the live site.
 6. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
-7. Keep `PAYMENT_MODE=none`.
 
 ## Orders and fulfillment
 
 `POST /api/orders` accepts `checkoutToken` (a UUID), `items`, `customer` (`name`, `email`, `phone`),
 `fulfillment`, optional `notes`, and `expectedTotalCents`. The server checks catalog prices, availability,
 variants and quantities; mismatched totals require reviewing the bag. Orders are `PLACED`, with
-`paymentStatus: NOT_COLLECTED`. `/api/orders/capture` is disabled. No PayPal SDK loads in checkout.
+`paymentStatus: NOT_COLLECTED`. There is no payment integration: the checkout's Pay button places the order,
+shows "Payment complete" and clears the cart, but charges nothing.
 
-Delivery uses an ISO country dropdown including the USA and Canada. Set `DELIVERY_EXCLUDED_COUNTRIES` to a
-comma-separated list of ISO codes when exclusions are known. The current list allows all ISO countries;
-carrier restrictions must be configured before launch. Delivery uses the existing flat `SHIPPING_USD` setting
-(currently zero); set the confirmed delivery charge before launch. Pickup is free.
+Pickup is the only fulfillment option for now and is free. There is no delivery or shipping.
 
 `data/fulfillment.js` holds the two pickup locations: Trendy Hats and Vince's store, both in Mandeville,
 Manchester, Jamaica. Their addresses are intentionally empty until confirmed. Fill each `address` there;
@@ -168,7 +163,7 @@ removed from the bag.
 
 Customers receive a Resend confirmation after placement. The owner receives a daily summary of the previous
 Jamaica calendar day's orders at **08:00 America/Jamaica (13:00 UTC)**, including contact details, line items,
-delivery addresses or pickup selections, notes and order totals. Empty days also send a summary. This is order
+pickup selections, notes and order totals. Empty days also send a summary. This is order
 value, not collected revenue. Summaries split into parts of 20 orders. The 15-minute cron queues summaries
 after 08:00 and retries failed deliveries with stable Resend idempotency keys and saved email bodies.
 Completed summary markers prevent subsequent sends. A saved cursor catches up after missed cron days.
@@ -178,21 +173,18 @@ Configure `OWNER_EMAIL`, `EMAIL_FROM` and the `RESEND_API_KEY` secret, and verif
 before deployment. Use a separate test recipient for previews so test orders do not enter the production mailbox.
 No real email delivery is verified by the automated tests.
 
-Legacy PayPal code remains available only behind explicit `PAYMENT_MODE = "paypal"` for future development;
-enabling it also requires restoring the payment UI and credentials. Do not change that setting for this release.
-
 ## Monitoring
 
 Use the [security and optimization checklist](docs/security-and-optimization-checklist.md) to track release checks, security improvements, performance work, and recurring maintenance.
 
-The [operations guide](docs/security-operations.md) covers credential rotation, isolated restore checks, retention, monitoring, and rollback compatibility. Production starts only with distinct signing/admin secrets and `PAYMENT_MODE=none`. Security headers apply to the site and API; production CSP starts in report-only mode for rollout, while staging enforces it and disables email. The app monitors free disk and overdue cron completion through `/api/health`.
+The [operations guide](docs/security-operations.md) covers credential rotation, isolated restore checks, retention, monitoring, and rollback compatibility. Production starts only with distinct signing/admin secrets. Security headers apply to the site and API; production CSP starts in report-only mode for rollout, while staging enforces it and disables email. The app monitors free disk and overdue cron completion through `/api/health`.
 
 Run `npm run optimize:images` after adding photos. Responsive versions preserve the originals; generated photo URLs have content versions and long cache lifetimes. `npm run check:performance`, `npm run check:load`, and `npm run check:restore` provide repeatable local checks. Load and restore checks use disposable storage and never send real email. CI also checks private-file exclusions, dependencies, and the unprivileged production container.
 
 - **Logs:** Render dashboard, service `evincus`, Logs. Every line is JSON with `event`, `reqId` and `route`.
   Errors shown to shoppers include the request id.
-- **Alerts:** emailed to `OWNER_EMAIL` for unsaved paid orders, possible tampering, undelivered receipts,
-  PayPal outages (5+ errors in 10 minutes) and unhandled errors. At most one per event type per hour.
+- **Alerts:** emailed to `OWNER_EMAIL` for undelivered receipts and unhandled errors. At most one per event
+  type per hour.
 - **Uptime (set up once by hand):** create a free UptimeRobot or Better Stack **keyword (GET) monitor** for
   `<live URL>/api/health` that expects `"ok":true`. Do not use a plain
   HEAD/HTTP monitor: `/api/health` answers GET only and returns 405 to HEAD. Add a second monitor for the homepage.

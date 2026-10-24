@@ -40,7 +40,7 @@ export function sitemapXml(data, now) {
 export function productDescription(p, era) {
   const colors = p.colors.map(c => c.name);
   const sizes = p.sizes.length > 1 ? `Sizes ${p.sizes[0]} to ${p.sizes.at(-1)}` : `Size ${p.sizes[0]}`;
-  return `${p.name} from the ${era.name} collection by ${BRAND}. ${p.fabric ? `${p.fabric}. ` : ''}In ${list(colors)}. ${sizes}. Ships worldwide.`;
+  return `${p.name} from the ${era.name} collection by ${BRAND}. ${p.fabric ? `${p.fabric}. ` : ''}In ${list(colors)}. ${sizes}.`;
 }
 
 const availability = (p, era) => `https://schema.org/${era.status === 'archived' ? 'Discontinued' : p.soldOut ? 'OutOfStock' : 'InStock'}`;

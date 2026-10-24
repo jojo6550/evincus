@@ -1,6 +1,6 @@
 import { json } from '../lib/http.js';
 
-// Never calls PayPal, so uptime monitors can poll it freely.
+// Calls no outside service, so uptime monitors can poll it freely.
 export async function health(req, c) {
   const catalog = { eras: c.data.eras.length, products: c.data.products.length };
   let kv = 'ok';
