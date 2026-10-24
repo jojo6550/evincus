@@ -31,6 +31,12 @@ function allowed(path) {
   return PAGE.test(path) || DIRS.some(dir => path.startsWith(dir) && !path.endsWith('/'));
 }
 
+// Pages linked from the current one are fetched when a visitor hovers or touches the link, so the click is served
+// from memory. Prefetch, never prerender: a prerendered page would run its scripts early and show a stale cart.
+const SPECULATION_RULES = JSON.stringify({
+  prefetch: [{ where: { and: [{ href_matches: '/*' }, { not: { href_matches: ['/api/*', '/products/*', '/newsletter.html'] } }] }, eagerness: 'moderate' }],
+});
+
 // The site's runtime settings. The API is same-origin, so API_BASE is always ''.
 const configJs = env => `export const API_BASE = '';\nexport const PAYPAL_CLIENT_ID = ${JSON.stringify(env.PAYPAL_CLIENT_ID ?? 'test')};\n`;
 
@@ -50,7 +56,11 @@ async function staticResponse(req, { env = {}, readFile, statFile, data = CATALO
   const send = (body, path, status = 200, cache = extension(path) === '.html' ? 'no-cache' : 'public, max-age=600') =>
     new Response(req.method === 'HEAD' ? null : body, {
       status,
-      headers: { 'Content-Type': TYPES[extension(path)] ?? 'application/octet-stream', 'Cache-Control': cache, 'X-Content-Type-Options': 'nosniff' },
+      headers: {
+        'Content-Type': path === '/speculation-rules.json' ? 'application/speculationrules+json' : TYPES[extension(path)] ?? 'application/octet-stream',
+        'Cache-Control': cache, 'X-Content-Type-Options': 'nosniff',
+        ...(extension(path) === '.html' && status === 200 && { 'Speculation-Rules': '"/speculation-rules.json"' }),
+      },
     });
   const errorPage = async code => send(await readFile(`${code}.html`), `${code}.html`, code, 'no-store');
 
@@ -62,6 +72,7 @@ async function staticResponse(req, { env = {}, readFile, statFile, data = CATALO
     if (path.toLowerCase() === '/assets/js/config.js') return send(configJs(env), '/assets/js/config.js', 200, 'no-cache');
     if (path === '/robots.txt') return send(robotsTxt(env.ENVIRONMENT === 'production'), path, 200, 'public, max-age=3600');
     if (path === '/sitemap.xml') return send(sitemapXml(data, now), path, 200, 'public, max-age=3600');
+    if (path === '/speculation-rules.json') return send(SPECULATION_RULES, path, 200, 'public, max-age=3600');
     const product = /^\/products\/([a-z0-9-]+)$/.exec(path);
     if (product) {
       const html = await productPage(product[1], { env, readFile, data, now });

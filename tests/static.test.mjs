@@ -31,7 +31,7 @@ test('root pages, assets and data are served with their types', async () => {
   for (const [path, type, cache] of [
     ['/eras.html', 'text/html; charset=utf-8', 'no-cache'],
     ['/assets/css/index.css', 'text/css; charset=utf-8', 'public, max-age=600'],
-    ['/assets/fonts/CruJones.ttf', 'font/ttf', 'public, max-age=600'],
+    ['/assets/fonts/CruJones.ttf', 'font/ttf', 'public, max-age=2592000'],
     ['/data/site.json', 'application/json; charset=utf-8', 'public, max-age=600'],
     ['/data/eras/core/img/core-tee-black-1.jpg', 'image/jpeg', 'public, max-age=600'],
   ]) {
@@ -172,4 +172,15 @@ test('/products/<id> serves the storefront with that product in the head, and 40
   for (const path of ['/products/nope', '/products/', '/products/disaster-zone-tee/x']) {
     assert.equal((await serveStatic(new Request(`https://shop.test${path}`), { env: {}, readFile: readPage })).status, 404, path);
   }
+});
+
+test('pages name the speculation rules, which prefetch site links but never API or product URLs', async () => {
+  assert.equal((await get('/')).headers.get('speculation-rules'), '"/speculation-rules.json"');
+  assert.equal((await get('/nope.html')).headers.get('speculation-rules'), null);
+  assert.equal((await get('/assets/css/index.css')).headers.get('speculation-rules'), null);
+  const r = await get('/speculation-rules.json');
+  assert.equal(r.headers.get('content-type'), 'application/speculationrules+json');
+  const rules = await r.json();
+  assert.equal(rules.prerender, undefined);
+  assert.deepEqual(rules.prefetch[0].where.and[1].not.href_matches, ['/api/*', '/products/*', '/newsletter.html']);
 });
