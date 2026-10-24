@@ -22,10 +22,27 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"OnlineStore","@id":"https://evincus.shop/#org","name":"Evincus Streetwear","alternateName":"Evincus","url":"https://evincus.shop/","logo":"https://evincus.shop/assets/img/logo.png","description":"Heavyweight streetwear with effortless comfort and loud, layered prints.","slogan":"Peace in chaos","address":{"@type":"PostalAddress","addressLocality":"Mandeville","addressCountry":"JM"},"sameAs":["https://www.instagram.com/evincus.sw/","https://www.tiktok.com/@_evincus_"]},{"@type":"WebSite","@id":"https://evincus.shop/#website","name":"Evincus Streetwear","alternateName":"Evincus","url":"https://evincus.shop/","publisher":{"@id":"https://evincus.shop/#org"}}]}</script>
 <!-- /seo -->
 <link rel="preload" href="/assets/fonts/cru-jones-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=IBM+Plex+Mono:wght@400;500&family=Permanent+Marker&display=swap">
+<link rel="preload" href="/assets/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/css/index.css">
+<!-- Fetch the catalog and every module the page imports in parallel, instead of one import level at a time. -->
+<link rel="preload" href="/api/catalog" as="fetch" crossorigin>
+<link rel="preload" href="/data/site.json" as="fetch" crossorigin>
+<link rel="modulepreload" href="/assets/js/config.js">
+<link rel="modulepreload" href="/assets/js/env.js">
+<link rel="modulepreload" href="/assets/js/api.js">
+<link rel="modulepreload" href="/assets/js/image-manifest.js">
+<link rel="modulepreload" href="/assets/js/images.js">
+<link rel="modulepreload" href="/assets/js/store.js">
+<link rel="modulepreload" href="/assets/js/cart.js">
+<link rel="modulepreload" href="/assets/js/quote.js">
+<link rel="modulepreload" href="/assets/js/checkout.js">
+<link rel="modulepreload" href="/assets/js/bag.js">
+<link rel="modulepreload" href="/assets/js/sale.js">
+<link rel="modulepreload" href="/assets/js/product-view.js">
+<link rel="modulepreload" href="/assets/js/signup.js">
+<link rel="modulepreload" href="/assets/js/reel.js">
+<link rel="modulepreload" href="/assets/js/index.js">
+<link rel="modulepreload" href="/data/catalog.js">
 
 <div class="tape" aria-label="Announcement">
   <div class="tape__track">
@@ -38,7 +55,7 @@
 
 <header>
   <nav class="nav wrap">
-    <a class="brand" href="#top" aria-label="Evincus Streetwear home"><img width="44" height="44" src="/assets/img/logo.png" alt=""><b>EVINCUS</b></a>
+    <a class="brand" href="#top" aria-label="Evincus Streetwear home"><img width="44" height="44" src="/assets/img/logo-nav.webp" alt=""><b>EVINCUS</b></a>
     <ul class="mono">
       <li><a href="#shop">Shop</a></li>
       <li><a href="/eras.html">Eras</a></li>

@@ -19,17 +19,10 @@ async function fetchJson(file) {
   return res.json();
 }
 
+// One request, already in flight from the page's <link rel="preload"> by the time this module runs.
 async function fromApi() {
-  const list = await api('GET', '/api/eras');
-  const released = list.eras.filter(e => e.status !== 'upcoming');
-  const details = await Promise.all(released.map(e => api('GET', `/api/eras/${encodeURIComponent(e.slug)}`)));
-  const bySlug = new Map(details.map(({ products, ...era }) => [era.slug, era]));
-  return {
-    eras: list.eras.map(e => ({ ...e, ...(bySlug.get(e.slug) ?? {}) })),
-    products: details.flatMap(d => d.products),
-    sales: list.sales ?? [],
-    skewMs: Date.parse(list.now) - Date.now() || 0,
-  };
+  const { now, eras, products, sales } = await api('GET', '/api/catalog');
+  return { eras, products, sales: sales ?? [], skewMs: Date.parse(now) - Date.now() || 0 };
 }
 
 // Loaded only here, so visitors on the normal path never download the era modules.

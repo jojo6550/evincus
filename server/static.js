@@ -77,9 +77,10 @@ async function staticResponse(req, { env = {}, readFile, statFile, data = CATALO
         const unchanged = info && (noneMatch
           ? noneMatch.split(',').some(tag => tag.trim() === '*' || tag.trim().replace(/^W\//, '') === info.etag.replace(/^W\//, ''))
           : req.headers.get('if-modified-since') && Date.parse(req.headers.get('if-modified-since')) >= Date.parse(info.modified));
-        const immutable = /^\/assets\/img\/responsive\/[a-f0-9]{16}-\d+\.webp$/.test(path);
-        const res = send(unchanged || (info && req.method === 'HEAD') ? null : await readFile(file, info), path, unchanged ? 304 : 200,
-          immutable ? 'public, max-age=31536000, immutable' : undefined);
+        // Responsive photos are named by content hash. Fonts get a new filename whenever one is replaced.
+        const cache = /^\/assets\/img\/responsive\/[a-f0-9]{16}-\d+\.webp$/.test(path) ? 'public, max-age=31536000, immutable'
+          : path.startsWith('/assets/fonts/') ? 'public, max-age=2592000' : undefined;
+        const res = send(unchanged || (info && req.method === 'HEAD') ? null : await readFile(file, info), path, unchanged ? 304 : 200, cache);
         if (info) {
           res.headers.set('ETag', info.etag);
           res.headers.set('Last-Modified', info.modified);

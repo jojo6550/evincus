@@ -7,7 +7,7 @@ import { secureResponse } from './lib/security.js';
 import { alert } from './lib/alerts.js';
 import { retryEmails } from './lib/delivery.js';
 import { health } from './routes/health.js';
-import { listEras, getEra } from './routes/eras.js';
+import { listEras, getEra, getCatalog } from './routes/eras.js';
 import { getProduct } from './routes/products.js';
 import { quoteRoute } from './routes/quote.js';
 import { createOrderRoute } from './routes/orders.js';
@@ -23,6 +23,7 @@ import { getSalesRoute, putSalesRoute } from './routes/admin.js';
 const ROUTES = [
   ['GET', /^\/api\/checkout\/options$/, checkoutOptions],
   ['GET', /^\/api\/health$/, health],
+  ['GET', /^\/api\/catalog$/, getCatalog, true],
   ['GET', /^\/api\/eras$/, listEras, true],
   ['GET', /^\/api\/eras\/([a-z0-9-]+)$/, getEra, true],
   ['GET', /^\/api\/products\/([a-z0-9-]+)$/, getProduct, true],

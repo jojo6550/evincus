@@ -14,15 +14,32 @@
 <meta property="og:url" content="https://evincus.shop/eras.html">
 <meta property="og:image" content="https://evincus.shop/data/eras/catastrophe/img/hero.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&family=IBM+Plex+Mono:wght@400;500&family=Permanent+Marker&display=swap">
+<link rel="preload" href="/assets/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/css/index.css">
 <link rel="stylesheet" href="assets/css/pages.css">
+<!-- Fetch the catalog and every module the page imports in parallel, instead of one import level at a time. -->
+<link rel="preload" href="/api/catalog" as="fetch" crossorigin>
+<link rel="preload" href="/data/site.json" as="fetch" crossorigin>
+<link rel="modulepreload" href="/assets/js/config.js">
+<link rel="modulepreload" href="/assets/js/env.js">
+<link rel="modulepreload" href="/assets/js/api.js">
+<link rel="modulepreload" href="/assets/js/image-manifest.js">
+<link rel="modulepreload" href="/assets/js/images.js">
+<link rel="modulepreload" href="/assets/js/store.js">
+<link rel="modulepreload" href="/assets/js/cart.js">
+<link rel="modulepreload" href="/assets/js/quote.js">
+<link rel="modulepreload" href="/assets/js/checkout.js">
+<link rel="modulepreload" href="/assets/js/bag.js">
+<link rel="modulepreload" href="/assets/js/sale.js">
+<link rel="modulepreload" href="/assets/js/product-view.js">
+<link rel="modulepreload" href="/assets/js/eras.js">
+<link rel="modulepreload" href="/data/catalog.js">
 
 <aside class="sale" id="sale" aria-label="Sale" hidden></aside>
 
 <header>
   <nav class="nav wrap">
-    <a class="brand" href="index.html" aria-label="Evincus Streetwear home"><img width="44" height="44" src="assets/img/logo.png" alt=""><b>EVINCUS</b></a>
+    <a class="brand" href="index.html" aria-label="Evincus Streetwear home"><img width="44" height="44" src="assets/img/logo-nav.webp" alt=""><b>EVINCUS</b></a>
     <ul class="mono">
       <li><a href="index.html#shop">Shop</a></li>
       <li><a href="eras.html" aria-current="page">Eras</a></li>

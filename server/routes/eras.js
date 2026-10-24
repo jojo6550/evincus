@@ -11,6 +11,13 @@ export function listEras(req, c) {
   return json({ now: c.now.toISOString(), eras: v.eras.map(e => eraSummary(e, v.products)), sales: publicSales(c.data.sales, c.now) }, 200, catalogCache(c));
 }
 
+// Everything the storefront renders in one response, so a page load costs one API round trip, not 1 + one per era.
+export function getCatalog(req, c) {
+  const v = publicView(c.data, c.now);
+  const eras = v.eras.map(e => ({ ...eraSummary(e, v.products), ...eraDetail(e) }));
+  return json({ now: c.now.toISOString(), eras, products: v.products, sales: publicSales(c.data.sales, c.now) }, 200, catalogCache(c));
+}
+
 export function getEra(req, c) {
   const v = publicView(c.data, c.now);
   const era = v.eras.find(e => e.slug === c.params[0]);

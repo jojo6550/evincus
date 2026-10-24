@@ -1,8 +1,8 @@
-// No scripts from third parties in the no-payment storefront. Stylesheets/fonts
-// are the only external subresources; inline styles support the existing UI.
+// No third-party subresources in the no-payment storefront: fonts are self-hosted
+// and inline styles support the existing UI.
 export const CSP = [
-  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data:",
+  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'", "img-src 'self' data:",
   "connect-src 'self'", "object-src 'none'", "base-uri 'none'",
   "form-action 'self'", "frame-ancestors 'none'",
 ].join('; ');
