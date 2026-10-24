@@ -88,7 +88,7 @@ export async function createOrder(env, q, nonce) {
         amount: {
           currency_code: CURRENCY,
           value,
-          breakdown: { item_total: money(q.subtotalCents), shipping: money(q.shippingCents) },
+          breakdown: { item_total: money(q.subtotalCents) },
         },
         items: q.lines.map(l => ({
           name: l.name.slice(0, 127),

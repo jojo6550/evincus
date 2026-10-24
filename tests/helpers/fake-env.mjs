@@ -68,7 +68,6 @@ export function makeEnv(over = {}) {
     RESEND_API_KEY: 're_test',
     EMAIL_FROM: 'Evincus <no-reply@evincus.shop>',
     OWNER_EMAIL: 'owner@evincus.shop',
-    SHIPPING_USD: '5',
     ALLOWED_ORIGINS: 'https://evincus.shop',
     COMMIT_SHA: 'abc1234',
     ORDERS: fakeKV(),
@@ -169,7 +168,6 @@ export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
       payer: 'payer' in paypal ? paypal.payer : { name: { given_name: 'Ann', surname: 'Lee' }, email_address: 'ann@example.com' },
       purchase_units: [{
         ...unit,
-        shipping: { name: { full_name: 'Ann Lee' }, address: { address_line_1: '1 Main St', admin_area_2: 'Kingston', country_code: 'JM' } },
         payments: { captures: [{ id: 'CAPTURE1', status: paypal.captureStatus ?? 'COMPLETED', amount, ...(paypal.createTime ? { create_time: paypal.createTime } : {}) }] },
       }],
     };

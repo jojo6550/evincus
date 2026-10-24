@@ -1,6 +1,6 @@
 import { json, fail, readJson } from '../lib/http.js';
 import { CURRENCY, PaypalError, captureOrder, getOrder, verifyTag } from '../lib/paypal.js';
-import { CartError, COUNTED, chargedQuote, itemsFromUnit, quote, shippingCents, unitMatchesQuote } from '../lib/pricing.js';
+import { CartError, COUNTED, chargedQuote, itemsFromUnit, quote, unitMatchesQuote } from '../lib/pricing.js';
 import { buildRecord, findOrder, recordRows, saveOrder } from '../lib/orders.js';
 import { alert } from '../lib/alerts.js';
 import { sendOrderEmails } from '../lib/delivery.js';
@@ -79,7 +79,7 @@ export async function captureRoute(req, c) {
 
   let q = null;
   const items = itemsFromUnit(unit);
-  try { q = items && quote(c.data, c.now, items, shippingCents(c.env)); } catch (err) { if (!(err instanceof CartError)) throw err; }
+  try { q = items && quote(c.data, c.now, items); } catch (err) { if (!(err instanceof CartError)) throw err; }
 
   if (completed) {
     if (!q) c.log.error('capture.recovered_unpriced', { orderId });
@@ -94,7 +94,7 @@ export async function captureRoute(req, c) {
   }
   if (!unitMatchesQuote(unit, q)) {
     // The shopper may have approved just before a sale ended: re-price as of the grace window.
-    const graced = c.base && quote(applySales(c.base, c.sales, new Date(+c.now - SALE_GRACE_MS)), c.now, items, shippingCents(c.env));
+    const graced = c.base && quote(applySales(c.base, c.sales, new Date(+c.now - SALE_GRACE_MS)), c.now, items);
     if (!graced || !unitMatchesQuote(unit, graced)) return refuse(c, orderId, 'reprice-mismatch');
     c.log.info('capture.sale_grace', { orderId });
     q = graced;

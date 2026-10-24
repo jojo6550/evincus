@@ -6,7 +6,7 @@ no build step. Checkout places orders directly. **No payment service is used and
 ## Layout
 
 - `index.html`: the whole site, a single dark "Catastrophe" landing page with an era filter, product view dialog,
-  bag drawer and in-drawer delivery / pickup checkout.
+  bag drawer and in-drawer pickup checkout.
 - `assets/js`: `index.js`, `store.js`, `api.js`, `cart.js`, `quote.js`, `bag.js`, `product-view.js`, `checkout.js`.
   Styles are in `assets/css/index.css`.
 - `data/eras/<slug>/`: one folder per era. `era.js` holds the era and its products; `img/` holds that era's photos.
@@ -15,7 +15,7 @@ no build step. Checkout places orders directly. **No payment service is used and
 - `data/catalog.js`: catalog rules shared by the site and the API (era status, what's visible, what's buyable).
 - `main.js`: the Node entry (KV, cron, `node:http`). `server/`: the API router (`index.js`), `routes`, `lib`,
   `emails`, and the static file server (`static.js`). `server/` only uses web-standard `Request`/`Response`.
-- `policies.html`: customer-facing privacy, shipping, refund, terms and FAQ content,
+- `policies.html`: customer-facing privacy, pickup, refund, terms and FAQ content,
   linked from the store, eras page and checkout. Refund requests have a 24-hour
   window from purchase. `docs/policies/original-evincus-shop.md` preserves the
   recovered homepage source and records the adaptation decisions.
@@ -128,7 +128,6 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
 
    | Variable | Value |
    | --- | --- |
-   | `DELIVERY_EXCLUDED_COUNTRIES` | comma-separated ISO codes, or blank |
    | `OWNER_EMAIL` | where order summaries and alerts go |
    | `POSTAL_ADDRESS` | printed in newsletter footers |
    | Secrets: `RESEND_API_KEY`, `ORDER_HMAC_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | Use the provider-issued Resend key and distinct random values of at least 32 characters for the other three. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
@@ -139,7 +138,7 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
    Until they resolve, add the GitHub Actions variable `RENDER_URL=https://evincus.onrender.com` so CI checks that
    address, and pass `url=https://evincus.onrender.com` to `npm run discount`. Delete the variable afterwards.
 4. Verify the sending domain in Resend.
-5. Merge `main` into `prod` and push. The Actions run must end green, then place a delivery and a pickup test order on the live site.
+5. Merge `main` into `prod` and push. The Actions run must end green, then place a pickup test order on the live site.
 6. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
 7. Keep `PAYMENT_MODE=none`.
 
@@ -150,10 +149,7 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
 variants and quantities; mismatched totals require reviewing the bag. Orders are `PLACED`, with
 `paymentStatus: NOT_COLLECTED`. `/api/orders/capture` is disabled. No PayPal SDK loads in checkout.
 
-Delivery uses an ISO country dropdown including the USA and Canada. Set `DELIVERY_EXCLUDED_COUNTRIES` to a
-comma-separated list of ISO codes when exclusions are known. The current list allows all ISO countries;
-carrier restrictions must be configured before launch. Delivery uses the existing flat `SHIPPING_USD` setting
-(currently zero); set the confirmed delivery charge before launch. Pickup is free.
+Pickup is the only fulfillment option for now and is free. There is no delivery or shipping.
 
 `data/fulfillment.js` holds the two pickup locations: Trendy Hats and Vince's store, both in Mandeville,
 Manchester, Jamaica. Their addresses are intentionally empty until confirmed. Fill each `address` there;
@@ -168,7 +164,7 @@ removed from the bag.
 
 Customers receive a Resend confirmation after placement. The owner receives a daily summary of the previous
 Jamaica calendar day's orders at **08:00 America/Jamaica (13:00 UTC)**, including contact details, line items,
-delivery addresses or pickup selections, notes and order totals. Empty days also send a summary. This is order
+pickup selections, notes and order totals. Empty days also send a summary. This is order
 value, not collected revenue. Summaries split into parts of 20 orders. The 15-minute cron queues summaries
 after 08:00 and retries failed deliveries with stable Resend idempotency keys and saved email bodies.
 Completed summary markers prevent subsequent sends. A saved cursor catches up after missed cron days.

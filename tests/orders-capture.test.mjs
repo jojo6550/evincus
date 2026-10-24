@@ -14,7 +14,7 @@ test('happy path: captures, logs the order to KV, returns the confirmation', asy
   const id = await create(env);
   const { status, json } = await capture(env, id);
   assert.equal(status, 200);
-  assert.deepEqual(json, { id, status: 'COMPLETED', totalCents: 7498, name: 'Ann', email: 'ann@example.com' });
+  assert.deepEqual(json, { id, status: 'COMPLETED', totalCents: 6998, name: 'Ann', email: 'ann@example.com' });
 
   const cap = up.captures();
   assert.equal(cap.length, 1);
@@ -27,7 +27,6 @@ test('happy path: captures, logs the order to KV, returns the confirmation', asy
   assert.equal(record.capturedAt, new Date(NOW).toISOString());
   assert.deepEqual(record.lines, [{ key: 'alpha-tee|Black, white print|S', name: 'Alpha <Tee>', color: 'Black, white print', size: 'S', qty: 2, unitCents: 3499 }]);
   assert.deepEqual(record.payer, { name: 'Ann Lee', firstName: 'Ann', email: 'ann@example.com' });
-  assert.equal(record.shipTo.address.address_line_1, '1 Main St');
   assert.ok(env.ORDERS.store.has(`day:2026-10-03:${id}`));
 });
 
@@ -207,7 +206,7 @@ test('a network error after PayPal charged is recovered by re-reading the order'
   const id = await create(env);
   const r = await capture(env, id);
   assert.equal(r.status, 200);
-  assert.equal(r.json.totalCents, 7498);
+  assert.equal(r.json.totalCents, 6998);
   assert.ok(env.ORDERS.store.has(`order:${id}`));
   assert.equal(up.captures().length, 1);
 });
@@ -231,7 +230,7 @@ test('a capture that errors with 500 but charged anyway is recorded from the re-
   const id = await create(env);
   const r = await capture(env, id);
   assert.equal(r.status, 200);
-  assert.equal(r.json.totalCents, 7498);
+  assert.equal(r.json.totalCents, 6998);
   assert.ok(env.ORDERS.store.has(`order:${id}`));
   assert.equal(up.captures().length, 1);
 });
@@ -289,7 +288,7 @@ test('a 500 then a 422 on retry is still a decline', async () => {
   assert.equal(r.json.error.code, 'payment-declined');
 });
 
-test('a pending capture is recorded, flagged, and the owner is told not to ship', async () => {
+test('a pending capture is recorded, flagged, and the owner is told not to hand it over', async () => {
   const up = fakeUpstreams({ paypal: { captureStatus: 'PENDING' } });
   const env = makeEnv();
   const id = await create(env);
@@ -302,7 +301,7 @@ test('a pending capture is recorded, flagged, and the owner is told not to ship'
   assert.ok(logs.lines.some(l => l.event === 'order.payment_pending' && l.level === 'warn' && l.orderId === id && l.captureStatus === 'PENDING'));
   assert.ok(up.emails.some(e => /Payment pending on order/.test(e.subject)));
   const owner = up.emails.find(e => e.subject.startsWith('New order'));
-  assert.ok(owner.html.includes('don&#39;t ship'));
+  assert.ok(owner.html.includes('don&#39;t hand over'));
 });
 
 test('a completed capture records captureStatus COMPLETED and no pending row', async () => {
@@ -311,7 +310,7 @@ test('a completed capture records captureStatus COMPLETED and no pending row', a
   const id = await create(env);
   await capture(env, id);
   assert.equal(JSON.parse(env.ORDERS.store.get(`order:${id}`).value).captureStatus, 'COMPLETED');
-  assert.ok(!up.emails.some(e => /pending/i.test(e.subject) || e.html.includes('don&#39;t ship')));
+  assert.ok(!up.emails.some(e => /pending/i.test(e.subject) || e.html.includes('don&#39;t hand over')));
 });
 
 test('recovering an order PayPal already captured records the charged amounts, not current catalog prices', async () => {
@@ -324,11 +323,10 @@ test('recovering an order PayPal already captured records the charged amounts, n
   o.purchase_units[0].payments = { captures: [{ id: 'CAPTURE1', status: 'COMPLETED', amount: o.purchase_units[0].amount }] };
   const r = await capture(env, id, { data: withProduct('alpha-tee', { priceCents: 9999 }) });
   assert.equal(r.status, 200);
-  assert.equal(r.json.totalCents, 7498);
+  assert.equal(r.json.totalCents, 6998);
   const record = JSON.parse(env.ORDERS.store.get(`order:${id}`).value);
   assert.equal(record.subtotalCents, 6998);
-  assert.equal(record.shippingCents, 500);
-  assert.equal(record.totalCents, 7498);
+  assert.equal(record.totalCents, 6998);
   assert.deepEqual(record.lines, [{ key: 'alpha-tee|Black, white print|S', name: 'Alpha <Tee>', color: 'Black, white print', size: 'S', qty: 2, unitCents: 3499 }]);
   assert.equal(up.captures().length, 0);
 });

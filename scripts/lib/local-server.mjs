@@ -7,7 +7,7 @@ import { once } from 'node:events';
 // Every verification run owns its database and cannot send email or collect money.
 export async function isolatedServer() {
   const dir = await mkdtemp(join(tmpdir(), 'evincus-check-'));
-  const child = fork(new URL('../../main.js', import.meta.url), [], { execArgv: [], silent: true, env: { ...process.env, PORT: '0', KV_PATH: join(dir, 'kv.sqlite3'), ENVIRONMENT: 'development', CSP_MODE: 'enforce', EMAIL_DISABLED: 'true', RESEND_API_KEY: '', NEWSLETTER_HOUR: '', KEEPALIVE_URL: '', PAYMENT_MODE: 'none', SHIPPING_USD: '0', ADMIN_TOKEN: crypto.randomUUID() } });
+  const child = fork(new URL('../../main.js', import.meta.url), [], { execArgv: [], silent: true, env: { ...process.env, PORT: '0', KV_PATH: join(dir, 'kv.sqlite3'), ENVIRONMENT: 'development', CSP_MODE: 'enforce', EMAIL_DISABLED: 'true', RESEND_API_KEY: '', NEWSLETTER_HOUR: '', KEEPALIVE_URL: '', PAYMENT_MODE: 'none', ADMIN_TOKEN: crypto.randomUUID() } });
   let output = '', errorOutput = '';
   child.stderr.on('data', data => { errorOutput += data; });
   const stop = async () => {

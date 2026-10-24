@@ -68,7 +68,6 @@ function footHtml(s) {
   }
   return `
     ${row('Subtotal', money(q.subtotalCents))}
-    ${row('Shipping', q.shippingCents ? money(q.shippingCents) : 'Free')}
     ${row('Total', `${money(q.totalCents)} <small class="mono">USD</small>`, ' sum__total')}
     ${checkout(true)}`;
 }
@@ -113,7 +112,7 @@ function renderPay() {
   title.textContent = TITLES.pay;
   body.innerHTML = `
     <div class="pay">
-      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="/policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="/policies.html#shipping" target="_blank" rel="noopener">shipping policy</a> and <a href="/policies.html#terms" target="_blank" rel="noopener">terms</a> before placing your order.</p>
+      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="/policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="/policies.html#pickup" target="_blank" rel="noopener">pickup policy</a> and <a href="/policies.html#terms" target="_blank" rel="noopener">terms</a> before placing your order.</p>
       <div class="checkout-mount"></div>
     </div>`;
   foot.innerHTML = '';
@@ -127,7 +126,7 @@ function renderPaid(order) {
     <div class="paid">
       <h3 class="paid__title" tabindex="-1">${order.name ? `Thank you, ${esc(order.name)}.` : 'Thank you.'}</h3>
       <p>Your order is placed. No payment was collected. Your confirmation will be emailed to ${esc(order.email)}.</p>
-      <p>${order.fulfillment?.type === 'pickup' ? `Pickup at ${esc(order.fulfillment.location.name)}. We'll contact you when it's ready and confirm the pickup details.` : "We'll contact you with delivery updates."}</p>
+      <p>${order.fulfillment ? `Pickup at ${esc(order.fulfillment.location.name)}. ` : ''}We'll contact you when it's ready and confirm the pickup details.</p>
       <p class="paid__ref mono">Order reference <b>${esc(order.id)}</b></p>
       <p>Questions? DM <a href="https://www.instagram.com/evincus.sw/" target="_blank" rel="noopener">@evincus.sw</a> on Instagram with your order reference.</p>
       <button type="button" class="btn btn--solid" data-act="keep">Keep shopping</button>

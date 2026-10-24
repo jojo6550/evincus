@@ -29,8 +29,6 @@ services:
         value: none
       - key: CSP_MODE
         value: report-only
-      - key: SHIPPING_USD
-        value: "0"
       - key: NEWSLETTER_HOUR
         value: "10"
       - key: EMAIL_FROM
@@ -44,8 +42,6 @@ services:
       - key: STATUS
         value: stocking
       # Asked for once when the Blueprint is created.
-      - key: DELIVERY_EXCLUDED_COUNTRIES
-        sync: false
       - key: OWNER_EMAIL
         sync: false
       - key: POSTAL_ADDRESS
@@ -83,8 +79,6 @@ services:
         value: "true"
       - key: PAYPAL_ENV
         value: sandbox
-      - key: SHIPPING_USD
-        value: "0"
       - key: EMAIL_FROM
         value: "Evincus <no-reply@evincus.shop>"
       # evincus.shop is served by this service too. live | maintenance | stocking: anything but live shows a 503 page
@@ -99,8 +93,6 @@ services:
       - key: API_URL
         sync: false
       - key: KEEPALIVE_URL
-        sync: false
-      - key: DELIVERY_EXCLUDED_COUNTRIES
         sync: false
       # Test inbox: dev must never email the real owner mailbox or subscribers.
       - key: OWNER_EMAIL

@@ -7,11 +7,6 @@ export class CartError extends Error {}
 
 export const fromCents = c => (c / 100).toFixed(2);
 
-export function shippingCents(env) {
-  const n = Number(env.SHIPPING_USD ?? 0);
-  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : 0;
-}
-
 const isName = s => typeof s === 'string' && s.length > 0 && s.length <= 100 && !s.includes('|');
 
 // Shape checks only. Catalog problems become line statuses, not errors.
@@ -30,7 +25,7 @@ export function parseItems(items) {
 }
 
 // Prices a bag from the catalog. Client prices are never read.
-export function quote(data, now, items, shipping) {
+export function quote(data, now, items) {
   const lines = parseItems(items).map(i => {
     let status = lineStatus(data, now, i);
     if (status === 'ok' && i.qty > MAX_QTY) status = 'qty-capped';
@@ -42,12 +37,10 @@ export function quote(data, now, items, shipping) {
   });
   const counted = lines.filter(l => COUNTED.has(l.status));
   const subtotalCents = counted.reduce((n, l) => n + l.totalCents, 0);
-  const ship = counted.length ? shipping : 0;
   return {
     lines,
     subtotalCents,
-    shippingCents: ship,
-    totalCents: subtotalCents + ship,
+    totalCents: subtotalCents,
     checkoutReady: lines.length > 0 && lines.every(l => COUNTED.has(l.status)),
   };
 }
@@ -77,10 +70,8 @@ export function chargedQuote(unit, q) {
     return { key: it.sku, name: priced.get(it.sku)?.name ?? String(it.name ?? i.id), color: i.color, size: i.size, qty: i.qty, unitCents: toCents(it.unit_amount?.value) };
   });
   const totalCents = toCents(unit.amount?.value);
-  const shipping = unit.amount?.breakdown?.shipping?.value;
   const itemTotal = unit.amount?.breakdown?.item_total?.value;
-  const shippingCents = shipping === undefined ? 0 : toCents(shipping);
-  return { lines, subtotalCents: itemTotal === undefined ? totalCents - shippingCents : toCents(itemTotal), shippingCents, totalCents };
+  return { lines, subtotalCents: itemTotal === undefined ? totalCents : toCents(itemTotal), totalCents };
 }
 
 // True only if every line is plainly buyable and every amount PayPal holds equals the quote.
@@ -92,7 +83,6 @@ export function unitMatchesQuote(unit, q) {
     unit.items.length === q.lines.length &&
     same(unit.amount, money(q.totalCents)) &&
     same(unit.amount?.breakdown?.item_total, money(q.subtotalCents)) &&
-    same(unit.amount?.breakdown?.shipping, money(q.shippingCents)) &&
     q.lines.every((l, i) => unit.items[i].sku === l.key && same(unit.items[i].unit_amount, money(l.unitCents)))
   );
 }

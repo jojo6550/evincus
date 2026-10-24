@@ -36,9 +36,8 @@ test('after capture the customer gets a receipt and the owner a notification', a
   assert.equal(customer.idempotencyKey, `${id}-customer`);
   assert.ok(customer.html.includes('Alpha &lt;Tee&gt;'));
   assert.ok(!customer.html.includes('<Tee>'));
-  assert.ok(customer.html.includes('$74.98'));
-  assert.ok(customer.html.includes('1 Main St'));
-  assert.match(owner.subject, new RegExp(`New order ${id}: \\$74\\.98`));
+  assert.ok(customer.html.includes('$69.98'));
+  assert.match(owner.subject, new RegExp(`New order ${id}: \\$69\\.98`));
   assert.equal(owner.idempotencyKey, `${id}-owner`);
   assert.ok(owner.html.includes('ann@example.com'));
   assert.deepEqual(record(env, id).email, { customer: 'sent', owner: 'sent', attempts: 1 });

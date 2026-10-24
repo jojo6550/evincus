@@ -91,7 +91,7 @@ test('a PayPal order priced during a sale captures inside the grace window, and 
 
   const inGrace = await call('POST', '/api/orders/capture', { body: { orderID: id }, env, clock: () => ends + SALE_GRACE_MS - 1000 });
   assert.equal(inGrace.status, 200);
-  assert.equal(inGrace.json.totalCents, 5598 + 500);
+  assert.equal(inGrace.json.totalCents, 5598);
 
   const id2 = (await call('POST', '/api/orders', { body: { items: [item()] }, env })).json.id;
   const late = await call('POST', '/api/orders/capture', { body: { orderID: id2 }, env, clock: () => ends + SALE_GRACE_MS + 1000 });

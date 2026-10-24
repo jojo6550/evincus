@@ -39,34 +39,27 @@ export function buildRecord(captured, q, now) {
     status: 'COMPLETED',
     lines: q.lines.map(({ key, name, color, size, qty, unitCents }) => ({ key, name, color, size, qty, unitCents })),
     subtotalCents: q.subtotalCents,
-    shippingCents: q.shippingCents,
     totalCents: q.totalCents,
     payer: {
       name: [payerName.given_name, payerName.surname].filter(Boolean).join(' '),
       firstName: payerName.given_name ?? '',
       email: captured.payer?.email_address ?? '',
     },
-    shipTo: { name: unit.shipping?.name?.full_name ?? '', address: unit.shipping?.address ?? {} },
     email: { customer: 'pending', owner: 'pending', attempts: 0 },
   };
 }
-
-export const addressLines = a =>
-  [a.address_line_1, a.address_line_2, a.admin_area_2, a.admin_area_1, a.postal_code, a.country_code].filter(Boolean);
 
 // Label/value rows for owner emails and alerts.
 export function recordRows(r) {
   const pending = r.captureStatus && r.captureStatus !== 'COMPLETED';
   return [
-    ...(r.placedAt ? [['Status', 'Placed — no payment collected'], ['Placed at', r.placedAt], ['Phone', r.customer.phone], ['Fulfillment', r.fulfillment.type === 'pickup' ? `Pickup: ${r.fulfillment.location.name}, ${r.fulfillment.location.address ?? r.fulfillment.location.area + ' (address to be confirmed)'}` : 'Delivery'], ['Notes', r.notes]] : []),
-    ...(pending ? [['Payment status', `${r.captureStatus} — don't ship until PayPal shows it completed`]] : []),
+    ...(r.placedAt ? [['Status', 'Placed — no payment collected'], ['Placed at', r.placedAt], ['Phone', r.customer.phone], ['Pickup', r.fulfillment.location ? `${r.fulfillment.location.name}, ${r.fulfillment.location.address ?? r.fulfillment.location.area + ' (address to be confirmed)'}` : ''], ['Notes', r.notes]] : []),
+    ...(pending ? [['Payment status', `${r.captureStatus} — don't hand over until PayPal shows it completed`]] : []),
     ['Order', r.id],
     ...(!r.placedAt ? [['Capture', r.captureId ?? ''], ['Captured at', r.capturedAt]] : []),
     ['Payer', `${r.payer.name} <${r.payer.email}>`],
-    ...(r.fulfillment?.type !== 'pickup' ? [['Ship to', [r.shipTo.name, ...addressLines(r.shipTo.address)].join(', ')]] : []),
     ...r.lines.map(l => [`${l.qty} × ${l.name}`, `${l.color} / ${l.size} at ${money(l.unitCents)}`]),
     ['Subtotal', money(r.subtotalCents)],
-    ['Shipping', money(r.shippingCents)],
     ['Total', `${money(r.totalCents)} USD`],
   ];
 }

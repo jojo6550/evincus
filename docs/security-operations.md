@@ -4,10 +4,10 @@ Updated October 18, 2026. These procedures accompany the [checklist](security-an
 
 ## Before the next release
 
-1. Confirm the delivery charge, excluded countries, and both pickup street addresses. These remain **unconfirmed by the owner**. Do not mark fulfillment ready or infer that zero shipping is the approved price. Set the approved values in Render and `data/fulfillment.js` before launch.
+1. Confirm both pickup street addresses. These remain **unconfirmed by the owner**. Do not mark fulfillment ready until they are set in `data/fulfillment.js`.
 2. Check Render production has `ENVIRONMENT=production`, `PAYMENT_MODE=none`, the paid persistent disk at `/var/data`, and a single instance. The app now refuses production startup unless its three signing/admin secrets are distinct and at least 32 characters long. Verify existing values privately before deployment; never paste them into a PR, chat, or log.
 3. Run the checks below. CI also builds the image, checks the non-root user and excluded private files, and scans fixed HIGH/CRITICAL container vulnerabilities with a commit-pinned scanner. Docker is unavailable on this workstation, so those container checks must pass in CI before release. Unfixed image advisories still need review even when the automated fixed-vulnerability gate passes.
-4. Deploy through the existing tested-commit workflow. Keep CSP in report-only mode on production initially. Check every public page, gallery, cart, pickup and delivery checkout, fonts, and error page for violations, then set `CSP_MODE=enforce` and repeat. Local browser checkout was tested with enforcement enabled; production enforcement remains a rollout step.
+4. Deploy through the existing tested-commit workflow. Keep CSP in report-only mode on production initially. Check every public page, gallery, cart, pickup checkout, fonts, and error page for violations, then set `CSP_MODE=enforce` and repeat. Local browser checkout was tested with enforcement enabled; production enforcement remains a rollout step.
 5. Verify HTTPS redirect, renewal status, all security headers, health commit, and permissions on the actual mounted disk. A directory owned by `node` in the image does not prove the existing mounted disk has the correct ownership. Correct the mount's ownership for the existing Node account through Render before switching traffic if necessary.
 
 ```sh

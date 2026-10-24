@@ -1,5 +1,5 @@
 import { json, fail, readJson } from '../lib/http.js';
-import { CartError, quote, shippingCents } from '../lib/pricing.js';
+import { CartError, quote } from '../lib/pricing.js';
 import { PaypalError, createOrder, newNonce } from '../lib/paypal.js';
 import { countPaypalError } from '../lib/alerts.js';
 import { placeOrderRoute } from './checkout.js';
@@ -23,7 +23,7 @@ export async function createOrderRoute(req, c) {
   const body = await readJson(req);
   let q;
   try {
-    q = quote(c.data, c.now, body?.items, shippingCents(c.env));
+    q = quote(c.data, c.now, body?.items);
   } catch (err) {
     if (err instanceof CartError) return fail(c, 'invalid-cart', 400);
     throw err;

@@ -14,17 +14,17 @@ test('creates a PayPal order priced from the catalog with a server-signed tag', 
   assert.equal(status, 200);
   const unit = up.orders.get(json.id).purchase_units[0];
   assert.deepEqual(unit.amount, {
-    currency_code: 'USD', value: '74.98',
-    breakdown: { item_total: { currency_code: 'USD', value: '69.98' }, shipping: { currency_code: 'USD', value: '5.00' } },
+    currency_code: 'USD', value: '69.98',
+    breakdown: { item_total: { currency_code: 'USD', value: '69.98' } },
   });
   assert.deepEqual(unit.items, [{
     name: 'Alpha <Tee>', description: 'Black, white print / S', sku: 'alpha-tee|Black, white print|S', quantity: '2',
     unit_amount: { currency_code: 'USD', value: '34.99' }, category: 'PHYSICAL_GOODS',
   }]);
   assert.match(unit.custom_id, /^[0-9a-f]{24}\.[0-9a-f]{64}$/);
-  assert.equal(await verifyTag(env, unit.custom_id, '74.98'), true);
+  assert.equal(await verifyTag(env, unit.custom_id, '69.98'), true);
   assert.equal(await verifyTag(env, unit.custom_id, '0.01'), false);
-  assert.equal(await verifyTag(makeEnv({ ORDER_HMAC_KEY: 'other' }), unit.custom_id, '74.98'), false);
+  assert.equal(await verifyTag(makeEnv({ ORDER_HMAC_KEY: 'other' }), unit.custom_id, '69.98'), false);
 });
 
 test('a bag that is not checkout-ready is 409 bag-changed with lines, and PayPal is not called', async () => {
