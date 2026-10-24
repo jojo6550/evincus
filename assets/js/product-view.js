@@ -18,7 +18,7 @@ function buttonState(p, color, size) {
   if (!p.buyable) return { text: p.soldOut ? 'Sold out' : 'No longer sold', disabled: true };
   if (!size) return { text: 'Select a size', disabled: true };
   if (p.soldOutVariants.includes(`${color}|${size}`)) return { text: 'Sold out in this size', disabled: true };
-  return { text: `Add to bag, ${money(p.priceCents)}`, disabled: false };
+  return { text: `Add to cart, ${money(p.priceCents)}`, disabled: false };
 }
 
 function dot(c) {

@@ -15,7 +15,7 @@ const STATUS_TEXT = {
   'qty-capped': 'Limit of 10 per item',
 };
 const BUYABLE = new Set(['ok', 'qty-capped', undefined]);
-const TITLES = { bag: 'Your bag', pay: 'Check out', paid: 'Order placed' };
+const TITLES = { bag: 'Your cart', pay: 'Check out', paid: 'Order placed' };
 
 let dialog, title, body, foot;
 let step = 'bag';
@@ -94,7 +94,7 @@ function renderBag() {
   if (!cart.rawItems().length) {
     body.innerHTML = `
       <div class="bag__empty">
-        <p>Your bag is empty.</p>
+        <p>Your cart is empty.</p>
         <a class="btn btn--line" href="#shop" data-act="shop">Shop the drop</a>
       </div>`;
     foot.innerHTML = '';
