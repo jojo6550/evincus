@@ -2,7 +2,7 @@ import { CATALOG } from './lib/catalog.js';
 import { applySales } from '../data/catalog.js';
 import { loadSales } from './lib/sales.js';
 import { createLogger } from './lib/log.js';
-import { HttpError, corsHeaders, fail, enforceLimit } from './lib/http.js';
+import { HttpError, corsHeaders, fail, enforceLimit, siteStatus } from './lib/http.js';
 import { secureResponse } from './lib/security.js';
 import { alert } from './lib/alerts.js';
 import { retryEmails } from './lib/delivery.js';
@@ -49,7 +49,11 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
 
       let res;
       try {
-        if (req.method === 'OPTIONS') {
+        // No orders while the store is down; health and newsletter.html's confirm/unsubscribe keep working.
+        const status = siteStatus(req, env);
+        if (status !== 'live' && !/^\/api\/(health|newsletter\/(confirm|unsubscribe))$/.test(url.pathname)) {
+          res = fail(c, status, 503);
+        } else if (req.method === 'OPTIONS') {
           res = new Response(null, { status: 204 });
         } else {
           const matches = ROUTES.filter(([, re]) => re.test(url.pathname));

@@ -40,6 +40,9 @@ services:
         value: https://evincus.shop
       - key: API_URL
         value: https://evincus.shop
+      # live | maintenance | stocking. Anything but live shows a 503 page on evincus.shop; onrender.com always shows the store.
+      - key: STATUS
+        value: stocking
       # Asked for once when the Blueprint is created.
       - key: DELIVERY_EXCLUDED_COUNTRIES
         sync: false
@@ -84,6 +87,10 @@ services:
         value: "0"
       - key: EMAIL_FROM
         value: "Evincus <no-reply@evincus.shop>"
+      # evincus.shop is served by this service too. live | maintenance | stocking: anything but live shows a 503 page
+      # on evincus.shop, while evincus-dev.onrender.com (the dev link) always shows the store.
+      - key: STATUS
+        value: stocking
       # NEWSLETTER_HOUR unset keeps the newsletter cron off on dev.
       # Asked for once when the Blueprint is created; values in the gitignored .env.render-dev.
       # SITE_URL, API_URL and KEEPALIVE_URL are the service's onrender.com URL (KEEPALIVE_URL + /api/health).

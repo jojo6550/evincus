@@ -17,6 +17,8 @@ export const MESSAGES = {
   'too-large': 'That request is too large to process.',
   'rate-limited': 'Too many requests. Wait a minute, then try again.',
   'server-error': 'Something went wrong on our side. Try again in a minute.',
+  'maintenance': 'The store is down for maintenance. Check back soon.',
+  'stocking': 'The store is down for restocking. Check back soon.',
   'unknown-era': "There's no collection at this address. It may have been renamed.",
   'unknown-product': "This piece isn't in the store. It may have sold out or been renamed.",
   'invalid-cart': "Your cart couldn't be read. Refresh the page and try again.",
@@ -83,6 +85,14 @@ export async function enforceLimit(c, limiter, namespace = '') {
 }
 
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+// STATUS (live | maintenance | stocking) closes the store on the public domain. The built-in onrender.com URL is the
+// dev link and always shows the store. Unknown values close it, so a typo never opens the store by accident.
+export function siteStatus(req, env) {
+  const status = env.STATUS || 'live';
+  const host = String(req.headers.get('host') ?? '').toLowerCase().split(':')[0];
+  return status === 'live' || host.endsWith('.onrender.com') ? 'live' : status === 'stocking' ? 'stocking' : 'maintenance';
+}
 
 export function corsHeaders(origin, env) {
   if (!origin) return {};

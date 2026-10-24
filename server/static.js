@@ -4,6 +4,7 @@ import { CATALOG } from './lib/catalog.js';
 import { loadSales } from './lib/sales.js';
 import { applySales, publicView } from '../data/catalog.js';
 import { robotsTxt, sitemapXml, productHead, crawlable } from './lib/seo.js';
+import { siteStatus } from './lib/http.js';
 
 // The public site: root .html pages, /assets/ and /data/. Nothing else in the repo (server code, docs, .env,
 // package files) is ever served. Missing pages get 404.html with a real 404 status.
@@ -69,6 +70,12 @@ async function staticResponse(req, { env = {}, readFile, statFile, data = CATALO
     try { path = decodeURIComponent(new URL(req.url).pathname); } catch { return await errorPage(404); }
     if (path === '/') path = '/index.html';
     if (path === '/favicon.ico') path = '/assets/img/favicon.ico';
+    // Assets stay up for the 503 page itself; newsletter.html so unsubscribe links in sent emails keep working.
+    const status = siteStatus(req, env);
+    if (status !== 'live' && !path.startsWith('/assets/') && path !== '/newsletter.html') {
+      const page = status === 'stocking' ? 'restocking.html' : '503.html';
+      return send(await readFile(page), page, 503, 'no-store');
+    }
     if (path.toLowerCase() === '/assets/js/config.js') return send(configJs(env), '/assets/js/config.js', 200, 'no-cache');
     if (path === '/robots.txt') return send(robotsTxt(crawlable(req.headers.get('host'))), path, 200, 'public, max-age=3600');
     if (path === '/sitemap.xml') return send(sitemapXml(data, now), path, 200, 'public, max-age=3600');

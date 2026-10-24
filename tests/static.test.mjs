@@ -189,3 +189,23 @@ test('pages name the speculation rules, which prefetch site links but never API 
   assert.equal(rules.prerender, undefined);
   assert.deepEqual(rules.prefetch[0].where.and[1].not.href_matches, ['/api/*', '/products/*', '/newsletter.html']);
 });
+
+test('STATUS closes the public domain with a 503 page, never the onrender.com dev link', async () => {
+  const pages = { ...FILES, 'newsletter.html': 'nl', 'restocking.html': 'restocking' };
+  const at = (STATUS, host, path) => serveStatic(new Request(`https://${host}${path}`, { headers: { host } }), { env: { STATUS }, readFile: async p => new TextEncoder().encode(pages[p]) });
+  for (const path of ['/', '/eras.html', '/products/x', '/robots.txt']) {
+    const r = await at('stocking', 'WWW.Evincus.shop:443', path);
+    assert.equal(r.status, 503, path);
+    assert.equal(await r.text(), 'restocking', path);
+    assert.equal(r.headers.get('cache-control'), 'no-store', path);
+  }
+  assert.equal(await (await at('maintenance', 'evincus.shop', '/')).text(), 'down');
+  assert.equal(await (await at('stockng', 'evincus.shop', '/')).text(), 'down', 'a typo closes the store');
+  assert.equal(await (await at('live', 'evincus.shop', '/')).text(), 'home');
+  assert.equal((await at('stocking', 'evincus.shop', '/assets/css/index.css')).status, 200);
+  assert.equal((await at('stocking', 'evincus.shop', '/newsletter.html')).status, 200);
+  const dev = await at('stocking', 'evincus-dev.onrender.com', '/');
+  assert.equal(dev.status, 200);
+  assert.equal(await dev.text(), 'home');
+  assert.equal((await get('/')).status, 200, 'unset STATUS is live');
+});
