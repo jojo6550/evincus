@@ -1,11 +1,15 @@
 // One JSON object per line, readable in the Render logs. PII never reaches a log.
-export const PII_KEYS = new Set(['payer', 'shipTo', 'email', 'name', 'address', 'phone']);
+export const PII_KEYS = new Set(['payer', 'shipto', 'email', 'name', 'address', 'phone', 'customer', 'fulfillment', 'notes', 'authorization', 'cookie', 'setcookie', 'token', 'checkouttoken', 'password', 'secret', 'apikey', 'resendapikey', 'admintoken', 'orderhmackey', 'newsletterkey', 'body']);
 
 export function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).filter(([k]) => !PII_KEYS.has(k)).map(([k, v]) => [k, redact(v)]));
+    return Object.fromEntries(Object.entries(value).filter(([k]) => !PII_KEYS.has(k.toLowerCase().replace(/[-_]/g, ''))).map(([k, v]) => [k, redact(v)]));
   }
+  if (typeof value === 'string') return value
+    .replace(/Bearer\s+[^\s"<>]+/gi, 'Bearer [redacted]')
+    .replace(/([?&](?:t|token|key|secret)=)[^\s&#"<>]+/gi, '$1[redacted]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]');
   return value;
 }
 

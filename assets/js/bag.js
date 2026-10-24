@@ -3,6 +3,7 @@ import { money, MAX_QTY } from '../../data/catalog.js';
 import * as cart from './cart.js';
 import * as quote from './quote.js';
 import { mountCheckout } from './checkout.js';
+import { imageAttrs } from './images.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -14,7 +15,7 @@ const STATUS_TEXT = {
   'qty-capped': 'Limit of 10 per item',
 };
 const BUYABLE = new Set(['ok', 'qty-capped', undefined]);
-const TITLES = { bag: 'Your bag', pay: 'Check out', paid: 'Order placed' };
+const TITLES = { bag: 'Your cart', pay: 'Check out', paid: 'Order placed' };
 
 let dialog, title, body, foot;
 let step = 'bag';
@@ -23,7 +24,7 @@ function lineHtml(l) {
   const canChange = BUYABLE.has(l.status);
   return `
     <li class="line${canChange ? '' : ' is-unavailable'}" data-key="${esc(l.key)}">
-      <span class="line__img">${l.image ? `<img src="${esc(l.image)}" alt="" loading="lazy">` : ''}</span>
+      <span class="line__img">${l.image ? `<img ${imageAttrs(l.image, '96px')} alt="" loading="lazy">` : ''}</span>
       <div class="line__info">
         <h3 class="line__name">${esc(l.name ?? 'Item no longer available')}</h3>
         <span class="line__meta mono">${esc(l.color)}, size ${esc(l.size)}</span>
@@ -93,7 +94,7 @@ function renderBag() {
   if (!cart.rawItems().length) {
     body.innerHTML = `
       <div class="bag__empty">
-        <p>Your bag is empty.</p>
+        <p>Your cart is empty.</p>
         <a class="btn btn--line" href="#shop" data-act="shop">Shop the drop</a>
       </div>`;
     foot.innerHTML = '';
@@ -112,7 +113,7 @@ function renderPay() {
   title.textContent = TITLES.pay;
   body.innerHTML = `
     <div class="pay">
-      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="policies.html#shipping" target="_blank" rel="noopener">shipping policy</a> and <a href="policies.html#terms" target="_blank" rel="noopener">terms</a> before placing your order.</p>
+      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="/policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="/policies.html#shipping" target="_blank" rel="noopener">shipping policy</a> and <a href="/policies.html#terms" target="_blank" rel="noopener">terms</a> before placing your order.</p>
       <div class="checkout-mount"></div>
     </div>`;
   foot.innerHTML = '';

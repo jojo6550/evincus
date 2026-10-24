@@ -2,10 +2,11 @@ import { sendEmail } from './email.js';
 import { findOrder, recordRows, ORDER_TTL } from './orders.js';
 import { esc, layout, table, money } from '../emails/html.js';
 
-async function keys(env, prefix) {
+async function keys(env, prefix, deadline) {
   const result = [];
   let cursor;
   do {
+    if (deadline && Date.now() >= deadline - 1000) throw new Error('Daily summary preparation time budget reached; resume next run');
     const page = await env.ORDERS.list({ prefix, cursor });
     result.push(...page.keys.map(k => k.name));
     cursor = page.list_complete ? undefined : page.cursor;
@@ -24,10 +25,12 @@ export async function dailyOrderSummary(c) {
     let preparedThrough = lastPrepared;
     // Catch up after missed cron runs. Bound each run, then resume from the cursor.
     for (let prepared = 0; day <= yesterday && prepared < 7; prepared++) {
+      if (c.deadline && Date.now() >= c.deadline - 1000) break;
       const key = `digest-pending:${day}`;
       if (!await c.env.ORDERS.get(`digest-sent:${day}`) && !await c.env.ORDERS.get(key)) {
         const records = [];
-        for (const name of await keys(c.env, `day:${day}:`)) {
+        for (const name of await keys(c.env, `day:${day}:`, c.deadline)) {
+          if (c.deadline && Date.now() >= c.deadline - 1000) throw new Error('Daily summary preparation time budget reached; resume next run');
           const record = await findOrder(c.env, name.slice(`day:${day}:`.length));
           // Missing indexed records indicate a storage outage; never send a partial summary.
           if (!record) throw new Error('Daily summary order unavailable');
@@ -36,6 +39,7 @@ export async function dailyOrderSummary(c) {
         const parts = [];
         const chunkSize = 20;
         for (let offset = 0; offset < Math.max(records.length, 1); offset += chunkSize) {
+          if (c.deadline && Date.now() >= c.deadline - 1000) throw new Error('Daily summary preparation time budget reached; resume next run');
           const chunk = records.slice(offset, offset + chunkSize);
           parts.push({ sent: false, subject: `Evincus orders — ${day} (${records.length} orders) — part ${parts.length + 1}`,
             html: layout(`Orders for ${day}`, `<p>${records.length} orders. Order value: ${money(records.reduce((n, r) => n + r.totalCents, 0))} USD. This is order value, not collected revenue.</p>${chunk.length ? chunk.map(r => `<h2>${esc(r.id)}</h2>${table(recordRows(r))}`).join('') : '<p>No orders today.</p>'}`) });
@@ -47,10 +51,11 @@ export async function dailyOrderSummary(c) {
     }
     if (preparedThrough !== lastPrepared) await c.env.ORDERS.put('digest-last-prepared', preparedThrough);
   }
-  for (const key of await keys(c.env, 'digest-pending:')) {
+  for (const key of await keys(c.env, 'digest-pending:', c.deadline)) {
     const job = await c.env.ORDERS.get(key, 'json');
     if (!job?.parts) continue;
     for (let i = 0; i < job.parts.length; i++) {
+      if (c.deadline && Date.now() >= c.deadline - 1000) return;
       const part = job.parts[i];
       if (part.sent) continue;
       try {

@@ -66,7 +66,7 @@ export function makeEnv(over = {}) {
     PAYPAL_CLIENT_SECRET: 'client-secret',
     ORDER_HMAC_KEY: 'hmac-test-key',
     RESEND_API_KEY: 're_test',
-    EMAIL_FROM: 'Evincus <orders@evincus.shop>',
+    EMAIL_FROM: 'Evincus <no-reply@evincus.shop>',
     OWNER_EMAIL: 'owner@evincus.shop',
     SHIPPING_USD: '5',
     ALLOWED_ORIGINS: 'https://evincus.shop',

@@ -141,3 +141,13 @@ test('request ids are random UUIDs, never taken from request headers', async () 
   const r = await call('GET', '/api/health', { headers: { 'cf-ray': 'ray-123' } });
   assert.match(r.res.headers.get('x-request-id'), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
+
+test('GET /api/catalog returns every era and every released product in one response', async () => {
+  const { status, json, res } = await call('GET', '/api/catalog');
+  assert.equal(status, 200);
+  assert.equal(json.now, new Date(NOW).toISOString());
+  assert.deepEqual(json.eras.map(e => [e.slug, e.status, e.productCount, e.story ?? null]), [['future', 'upcoming', 0, null], ['alpha', 'live', 2, 'Alpha story'], ['old', 'archived', 1, 'Old story']]);
+  assert.deepEqual(json.products.map(p => [p.id, p.buyable]), [['alpha-tee', true], ['alpha-hood', false], ['old-tee', false]]);
+  assert.deepEqual(json.sales, []);
+  assert.equal(res.headers.get('cache-control'), 'public, max-age=60');
+});

@@ -22,6 +22,8 @@
 
 /* ---------- eras ---------- */
 .era-list { display: grid; gap: 18px; padding-bottom: 48px; }
+/* Holds the footer below the fold until the cards render, so it doesn't jump away. */
+.era-list:empty { min-height: 100svh; }
 .era-card { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--char); background: var(--ash); text-decoration: none; color: inherit; transition: border-color .2s; }
 .era-card:hover, .era-card:focus-visible { border-color: var(--hazard); }
 .era-card__img { aspect-ratio: 16 / 10; background: var(--char); overflow: hidden; }

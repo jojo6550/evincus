@@ -36,11 +36,13 @@ async function key(env) {
 }
 
 // Confirm and unsubscribe links carry id + token, so they work without a login and can't be guessed.
-export const linkToken = async (env, id) => b64url(await crypto.subtle.sign('HMAC', await key(env), enc.encode(`newsletter|${id}`)));
+export const linkToken = async (env, id, generation = '') => b64url(await crypto.subtle.sign('HMAC', await key(env), enc.encode(`newsletter|${id}${generation ? `|${generation}` : ''}`)));
 
 export async function verifyLink(env, id, token) {
   if (typeof id !== 'string' || !/^[0-9a-f]{32}$/.test(id) || typeof token !== 'string') return false;
-  const want = await linkToken(env, id);
+  const record = await env.ORDERS.get(subKey(id), 'json');
+  if (!record) return false;
+  const want = await linkToken(env, id, record.generation);
   if (want.length !== token.length) return false;
   let diff = 0;
   for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ token.charCodeAt(i);
@@ -85,6 +87,10 @@ export async function activeSubscribers(env) {
   return out;
 }
 
+const TTL = { expirationTtl: 7 * 86400 };
+const batchKey = (day, i) => `nl-batch:${day}:${String(i).padStart(8, '0')}`;
+const hasTime = c => !c.deadline || Date.now() < c.deadline - 1000;
+
 // ---------- the daily send ----------
 
 const localDay = now => new Date(+now + JAMAICA).toISOString().slice(0, 10);
@@ -100,13 +106,27 @@ async function prepare(c, day) {
     c.log.info('newsletter.skipped', { day });
     return;
   }
-  const subs = await activeSubscribers(c.env);
   const { subject, html } = newsletterEmail(issue, { site: siteUrl(c.env), now: c.now, address: c.env.POSTAL_ADDRESS });
-  const batches = [];
-  for (let i = 0; i < subs.length; i += BATCH) batches.push({ to: subs.slice(i, i + BATCH), sent: false });
-  await c.env.ORDERS.put(`nl-issue:${day}`, JSON.stringify({ day, subject, html, batches, attempts: 0 }), { expirationTtl: 7 * 86400 });
-  await c.env.ORDERS.put('nl-last', c.now.toISOString());
-  c.log.info('newsletter.prepared', { day, recipients: subs.length, batches: batches.length });
+  await c.env.ORDERS.put(`nl-issue:${day}`, JSON.stringify({ day, subject, html, site: siteUrl(c.env), api: c.env.API_URL, from: c.env.EMAIL_FROM, format: 2, batchCount: 0, nextBatch: 0, cursor: null, prepared: false, through: c.now.toISOString() }), TTL);
+}
+
+// Recipient snapshots are bounded records, not one ever-growing issue value.
+// Save the cursor and its batches atomically so a restart cannot omit a page.
+async function prepareRecipients(c, keyName, job) {
+  for (let pages = 0; !job.prepared && pages < 10 && hasTime(c); pages++) {
+    const page = await c.env.ORDERS.list({ prefix: 'sub:', cursor: job.cursor || undefined, limit: BATCH });
+    const active = page.keys.filter(k => k.metadata?.status === 'active' && k.metadata.email)
+      .map(k => ({ id: k.name.slice(4), email: k.metadata.email }));
+    const puts = [];
+    for (let i = 0; i < active.length; i += BATCH) {
+      puts.push({ key: batchKey(job.day, job.batchCount++), value: JSON.stringify({ to: active.slice(i, i + BATCH), attempts: 0 }), opts: TTL });
+    }
+    job.prepared = page.list_complete;
+    job.cursor = page.list_complete ? null : page.cursor;
+    puts.push({ key: keyName, value: JSON.stringify(job), opts: TTL });
+    if (job.prepared) puts.push({ key: 'nl-last', value: job.through });
+    if (!await c.env.ORDERS.commit({ puts })) throw new Error('Newsletter preparation conflict');
+  }
 }
 
 async function unsubHeaders(env, id, token) {
@@ -120,30 +140,76 @@ async function unsubHeaders(env, id, token) {
 
 async function sendIssue(c, keyName) {
   const job = await c.env.ORDERS.get(keyName, 'json');
-  if (!job?.batches) return;
-  job.attempts += 1;
-  for (let i = 0; i < job.batches.length; i++) {
-    const batch = job.batches[i];
-    if (batch.sent) continue;
+  if (!job) return;
+  // Finish existing issues after deploying the storage change, keeping their
+  // original provider idempotency keys and already-sent markers.
+  if (job.batches) {
+    for (let i = 0; i < job.batches.length; i++) {
+      await c.env.ORDERS.put(batchKey(job.day, i), JSON.stringify({ ...job.batches[i], attempts: job.attempts ?? 0, attempted: (job.attempts ?? 0) > 0 }), TTL);
+    }
+    job.batchCount = job.batches.length; job.nextBatch = 0; job.prepared = true; job.format = 2;
+    delete job.batches;
+    await c.env.ORDERS.put(keyName, JSON.stringify(job), TTL);
+  }
+  if (!job.prepared) await prepareRecipients(c, keyName, job);
+  if (!job.prepared) return;
+  for (let work = 0; job.nextBatch < job.batchCount && work < 5 && hasTime(c); work++) {
+    const i = job.nextBatch;
+    const name = batchKey(job.day, i);
+    const batch = await c.env.ORDERS.get(name, 'json');
+    if (!batch) throw new Error('Newsletter recipient batch unavailable');
+    if (batch.sent) {
+      job.nextBatch++;
+      await c.env.ORDERS.commit({ puts: [{ key: keyName, value: JSON.stringify(job), opts: TTL }], deletes: [name] });
+      continue;
+    }
+    batch.attempts += 1;
     try {
-      const emails = await Promise.all(batch.to.map(async s => {
-        const token = await linkToken(c.env, s.id);
-        return { to: s.email, subject: job.subject, html: job.html.replaceAll(UNSUB, esc(pageLink(c.env, 'unsubscribe', s.id, token))), headers: await unsubHeaders(c.env, s.id, token) };
-      }));
-      await sendBatch(c.env, emails, `newsletter-${job.day}-${i}`);
-      batch.sent = true;
-      c.log.info('newsletter.sent', { day: job.day, batch: i + 1, recipients: emails.length });
+      const selected = [];
+      for (const s of batch.to) {
+        const record = await c.env.ORDERS.get(subKey(s.id), 'json');
+        if (record?.status === 'active' && record.email === s.email && (!batch.attempted || s.generation === record.generation)) selected.push({ ...s, generation: record.generation });
+      }
+      // An ambiguous provider failure may already have sent the original batch.
+      // Never change its payload/key and risk duplicates, or send to someone who
+      // has since unsubscribed. Retire that batch; the next issue includes the
+      // remaining active subscribers again.
+      if (batch.attempted && selected.length !== batch.to.length) {
+        c.log.warn('newsletter.consent_changed', { day: job.day, batch: i + 1 });
+        job.consentChanged = true;
+        batch.sent = true;
+      } else if (!selected.length) batch.sent = true;
+      else {
+        batch.to = await Promise.all(selected.map(async s => ({ ...s, token: s.token ?? await linkToken(c.env, s.id, s.generation) })));
+        const linkEnv = { SITE_URL: job.site ?? siteUrl(c.env), API_URL: job.api ?? c.env.API_URL };
+        const emails = await Promise.all(batch.to.map(async s => ({
+          to: s.email, subject: job.subject,
+          html: job.html.replaceAll(UNSUB, esc(pageLink(linkEnv, 'unsubscribe', s.id, s.token))),
+          headers: await unsubHeaders(linkEnv, s.id, s.token),
+        })));
+        // Keep large HTML out of recipient records: the issue body is immutable,
+        // and per-recipient generations above make rendering deterministic.
+        batch.attempted = true;
+        await c.env.ORDERS.put(name, JSON.stringify(batch), TTL);
+        await sendBatch({ ...c.env, EMAIL_FROM: job.from ?? c.env.EMAIL_FROM }, emails, `newsletter-${job.day}-${i}`);
+        batch.sent = true;
+        c.log.info('newsletter.sent', { day: job.day, batch: i + 1, recipients: emails.length });
+      }
     } catch (err) {
-      c.log.error('newsletter.failed', { day: job.day, batch: i + 1, attempts: job.attempts, message: String(err?.message ?? err) });
+      c.log.error('newsletter.failed', { day: job.day, batch: i + 1, attempts: batch.attempts, message: String(err?.message ?? err) });
+    }
+    if (batch.sent || batch.attempts >= MAX_ATTEMPTS) {
+      if (!batch.sent) { job.failed = true; c.log.error('newsletter.gave_up', { day: job.day, batch: i + 1 }); }
+      job.nextBatch++;
+      await c.env.ORDERS.commit({ puts: [{ key: keyName, value: JSON.stringify(job), opts: TTL }], deletes: [name] });
+    } else {
+      await c.env.ORDERS.put(name, JSON.stringify(batch), TTL);
+      break;
     }
   }
-  const done = job.batches.every(b => b.sent);
-  if (done || job.attempts >= MAX_ATTEMPTS) {
-    await c.env.ORDERS.put(`nl-done:${job.day}`, done ? 'sent' : 'gave-up', { expirationTtl: 30 * 86400 });
+  if (job.nextBatch === job.batchCount) {
+    await c.env.ORDERS.put(`nl-done:${job.day}`, job.failed ? 'gave-up' : job.consentChanged ? 'consent-changed' : 'sent', { expirationTtl: 30 * 86400 });
     await c.env.ORDERS.delete(keyName);
-    if (!done) c.log.error('newsletter.gave_up', { day: job.day });
-  } else {
-    await c.env.ORDERS.put(keyName, JSON.stringify(job), { expirationTtl: 7 * 86400 });
   }
 }
 
@@ -156,5 +222,5 @@ export async function newsletter(c) {
     await prepare(c, day);
   }
   const page = await c.env.ORDERS.list({ prefix: 'nl-issue:' });
-  for (const k of page.keys) await sendIssue(c, k.name);
+  for (const k of page.keys) { if (!hasTime(c)) break; await sendIssue(c, k.name); }
 }

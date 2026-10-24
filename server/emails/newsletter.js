@@ -36,7 +36,7 @@ function productGrid(products, site) {
   const cells = products.slice(0, 6).map(p => {
     const img = firstImage(p);
     return `<td width="50%" valign="top" style="padding:6px">
-      <a href="${esc(`${site}/index.html#p-${p.id}`)}" style="text-decoration:none;color:${C.bone}">
+      <a href="${esc(`${site}/products/${p.id}`)}" style="text-decoration:none;color:${C.bone}">
         ${img ? `<img src="${esc(abs(site, img))}" width="264" alt="${esc(p.name)}" style="display:block;width:100%;max-width:100%;height:auto;background:${C.bone};border:0">` : ''}
         <div style="padding-top:10px;font-family:${DISPLAY};font-size:14px;text-transform:uppercase;color:${C.bone}">${esc(p.name)}</div>
         <div style="padding-top:4px;font-family:${MONO};font-size:13px;color:${C.bone}">${price(p)}</div>

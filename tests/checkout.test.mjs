@@ -29,6 +29,19 @@ test('direct delivery stores an unpaid order and confirms by Resend without PayP
   assert.equal(env.ORDERS.store.has(`email-retry:${r.json.id}`), false);
 });
 
+test('customer markup is escaped in receipts and daily summaries', async () => {
+  const up = fakeUpstreams();
+  const env = envForOrders();
+  const b = body(); b.customer.name = '<img src=x onerror=alert(1)>'; b.notes = '<script>alert(1)</script>';
+  assert.equal((await place(b, env)).status, 201);
+  await cron(env, '2026-10-04T13:00:00Z');
+  assert.ok(up.emails.length >= 2);
+  for (const email of up.emails) {
+    assert.doesNotMatch(email.html, /<script>|<img src=x/);
+    assert.match(email.html, /&lt;/);
+  }
+});
+
 test('both pickup locations need no delivery address and have zero shipping', async () => {
   fakeUpstreams();
   for (const locationId of ['trendy-hats', 'evincus-store']) {

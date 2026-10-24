@@ -214,3 +214,69 @@ test('a sale goes out in batches of 100; a failed batch is retried later without
   assert.ok(!env.ORDERS.store.has('nl-issue:2026-10-03'));
   assert.equal(env.ORDERS.store.get('nl-done:2026-10-03').value, 'sent');
 });
+
+test('unsubscribe invalidates old links after a new subscription', async () => {
+  const up = fakeUpstreams();
+  const env = nlEnv();
+  await call('POST', '/api/newsletter/subscribe', { env, body: { email: 'renew@example.com' } });
+  const first = linkFrom(up.emails[0].html);
+  assert.equal((await call('POST', '/api/newsletter/confirm', { env, body: first })).status, 200);
+  assert.equal((await call('POST', '/api/newsletter/unsubscribe', { env, body: first })).status, 200);
+  await call('POST', '/api/newsletter/subscribe', { env, body: { email: 'renew@example.com' } });
+  assert.equal((await call('POST', '/api/newsletter/confirm', { env, body: first })).status, 400);
+  assert.equal((await call('POST', '/api/newsletter/unsubscribe', { env, body: first })).status, 400);
+});
+
+test('concurrent subscription requests share one generation and usable confirmation link', async () => {
+  const up = fakeUpstreams();
+  const env = nlEnv();
+  const results = await Promise.all(Array.from({ length: 3 }, () => call('POST', '/api/newsletter/subscribe', { env, body: { email: 'concurrent@example.com' } })));
+  assert.ok(results.every(r => r.status === 200));
+  assert.equal(new Set(up.emails.map(e => linkFrom(e.html).t)).size, 1);
+  assert.equal((await call('POST', '/api/newsletter/confirm', { env, body: linkFrom(up.emails[0].html) })).status, 200);
+});
+
+test('a retry never sends a saved batch to a subscriber who has since unsubscribed', async () => {
+  let fail = true;
+  const up = fakeUpstreams({ resend: { fail: () => fail } });
+  const env = nlEnv();
+  const id = await addSubscriber(env, 'gone@example.com');
+  await addSubscriber(env, 'active@example.com');
+  await env.ORDERS.put(SALES_KEY, JSON.stringify([sale()]));
+  await env.ORDERS.put('nl-last', iso(NOW - DAY));
+  await cron(env, NOW + 4 * HOUR);
+  await env.ORDERS.delete(subKey(id));
+  fail = false;
+  await cron(env, NOW + 4 * HOUR + 15 * 60_000);
+  assert.equal(up.emails.length, 0, 'retire a changed, possibly accepted batch rather than send changed content under its old key');
+});
+
+test('large newsletter audiences use bounded recipient records and resume preparation', async () => {
+  const up = fakeUpstreams();
+  const env = nlEnv();
+  const active = [];
+  for (let i = 0; i < 1200; i++) {
+    const email = `u${i}@example.com`;
+    active.push({ name: subKey(await addSubscriber(env, email)), metadata: { email, status: 'active' } });
+  }
+  const originalList = env.ORDERS.list.bind(env.ORDERS);
+  env.ORDERS.list = async ({ prefix, cursor, limit = 1000 }) => {
+    if (prefix !== 'sub:') return originalList({ prefix });
+    const start = Number(cursor ?? 0), end = Math.min(start + limit, active.length);
+    return { keys: active.slice(start, end), list_complete: end === active.length, cursor: String(end) };
+  };
+  await env.ORDERS.put(SALES_KEY, JSON.stringify([sale()]));
+  await env.ORDERS.put('nl-last', iso(NOW - DAY));
+  await cron(env, NOW + 4 * HOUR);
+  let job = await env.ORDERS.get('nl-issue:2026-10-03', 'json');
+  assert.equal(job.prepared, false);
+  assert.equal(job.batchCount, 10);
+  assert.equal(up.emails.length, 0);
+  for (const [key, entry] of env.ORDERS.store) if (key.startsWith('nl-batch:')) {
+    assert.ok(JSON.parse(entry.value).to.length <= 100);
+    assert.ok(entry.value.length < 60000);
+  }
+  for (let i = 1; i <= 3; i++) await cron(env, NOW + 4 * HOUR + i * 15 * 60_000);
+  assert.equal(up.emails.length, 1200);
+  assert.equal(new Set(up.emails.map(e => e.to[0])).size, 1200);
+});

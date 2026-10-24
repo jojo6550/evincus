@@ -1,9 +1,10 @@
-// Product view: a native <dialog> opened from the grid or a #p-<id> link.
+// Product view: a native <dialog> opened from the grid, a /products/<id> URL or an old #p-<id> link.
 import { imagesFor, money } from '../../data/catalog.js';
 import { findProduct, eraName, isLive, site } from './store.js';
 import * as cart from './cart.js';
 import { openBag } from './bag.js';
 import { priceHtml } from './sale.js';
+import { imageAttrs, updateImage } from './images.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -11,13 +12,14 @@ let dialog, body;
 let p = null;
 let color = '';
 let size = '';
+const HOME_TITLE = 'Evincus Streetwear | Heavyweight Tees, Hoodies & Track Sets';
 
 function buttonState(p, color, size) {
   if (!isLive()) return { text: 'Checking availability', disabled: true };
   if (!p.buyable) return { text: p.soldOut ? 'Sold out' : 'No longer sold', disabled: true };
   if (!size) return { text: 'Select a size', disabled: true };
   if (p.soldOutVariants.includes(`${color}|${size}`)) return { text: 'Sold out in this size', disabled: true };
-  return { text: `Add to bag, ${money(p.priceCents)}`, disabled: false };
+  return { text: `Add to cart, ${money(p.priceCents)}`, disabled: false };
 }
 
 function dot(c) {
@@ -31,13 +33,13 @@ function galleryHtml() {
     <div class="pdp__thumbs">
       ${imgs.map((src, i) => `
         <button type="button" class="pdp__thumb" data-src="${esc(src)}" aria-label="Show image ${i + 1} of ${imgs.length}"${i === 0 ? ' aria-current="true"' : ''}>
-          <img src="${esc(src)}" alt="" loading="lazy">
+          <img ${imageAttrs(src, '80px')} alt="" loading="lazy">
         </button>`).join('')}
     </div>` : '';
   return `
     <div class="pdp__main">
       <i class="crop tl"></i><i class="crop br"></i>
-      ${imgs[0] ? `<img id="pdpMain" src="${esc(imgs[0])}" alt="${esc(`${p.name} in ${color}`)}">` : ''}
+      ${imgs[0] ? `<img id="pdpMain" ${imageAttrs(imgs[0], '(max-width: 760px) 92vw, 50vw')} alt="${esc(`${p.name} in ${color}`)}">` : ''}
     </div>
     ${thumbs}`;
 }
@@ -116,12 +118,13 @@ function onClick(e) {
     e.preventDefault();
     const hash = era.getAttribute('href');
     dialog.close();
+    history.replaceState(null, '', '/');
     location.hash = hash;
     return;
   }
   const thumb = e.target.closest('.pdp__thumb');
   if (thumb) {
-    body.querySelector('#pdpMain').src = thumb.dataset.src;
+    updateImage(body.querySelector('#pdpMain'), thumb.dataset.src, '(max-width: 760px) 92vw, 50vw');
     body.querySelectorAll('.pdp__thumb').forEach(t => t.removeAttribute('aria-current'));
     thumb.setAttribute('aria-current', 'true');
     return;
@@ -136,14 +139,15 @@ function onClick(e) {
 export function openProduct(id) {
   const found = findProduct(id);
   if (!found) {
-    history.replaceState(null, '', '#shop');
+    history.replaceState(null, '', '/#shop');
     return;
   }
   p = found;
   color = p.colors[0].name;
   size = p.sizes.length === 1 ? p.sizes[0] : '';
   render();
-  history.replaceState(null, '', `#p-${p.id}`);
+  history.replaceState(null, '', `/products/${p.id}`);
+  document.title = `${p.name} | Evincus Streetwear`;
   if (!dialog.open) dialog.showModal();
   body.scrollTop = 0;
 }
@@ -159,5 +163,8 @@ export function initProductView() {
     const r = dialog.getBoundingClientRect();
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
   });
-  dialog.addEventListener('close', () => { if (location.hash.startsWith('#p-')) history.replaceState(null, '', '#shop'); });
+  dialog.addEventListener('close', () => {
+    document.title = HOME_TITLE;
+    if (location.pathname.startsWith('/products/') || location.hash.startsWith('#p-')) history.replaceState(null, '', '/#shop');
+  });
 }

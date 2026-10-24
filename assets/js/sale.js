@@ -51,7 +51,7 @@ export function initSale() {
       <div class="sale__clock" role="timer" aria-label="Sale ends ${esc(fmt(s.endsAt))}">
         ${UNITS.map(([u, label]) => `<span class="sale__cell sale__cell--${u}"><b data-u="${u}">00</b><small class="mono">${label}</small></span>`).join('')}
       </div>
-      <a class="sale__go mono" href="index.html#shop">Shop the sale <span aria-hidden="true">→</span></a>
+      <a class="sale__go mono" href="/#shop">Shop the sale <span aria-hidden="true">→</span></a>
     </div>`;
   const cells = Object.fromEntries(UNITS.map(([u]) => [u, el.querySelector(`[data-u="${u}"]`)]));
   const ends = Date.parse(s.endsAt);

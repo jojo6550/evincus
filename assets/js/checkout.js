@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, ApiError } from './api.js';
 import * as cart from './cart.js';
 import { money } from '../../data/catalog.js';
 
@@ -16,7 +16,7 @@ export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
   let options;
   try { options = await api('GET', '/api/checkout/options'); }
   catch (err) {
-    if (container.isConnected) container.innerHTML = `<p role="alert">${esc(err.message)}</p><button type="button" class="text-btn mono" data-act="back">← Back to bag</button>`;
+    if (container.isConnected) container.innerHTML = `<p role="alert">${esc(err.message)}</p><button type="button" class="text-btn mono" data-act="back">← Back to cart</button>`;
     return;
   }
   if (!container.isConnected) return;
@@ -45,7 +45,7 @@ export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
     <div class="sum"><div class="sum__row"><span>Items</span><span>${money(q.subtotalCents)}</span></div><div class="sum__row"><span>Delivery / pickup</span><span data-shipping></span></div><div class="sum__row sum__total"><span>Order total</span><span data-total></span></div></div>
     <p class="pay-error" role="alert" hidden></p>
     <button type="submit" class="btn btn--solid bag__go">Place order</button>
-    <button type="button" class="text-btn mono" data-act="back">← Back to bag</button>
+    <button type="button" class="text-btn mono" data-act="back">← Back to cart</button>
   </form>`;
   const form = container.querySelector('form');
   const error = form.querySelector('.pay-error');
@@ -101,6 +101,7 @@ export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
     error.hidden = true;
     try {
       const order = await api('POST', '/api/orders', pending);
+      if (typeof order?.id !== 'string' || order.status !== 'PLACED' || order.paymentStatus !== 'NOT_COLLECTED') throw new ApiError(0, null);
       const ordered = pending.items;
       remember(null);
       onPlaced(order, ordered);

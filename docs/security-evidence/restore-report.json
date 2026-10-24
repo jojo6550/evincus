@@ -1,0 +1,18 @@
+{
+  "testedAt": "2026-10-19T04:15:06.932Z",
+  "snapshot": "synthetic fixture",
+  "email": "no email or scheduler code loaded",
+  "counts": {
+    "config": 1,
+    "day": 1,
+    "digest-last-prepared": 1,
+    "email-retry": 1,
+    "large": 1,
+    "nl-last": 1,
+    "order": 1,
+    "sub": 1,
+    "submission": 1
+  },
+  "integrity": "all logical values readable and match snapshot",
+  "productionRestoreVerified": false
+}

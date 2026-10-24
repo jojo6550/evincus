@@ -21,7 +21,7 @@ function loadSdk() {
   return sdkPromise;
 }
 
-const status = (box, msg) => { box.innerHTML = `<p class="pay-status mono">${msg}</p>`; };
+const status = (box, msg) => { const p = document.createElement('p'); p.className = 'pay-status mono'; p.textContent = msg; box.replaceChildren(p); };
 const report = (event, err) => beacon(event, { code: err.code, ...(err.reqId ? { reqId: err.reqId } : {}) });
 // The server already logged and alerted these with the order id; a generic beacon would only add noise.
 const SERVER_REPORTED = new Set(['capture-unknown', 'capture-mismatch']);
@@ -86,7 +86,7 @@ export async function mountPaypal(container, { errorEl, onPaid }) {
     onCancel: () => showError(''),
     onError: err => {
       if (handled || captured) return;
-      if (err?.message === 'empty-bag') { showError('Your bag is empty. Add something before checking out.'); return; }
+      if (err?.message === 'empty-bag') { showError('Your cart is empty. Add something before checking out.'); return; }
       console.error('PayPal error', err);
       showError('Payment failed and you were not charged. Try again, or DM @evincus.sw on Instagram.');
     },

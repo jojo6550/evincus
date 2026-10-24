@@ -17,12 +17,16 @@ export async function api(method, path, body) {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : {},
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
     });
   } catch {
     throw new ApiError(0, null);
   }
-  const data = await res.json().catch(() => null);
+  let data;
+  try { data = await res.json(); }
+  catch { throw new ApiError(res.ok ? 0 : res.status, null); }
   if (!res.ok) throw new ApiError(res.status, data);
+  if (!data || typeof data !== 'object') throw new ApiError(0, null);
   return data;
 }
 

@@ -7,6 +7,7 @@ import { initProductView, openProduct } from './product-view.js';
 import { initSale, priceHtml, saleTag } from './sale.js';
 import { initSignup } from './signup.js';
 import { initReel } from './reel.js';
+import { imageAttrs } from './images.js';
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const TAGS = { 'disaster-zone-tee': ['New', true], 'made-for-chaos-tee': ['Distressed'], 'catastrophe-zip-hoodie': ['New', true], 'flaming-eye-tee': ['Core'] };
 initReel();
@@ -21,11 +22,11 @@ grid.innerHTML = PRODUCTS.map(p => {
   const [front, back] = [imgs[0], imgs[1] || imgs[0]];
   const tag = !p.buyable && isLive() ? [p.soldOut ? 'Sold out' : 'Ended'] : p.sale ? [saleTag(p), true] : TAGS[p.id];
   const colors = p.colors.length > 1 ? p.colors.length + ' colors' : p.colors[0].name;
-  return `<a class="card" href="#p-${esc(p.id)}" data-product="${esc(p.id)}" data-era="${esc(p.era)}">
+  return `<a class="card" href="/products/${esc(p.id)}" data-product="${esc(p.id)}" data-era="${esc(p.era)}">
     <div class="card__img">
-      ${tag ? `<span class="tag ${tag[1] ? 'tag--hot ' : ''}mono">${tag[0]}</span>` : ''}
-      <img src="${esc(front)}" alt="${esc(p.name)}" loading="lazy">
-      <img class="alt" src="${esc(back)}" alt="" loading="lazy">
+      ${tag ? `<span class="tag ${tag[1] ? 'tag--hot ' : ''}mono">${esc(tag[0])}</span>` : ''}
+      <img ${imageAttrs(front)} alt="${esc(p.name)}" loading="lazy">
+      <img class="alt" ${imageAttrs(back)} alt="" loading="lazy">
     </div>
     <div class="card__meta"><h3>${esc(p.name)}</h3><span class="price">${priceHtml(p)}</span><span class="mono">${esc(eraName(p.era))} · ${esc(colors)} · USD</span></div>
   </a>`;
@@ -47,7 +48,7 @@ filterEl.innerHTML = [['', 'All', PRODUCTS.length], ...released.map(e => [e.slug
 document.getElementById('teasers').innerHTML = ERAS.filter(e => e.status === 'upcoming').map(e => {
   const when = new Date(e.dropsAt).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' });
   return `<article class="teaser">
-    ${e.hero ? `<img src="${esc(e.hero)}" alt="${esc(e.name)} collection preview" loading="lazy">` : ''}
+    ${e.hero ? `<img ${imageAttrs(e.hero)} alt="${esc(e.name)} collection preview" loading="lazy">` : ''}
     <div class="teaser__copy">
       <span class="mono u-hazard">Coming soon</span>
       <h3>${esc(e.name)}</h3>
@@ -74,7 +75,7 @@ initProductView();
 initBag();
 refreshQuote();
 const fromHash = () => {
-  const m = /^#p-(.+)$/.exec(location.hash); if (m) { openProduct(m[1]); return; }
+  const m = /^\/products\/([a-z0-9-]+)$/.exec(location.pathname) ?? /^#p-(.+)$/.exec(location.hash); if (m) { openProduct(m[1]); return; }
   const e = /^#era-(.+)$/.exec(location.hash); if (e) setEra(e[1], { scroll: true, push: false });
 };
 fromHash();

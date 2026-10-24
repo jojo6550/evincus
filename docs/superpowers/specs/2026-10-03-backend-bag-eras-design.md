@@ -323,7 +323,7 @@ Key `order:<paypalOrderId>`:
 
 ### Emails
 
-Sent through Resend from `orders@evincus.shop`:
+Sent through Resend from `Evincus <no-reply@evincus.shop>`:
 
 - **Customer receipt:** lines, totals, ship-to, order id, contact address.
 - **Owner notification:** the same plus the payer's email; sent to `OWNER_EMAIL`.

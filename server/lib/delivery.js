@@ -85,6 +85,7 @@ export async function retryEmails(c) {
   do {
     const page = await c.env.ORDERS.list({ prefix: 'email-retry:', cursor });
     for (const { name } of page.keys) {
+      if (c.deadline && Date.now() >= c.deadline - 1000) return;
       const id = name.slice('email-retry:'.length);
       try { await retryOne(c, id); } catch (err) { c.log.error('email.failed', { orderId: id, message: String(err?.message ?? err) }); }
     }

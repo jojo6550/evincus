@@ -10,8 +10,8 @@ export class HttpError extends Error {
 export const MESSAGES = {
   'invalid-checkout': 'Check your name, email, phone and delivery or pickup details, then try again.',
   'unsupported-country': 'Delivery is not available to that country. Choose another destination or in-store pickup.',
-  'checkout-conflict': 'This checkout was already submitted with different details. Reopen your bag to start a new checkout.',
-  'payments-disabled': 'Payments are currently disabled. Place your order from your bag.',
+  'checkout-conflict': 'This checkout was already submitted with different details. Reopen your cart to start a new checkout.',
+  'payments-disabled': 'Payments are currently disabled. Place your order from your cart.',
   'not-found': "There's nothing at this address.",
   'method-not-allowed': "This address doesn't accept that kind of request.",
   'too-large': 'That request is too large to process.',
@@ -19,13 +19,13 @@ export const MESSAGES = {
   'server-error': 'Something went wrong on our side. Try again in a minute.',
   'unknown-era': "There's no collection at this address. It may have been renamed.",
   'unknown-product': "This piece isn't in the store. It may have sold out or been renamed.",
-  'invalid-cart': "Your bag couldn't be read. Refresh the page and try again.",
-  'invalid-order': "That order reference isn't valid. Start checkout again from your bag.",
+  'invalid-cart': "Your cart couldn't be read. Refresh the page and try again.",
+  'invalid-order': "That order reference isn't valid. Start checkout again from your cart.",
   'invalid-email': 'Enter a valid email address, like you@email.com.',
   'newsletter-link': 'That link has expired or is incomplete. Sign up again from the bottom of the store page.',
   'invalid-beacon': 'That report was not in the expected format.',
-  'bag-changed': 'Some items in your bag changed. Check your bag, then check out again.',
-  'capture-refused': "This payment couldn't be verified, so you were not charged. Start checkout again from your bag.",
+  'bag-changed': 'Some items in your cart changed. Check your cart, then check out again.',
+  'capture-refused': "This payment couldn't be verified, so you were not charged. Start checkout again from your cart.",
   'capture-mismatch': "Your payment needs a manual check. Don't pay again: we'll contact you by email within one business day.",
   'capture-unknown': "We couldn't confirm your payment. Don't pay again — check your PayPal account or email for a receipt, or DM @evincus.sw on Instagram with your order reference.",
   'payment-declined': 'Your payment method was declined and you were not charged. Try another card or PayPal account.',
@@ -49,10 +49,37 @@ export function fail(c, code, status, extra = {}) {
 
 // Parses a JSON body. Returns undefined for unparseable bodies; throws 413 for oversized ones.
 export async function readJson(req, maxBytes = 16384) {
-  if (Number(req.headers.get('content-length') ?? 0) > maxBytes) throw new HttpError('too-large', 413);
-  const text = await req.text();
-  if (new TextEncoder().encode(text).length > maxBytes) throw new HttpError('too-large', 413);
+  if (Number(req.headers.get('content-length') ?? 0) > maxBytes) {
+    if (req.body) void req.body.cancel().catch(() => {});
+    throw new HttpError('too-large', 413);
+  }
+  if (!req.body) return undefined;
+  const reader = req.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '', bytes = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        void reader.cancel().catch(() => {});
+        throw new HttpError('too-large', 413);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally { reader.releaseLock(); }
   try { return JSON.parse(text); } catch { return undefined; }
+}
+
+// Limit before parsing or reading prices. A storage outage fails closed.
+export async function enforceLimit(c, limiter, namespace = '') {
+  if (!limiter) return;
+  let result;
+  try { result = await limiter.limit({ key: `${namespace}${c.ip}` }); }
+  catch { throw new HttpError('server-error', 503); }
+  if (!result.success) throw new HttpError('rate-limited', 429);
 }
 
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
