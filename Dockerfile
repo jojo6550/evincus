@@ -1,5 +1,5 @@
 # Render builds both services (render.yaml) from this image. Prod's KV lives on the disk mounted at /var/data.
-FROM node:22-slim
+FROM node:26-slim
 WORKDIR /app
 COPY package.json package-lock.json ./
 # The app runs on node alone. The base image's npm, corepack and yarn bundle their own vulnerable dependencies
