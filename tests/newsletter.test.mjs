@@ -13,6 +13,7 @@ const DROP = Date.parse(FIXTURE.eras[0].dropsAt); // 'future' drops 2026-10-10 1
 const iso = ms => new Date(ms).toISOString();
 
 async function cron(env, at) {
+  await env.ORDERS.put('digest-last-prepared', '2099-12-31'); // keep the owner's daily order summary out of these counts
   const ctx = makeCtx();
   await createApp({ data: FIXTURE, clock: () => at }).scheduled({ cron: '*/15 * * * *', scheduledTime: at }, env, ctx);
   await ctx.settle();

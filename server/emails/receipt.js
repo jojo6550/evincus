@@ -6,7 +6,7 @@ export function receiptEmail(r) {
   return {
     subject: `Your Evincus order ${r.id}`,
     html: layout('Thanks for your order', `
-<p>${r.placedAt ? 'Your order is placed. No payment was collected at checkout.' : 'Your payment went through and your order is in.'}</p>
+<p>Your order is placed. No payment was collected at checkout.</p>
 <table width="100%">
 ${items}
 <tr><td>Subtotal</td><td align="right">${money(r.subtotalCents)}</td></tr>

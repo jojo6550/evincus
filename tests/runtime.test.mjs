@@ -9,7 +9,7 @@ import { once } from 'node:events';
 import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 
 async function start(t, file) {
-  const child = fork(new URL('../main.js', import.meta.url), [], { silent: true, execArgv: [], env: { ...process.env, PORT: '0', ENVIRONMENT: 'development', KV_PATH: file, EMAIL_DISABLED: 'true', NEWSLETTER_HOUR: '', KEEPALIVE_URL: '', PAYMENT_MODE: 'none', CSP_MODE: 'enforce' } });
+  const child = fork(new URL('../main.js', import.meta.url), [], { silent: true, execArgv: [], env: { ...process.env, PORT: '0', ENVIRONMENT: 'development', KV_PATH: file, EMAIL_DISABLED: 'true', NEWSLETTER_HOUR: '', KEEPALIVE_URL: '', CSP_MODE: 'enforce' } });
   t.after(() => { if (child.exitCode === null) child.kill(); });
   let logs = '', errors = '';
   child.stderr.on('data', value => { errors += value; });

@@ -39,7 +39,7 @@ const SPECULATION_RULES = JSON.stringify({
 });
 
 // The site's runtime settings. The API is same-origin, so API_BASE is always ''.
-const configJs = env => `export const API_BASE = '';\nexport const PAYPAL_CLIENT_ID = ${JSON.stringify(env.PAYPAL_CLIENT_ID ?? 'test')};\n`;
+const CONFIG_JS = "export const API_BASE = '';\n";
 
 // /products/<id>: the storefront with that product's title, description, social card and Product JSON-LD in the
 // <head>, so search engines and link previews see the product. The page's own script opens the product view.
@@ -76,7 +76,7 @@ async function staticResponse(req, { env = {}, readFile, statFile, data = CATALO
       const page = status === 'stocking' ? 'restocking.html' : '503.html';
       return send(await readFile(page), page, 503, 'no-store');
     }
-    if (path.toLowerCase() === '/assets/js/config.js') return send(configJs(env), '/assets/js/config.js', 200, 'no-cache');
+    if (path.toLowerCase() === '/assets/js/config.js') return send(CONFIG_JS, '/assets/js/config.js', 200, 'no-cache');
     if (path === '/robots.txt') return send(robotsTxt(crawlable(req.headers.get('host'))), path, 200, 'public, max-age=3600');
     if (path === '/sitemap.xml') return send(sitemapXml(data, now), path, 200, 'public, max-age=3600');
     if (path === '/speculation-rules.json') return send(SPECULATION_RULES, path, 200, 'public, max-age=3600');

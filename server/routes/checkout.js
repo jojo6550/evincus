@@ -38,7 +38,7 @@ export async function placeOrderRoute(req, c) {
   c.log.info('order.placed', { orderId: id, totalCents: record.totalCents });
   c.waitUntil((async () => {
     const latest = await findOrder(c.env, id);
-    await sendOrderEmails(c, latest ?? record, { persisted: true });
+    await sendOrderEmails(c, latest ?? record);
   })().catch(err => c.log.error('email.failed', { orderId: id, message: String(err.message) })));
   return json({ id, status: record.status, paymentStatus: record.paymentStatus, name: record.customer.name, email: record.customer.email, fulfillment: record.fulfillment, totalCents: record.totalCents }, 201, { 'Cache-Control': 'no-store' });
 }

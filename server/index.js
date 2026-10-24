@@ -10,10 +10,8 @@ import { health } from './routes/health.js';
 import { listEras, getEra, getCatalog } from './routes/eras.js';
 import { getProduct } from './routes/products.js';
 import { quoteRoute } from './routes/quote.js';
-import { createOrderRoute } from './routes/orders.js';
-import { captureRoute } from './routes/capture.js';
 import { beacon } from './routes/beacon.js';
-import { checkoutOptions } from './routes/checkout.js';
+import { checkoutOptions, placeOrderRoute } from './routes/checkout.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
@@ -28,8 +26,7 @@ const ROUTES = [
   ['GET', /^\/api\/eras\/([a-z0-9-]+)$/, getEra, true],
   ['GET', /^\/api\/products\/([a-z0-9-]+)$/, getProduct, true],
   ['POST', /^\/api\/bag\/quote$/, quoteRoute, true],
-  ['POST', /^\/api\/orders$/, createOrderRoute, true],
-  ['POST', /^\/api\/orders\/capture$/, captureRoute, true],
+  ['POST', /^\/api\/orders$/, placeOrderRoute, true],
   ['POST', /^\/api\/beacon$/, beacon],
   ['POST', /^\/api\/newsletter\/subscribe$/, subscribeRoute],
   ['POST', /^\/api\/newsletter\/confirm$/, confirmRoute],
@@ -66,12 +63,10 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
             if (url.pathname === '/api/newsletter/confirm' || url.pathname === '/api/newsletter/unsubscribe') await enforceLimit(c, env.LINK_LIMIT);
             c.params = url.pathname.match(hit[1]).slice(1);
             if (hit[3]) {
-              c.base = data;
               c.sales = await loadSales(env, log);
               c.data = applySales(data, c.sales, c.now);
             }
-            res = url.pathname === '/api/orders/capture' && env.PAYMENT_MODE !== 'paypal'
-              ? fail(c, 'payments-disabled', 403) : await hit[2](req, c);
+            res = await hit[2](req, c);
           }
         }
       } catch (err) {
@@ -98,7 +93,7 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
       const logFailure = err => log.error('unhandled', { message: String(err?.message ?? err) });
       ctx.waitUntil((async () => {
         await retryEmails(c);
-        if (env.PAYMENT_MODE !== 'paypal') await dailyOrderSummary(c);
+        await dailyOrderSummary(c);
       })().catch(logFailure));
       ctx.waitUntil(newsletter(c).catch(logFailure));
     },

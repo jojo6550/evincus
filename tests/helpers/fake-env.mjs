@@ -59,12 +59,8 @@ export function fakeLimiter(limit) {
 
 export function makeEnv(over = {}) {
   const env = {
-    PAYMENT_MODE: 'paypal', // Legacy payment tests explicitly exercise the optional PayPal mode.
     ENVIRONMENT: 'production',
-    PAYPAL_ENV: 'sandbox',
-    PAYPAL_CLIENT_ID: 'client-id',
-    PAYPAL_CLIENT_SECRET: 'client-secret',
-    ORDER_HMAC_KEY: 'hmac-test-key',
+    NEWSLETTER_KEY: 'hmac-test-key',
     RESEND_API_KEY: 're_test',
     EMAIL_FROM: 'Evincus <no-reply@evincus.shop>',
     OWNER_EMAIL: 'owner@evincus.shop',
@@ -115,13 +111,8 @@ export async function call(method, path, { body, raw, headers = {}, ip, env = ma
   return { res, status: res.status, json, text, env };
 }
 
-// Fake PayPal + Resend on globalThis.fetch.
-// paypal: { down, decline, paidValue, payer, networkAfterCapture, captureStatus, createTime, captureErrors, chargeOnError } ; resend: { fail(body) → boolean }
-// captureErrors: HTTP statuses returned by successive capture calls before captures succeed (e.g. [500, 500]).
-// chargeOnError: the order still becomes COMPLETED at PayPal when a capture call returns one of those errors.
-export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
-  const orders = new Map();
-  const captureErrors = [...(paypal.captureErrors ?? [])];
+// Fake Resend on globalThis.fetch. resend: { fail(body) → boolean }
+export function fakeUpstreams({ resend = {} } = {}) {
   const calls = [];
   const emails = [];
   const batchKeys = new Set();
@@ -147,38 +138,7 @@ export function fakeUpstreams({ paypal = {}, resend = {} } = {}) {
       emails.push({ ...body, idempotencyKey });
       return reply({ id: `em_${emails.length}` });
     }
-
-    if (paypal.down) return reply({ name: 'INTERNAL_SERVER_ERROR' }, 500);
-    if (u.pathname === '/v1/oauth2/token') return reply({ access_token: 'token' });
-    if (u.pathname === '/v2/checkout/orders' && method === 'POST') {
-      const id = `ORDER${orders.size + 1}ABCDEFG`;
-      orders.set(id, { id, status: 'APPROVED', ...JSON.parse(init.body) });
-      return reply({ id });
-    }
-    const m = u.pathname.match(/^\/v2\/checkout\/orders\/(\w+)(\/capture)?$/);
-    const order = m && orders.get(m[1]);
-    if (!order) return reply({ name: 'RESOURCE_NOT_FOUND' }, 404);
-    if (!m[2]) return reply(order);
-    if (paypal.decline) return reply({ name: 'UNPROCESSABLE_ENTITY' }, 422);
-    const unit = order.purchase_units[0];
-    const amount = paypal.paidValue ? { ...unit.amount, value: paypal.paidValue } : unit.amount;
-    const done = {
-      id: order.id,
-      status: 'COMPLETED',
-      payer: 'payer' in paypal ? paypal.payer : { name: { given_name: 'Ann', surname: 'Lee' }, email_address: 'ann@example.com' },
-      purchase_units: [{
-        ...unit,
-        payments: { captures: [{ id: 'CAPTURE1', status: paypal.captureStatus ?? 'COMPLETED', amount, ...(paypal.createTime ? { create_time: paypal.createTime } : {}) }] },
-      }],
-    };
-    const errorStatus = captureErrors.shift();
-    if (errorStatus !== undefined) {
-      if (paypal.chargeOnError) orders.set(order.id, { ...order, ...done });
-      return reply({ name: errorStatus >= 500 ? 'INTERNAL_SERVER_ERROR' : 'INVALID_REQUEST' }, errorStatus);
-    }
-    orders.set(order.id, { ...order, ...done }); // later GETs see the captured order, as at PayPal
-    if (paypal.networkAfterCapture) throw new TypeError('network down after charge');
-    return reply(done);
+    return reply({ name: 'RESOURCE_NOT_FOUND' }, 404);
   };
-  return { orders, calls, emails, captures: () => calls.filter(c => c.path.endsWith('/capture')) };
+  return { calls, emails };
 }

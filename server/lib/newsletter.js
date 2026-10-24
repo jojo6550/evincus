@@ -30,7 +30,7 @@ export const subKey = id => `sub:${id}`;
 export const subscriberId = async email => hex(await crypto.subtle.digest('SHA-256', enc.encode(`newsletter|${email}`))).slice(0, 32);
 
 async function key(env) {
-  const secret = env.NEWSLETTER_KEY ?? env.ORDER_HMAC_KEY;
+  const secret = env.NEWSLETTER_KEY;
   if (!secret) throw new Error('NEWSLETTER_KEY not set');
   return crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
 }

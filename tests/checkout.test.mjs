@@ -4,7 +4,7 @@ import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter } from './helpers/fa
 import { createApp } from '../server/index.js';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 
-const envForOrders = over => makeEnv({ PAYMENT_MODE: 'none', ...over });
+const envForOrders = makeEnv;
 const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, notes: '<please pack carefully>', expectedTotalCents: 6998 });
 const place = (b, env) => call('POST', '/api/orders', { body: b, env });
 async function cron(env, iso) {
@@ -13,7 +13,7 @@ async function cron(env, iso) {
   await ctx.settle();
 }
 
-test('direct pickup stores an unpaid order and confirms by Resend without PayPal', async () => {
+test('direct pickup stores an unpaid order and confirms by Resend', async () => {
   const up = fakeUpstreams();
   const env = envForOrders();
   const r = await place(body(), env);
@@ -23,7 +23,6 @@ test('direct pickup stores an unpaid order and confirms by Resend without PayPal
   assert.equal(record.status, 'PLACED');
   assert.equal(record.totalCents, 6998);
   assert.equal(record.fulfillment.location.id, 'trendy-hats');
-  assert.equal(up.calls.some(c => c.host.includes('paypal')), false);
   assert.equal(up.emails.length, 1);
   assert.match(up.emails[0].html, /No payment was collected/);
   assert.equal(env.ORDERS.store.has(`email-retry:${r.json.id}`), false);
@@ -145,11 +144,11 @@ test('daily digest failures retry with stable content and idempotency key', asyn
   assert.equal(await env.ORDERS.get('digest-pending:2026-10-03'), null);
 });
 
-test('orders around midnight use the Jamaica day and payment capture is disabled', async () => {
+test('orders around midnight use the Jamaica day and the payment capture route is gone', async () => {
   fakeUpstreams(); const env = envForOrders();
   const r = await call('POST', '/api/orders', { body: body(), env, clock: () => Date.parse('2026-10-04T04:59:00Z') });
   assert.ok(env.ORDERS.store.has(`day:2026-10-03:${r.json.id}`));
-  assert.equal((await call('POST', '/api/orders/capture', { body: {}, env })).status, 403);
+  assert.equal((await call('POST', '/api/orders/capture', { body: {}, env })).status, 404);
 });
 
 test('order rate limiting prevents excess submissions', async () => {

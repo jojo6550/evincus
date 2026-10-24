@@ -124,6 +124,7 @@ function renderPaid(order) {
   title.textContent = TITLES.paid;
   body.innerHTML = `
     <div class="paid">
+      <div class="paid__stamp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5"/></svg>Payment complete</div>
       <h3 class="paid__title" tabindex="-1">${order.name ? `Thank you, ${esc(order.name)}.` : 'Thank you.'}</h3>
       <p>Your order is placed. No payment was collected. Your confirmation will be emailed to ${esc(order.email)}.</p>
       <p>${order.fulfillment ? `Pickup at ${esc(order.fulfillment.location.name)}. ` : ''}We'll contact you when it's ready and confirm the pickup details.</p>

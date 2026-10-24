@@ -1,6 +1,6 @@
 import { fail, readJson } from '../lib/http.js';
 
-export const BEACON_EVENTS = new Set(['paypal-sdk-failed', 'quote-failed', 'order-create-failed', 'capture-failed', 'api-unreachable']);
+export const BEACON_EVENTS = new Set(['quote-failed', 'api-unreachable']);
 const OPTIONAL = ['code', 'route', 'reqId'];
 const ALLOWED = new Set(['event', ...OPTIONAL]);
 

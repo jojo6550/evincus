@@ -70,8 +70,7 @@ Start and end times are exact.
 
 Add `local` for `npm run dev`, `url=https://evincus.onrender.com` before the domain points at Render, `dry-run` to preview (plain words, no
 dashes: npm keeps `--flags` for itself in PowerShell). The command needs `ADMIN_TOKEN`, the same value as the
-server's, in your environment or `.env`. Overlapping sales don't stack: each product gets its era's deepest one. A
-PayPal order approved in the last 15 minutes of a sale still captures at the sale price.
+server's, in your environment or `.env`. Overlapping sales don't stack: each product gets its era's deepest one.
 Everything in `data/` is served with the site, so an era's folder (`era.js`, photos) can be fetched from the live site
 once it's pushed, even with a private repo. The API keeps an upcoming era unbuyable, but it isn't secret. To keep a drop
 secret, push its folder on drop day.
@@ -86,7 +85,7 @@ subscriber with whatever changed since the last one: drops that went live, sales
 | Setting | Where |
 | --- | --- |
 | Send hour, or off | `NEWSLETTER_HOUR` (`10` = 10:00, blank = off) |
-| Link signing key | `NEWSLETTER_KEY` secret (falls back to `ORDER_HMAC_KEY`) |
+| Link signing key | `NEWSLETTER_KEY` secret |
 | Links and images | `SITE_URL` (the public site) |
 | One-click unsubscribe in Gmail/Apple Mail | `API_URL` (the public site too: the API is same-origin) |
 | Postal address in the footer (required for marketing email in many countries) | `POSTAL_ADDRESS` |
@@ -130,7 +129,7 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
    | --- | --- |
    | `OWNER_EMAIL` | where order summaries and alerts go |
    | `POSTAL_ADDRESS` | printed in newsletter footers |
-   | Secrets: `RESEND_API_KEY`, `ORDER_HMAC_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | Use the provider-issued Resend key and distinct random values of at least 32 characters for the other three. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
+   | Secrets: `RESEND_API_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | Use the provider-issued Resend key and distinct random values of at least 32 characters for the other two. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
 
 2. Service `evincus`, Settings, **Deploy Hook**: copy the URL into GitHub, Settings, Secrets and variables, Actions,
    as the secret `RENDER_DEPLOY_HOOK_URL`.
@@ -140,14 +139,14 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
 4. Verify the sending domain in Resend.
 5. Merge `main` into `prod` and push. The Actions run must end green, then place a pickup test order on the live site.
 6. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
-7. Keep `PAYMENT_MODE=none`.
 
 ## Orders and fulfillment
 
 `POST /api/orders` accepts `checkoutToken` (a UUID), `items`, `customer` (`name`, `email`, `phone`),
 `fulfillment`, optional `notes`, and `expectedTotalCents`. The server checks catalog prices, availability,
 variants and quantities; mismatched totals require reviewing the bag. Orders are `PLACED`, with
-`paymentStatus: NOT_COLLECTED`. `/api/orders/capture` is disabled. No PayPal SDK loads in checkout.
+`paymentStatus: NOT_COLLECTED`. There is no payment integration: the checkout's Pay button places the order,
+shows "Payment complete" and clears the cart, but charges nothing.
 
 Pickup is the only fulfillment option for now and is free. There is no delivery or shipping.
 
@@ -174,21 +173,18 @@ Configure `OWNER_EMAIL`, `EMAIL_FROM` and the `RESEND_API_KEY` secret, and verif
 before deployment. Use a separate test recipient for previews so test orders do not enter the production mailbox.
 No real email delivery is verified by the automated tests.
 
-Legacy PayPal code remains available only behind explicit `PAYMENT_MODE = "paypal"` for future development;
-enabling it also requires restoring the payment UI and credentials. Do not change that setting for this release.
-
 ## Monitoring
 
 Use the [security and optimization checklist](docs/security-and-optimization-checklist.md) to track release checks, security improvements, performance work, and recurring maintenance.
 
-The [operations guide](docs/security-operations.md) covers credential rotation, isolated restore checks, retention, monitoring, and rollback compatibility. Production starts only with distinct signing/admin secrets and `PAYMENT_MODE=none`. Security headers apply to the site and API; production CSP starts in report-only mode for rollout, while staging enforces it and disables email. The app monitors free disk and overdue cron completion through `/api/health`.
+The [operations guide](docs/security-operations.md) covers credential rotation, isolated restore checks, retention, monitoring, and rollback compatibility. Production starts only with distinct signing/admin secrets. Security headers apply to the site and API; production CSP starts in report-only mode for rollout, while staging enforces it and disables email. The app monitors free disk and overdue cron completion through `/api/health`.
 
 Run `npm run optimize:images` after adding photos. Responsive versions preserve the originals; generated photo URLs have content versions and long cache lifetimes. `npm run check:performance`, `npm run check:load`, and `npm run check:restore` provide repeatable local checks. Load and restore checks use disposable storage and never send real email. CI also checks private-file exclusions, dependencies, and the unprivileged production container.
 
 - **Logs:** Render dashboard, service `evincus`, Logs. Every line is JSON with `event`, `reqId` and `route`.
   Errors shown to shoppers include the request id.
-- **Alerts:** emailed to `OWNER_EMAIL` for unsaved paid orders, possible tampering, undelivered receipts,
-  PayPal outages (5+ errors in 10 minutes) and unhandled errors. At most one per event type per hour.
+- **Alerts:** emailed to `OWNER_EMAIL` for undelivered receipts and unhandled errors. At most one per event
+  type per hour.
 - **Uptime (set up once by hand):** create a free UptimeRobot or Better Stack **keyword (GET) monitor** for
   `<live URL>/api/health` that expects `"ok":true`. Do not use a plain
   HEAD/HTTP monitor: `/api/health` answers GET only and returns 405 to HEAD. Add a second monitor for the homepage.

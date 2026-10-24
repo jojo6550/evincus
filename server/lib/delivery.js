@@ -2,20 +2,17 @@ import { sendEmail } from './email.js';
 import { alert } from './alerts.js';
 import { findOrder, updateOrder, retryKey } from './orders.js';
 import { receiptEmail } from '../emails/receipt.js';
-import { ownerEmail } from '../emails/owner.js';
 
 export const BACKOFF_MINUTES = [15, 30, 60, 120, 240];
 const MIN = 60_000;
 
-// Sends whichever of the two emails isn't sent yet and updates record.email. True when both are sent.
+// Sends the receipt if it isn't sent yet and updates record.email. True once it is sent. The owner gets the daily summary.
 export async function deliverOrderEmails(c, record) {
   const attempt = record.email.attempts + 1;
   const jobs = [
     ['customer', record.payer.email, () => receiptEmail(record)],
-    ['owner', c.env.OWNER_EMAIL, () => ownerEmail(record)],
   ];
   for (const [recipient, to, build] of jobs) {
-    if (recipient === 'owner' && record.email.owner === 'daily-summary') continue;
     if (record.email[recipient] === 'sent') continue;
     try {
       await sendEmail(c.env, { to, ...build(), idempotencyKey: `${record.id}-${recipient}` });
@@ -27,19 +24,18 @@ export async function deliverOrderEmails(c, record) {
     }
   }
   record.email.attempts = attempt;
-  return record.email.customer === 'sent' && ['sent', 'daily-summary'].includes(record.email.owner);
+  return record.email.customer === 'sent';
 }
 
-// First delivery, right after capture. Queues a retry only for orders that made it into KV.
+// First delivery, right after the order is placed.
 // The retry key is written before the record update, and separately, so a failed update can't lose the retry.
-export async function sendOrderEmails(c, record, { persisted }) {
+export async function sendOrderEmails(c, record) {
   let done;
   try {
     done = await deliverOrderEmails(c, record);
   } catch (err) {
     c.log.error('email.failed', { orderId: record.id, message: String(err?.message ?? err) });
   }
-  if (!persisted) return;
   if (!done) {
     try {
       await c.env.ORDERS.put(retryKey(record.id), JSON.stringify({ retries: 0, nextAt: +c.now + BACKOFF_MINUTES[0] * MIN }));
@@ -72,7 +68,7 @@ async function retryOne(c, id) {
     await c.env.ORDERS.delete(key);
     await alert(c, 'email.gave_up', {
       subject: `Receipt not delivered for order ${id}`,
-      rows: [['Order', id], ['Customer email', record.email.customer], ['Owner email', record.email.owner], ['Attempts', String(record.email.attempts)]],
+      rows: [['Order', id], ['Customer email', record.email.customer], ['Attempts', String(record.email.attempts)]],
     });
     return;
   }

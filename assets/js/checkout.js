@@ -4,6 +4,7 @@ import { money } from '../../data/catalog.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PENDING_KEY = 'evincus_pending_checkout';
+const CARD_ICON = '<svg class="pay-btn__card" viewBox="0 0 28 20" aria-hidden="true"><rect x="1" y="1" width="26" height="18" rx="2"/><path d="M1 7h26M5 14h8"/></svg>';
 let pending;
 try { pending = JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? 'null'); } catch { pending = null; }
 function remember(value) {
@@ -20,6 +21,7 @@ export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
     return;
   }
   if (!container.isConnected) return;
+  const payLabel = `Pay ${money(q.totalCents)}`;
   const input = (name, label, autocomplete, type = 'text', max = 100) => `<label>${label}<input name="${name}" type="${type}" autocomplete="${autocomplete}" maxlength="${max}" required></label>`;
   container.innerHTML = `<form class="checkout-form">
     <p>Your order goes straight through. No payment is collected at checkout.</p>
@@ -33,12 +35,13 @@ export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
     <label>Order notes (optional)<textarea name="notes" maxlength="1000" rows="3"></textarea></label>
     <div class="sum"><div class="sum__row sum__total"><span>Order total</span><span data-total></span></div></div>
     <p class="pay-error" role="alert" hidden></p>
-    <button type="submit" class="btn btn--solid bag__go">Place order</button>
+    <button type="submit" class="btn btn--solid bag__go pay-btn">${CARD_ICON}<span data-label>${payLabel}</span></button>
     <button type="button" class="text-btn mono" data-act="back">← Back to cart</button>
   </form>`;
   const form = container.querySelector('form');
   const error = form.querySelector('.pay-error');
   const submit = form.querySelector('[type=submit]');
+  const label = submit.querySelector('[data-label]');
   const controls = [...form.querySelectorAll('input, select, textarea')];
   const sync = () => {
     const location = options.pickupLocations.find(l => l.id === form.elements.locationId.value);
@@ -47,8 +50,8 @@ export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
   };
   const lockPending = () => {
     controls.forEach(el => { el.disabled = true; });
-    submit.textContent = 'Retry order confirmation';
-    error.textContent = 'Your last submission could not be confirmed. Retry to recover the same order reference.';
+    label.textContent = 'Retry payment';
+    error.textContent = 'Your last payment could not be confirmed. Retry to recover the same order reference.';
     error.hidden = false;
   };
   if (pending) {
@@ -75,7 +78,8 @@ export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
     }
     controls.forEach(el => { el.disabled = true; });
     submit.disabled = true;
-    submit.textContent = 'Placing order…';
+    label.textContent = 'Processing payment…';
+    submit.classList.add('is-busy');
     error.hidden = true;
     try {
       const order = await api('POST', '/api/orders', pending);
@@ -88,8 +92,9 @@ export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
         remember(null);
         controls.forEach(el => { el.disabled = false; });
         sync();
-        submit.textContent = 'Place order';
+        label.textContent = payLabel;
       } else lockPending();
+      submit.classList.remove('is-busy');
       error.textContent = `${err.message}${err.reqId ? ` Reference: ${err.reqId}` : ''}`;
       error.hidden = false;
       submit.disabled = false;

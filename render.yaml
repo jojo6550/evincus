@@ -25,8 +25,6 @@ services:
         value: /var/data/kv.sqlite3
       - key: ENVIRONMENT
         value: production
-      - key: PAYMENT_MODE
-        value: none
       - key: CSP_MODE
         value: report-only
       - key: NEWSLETTER_HOUR
@@ -48,8 +46,6 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
-      - key: ORDER_HMAC_KEY
-        sync: false
       - key: NEWSLETTER_KEY
         sync: false
       - key: ADMIN_TOKEN
@@ -70,15 +66,10 @@ services:
         value: /tmp/kv.sqlite3
       - key: ENVIRONMENT
         value: staging
-      # Exercise the same no-payment flow as production.
-      - key: PAYMENT_MODE
-        value: none
       - key: CSP_MODE
         value: enforce
       - key: EMAIL_DISABLED
         value: "true"
-      - key: PAYPAL_ENV
-        value: sandbox
       - key: EMAIL_FROM
         value: "Evincus <no-reply@evincus.shop>"
       # evincus.shop is served by this service too. live | maintenance | stocking: anything but live shows a 503 page
@@ -100,13 +91,7 @@ services:
       - key: POSTAL_ADDRESS
         sync: false
       # Fresh secrets, never prod's.
-      - key: PAYPAL_CLIENT_ID
-        sync: false
-      - key: PAYPAL_CLIENT_SECRET
-        sync: false
       - key: RESEND_API_KEY
-        sync: false
-      - key: ORDER_HMAC_KEY
         sync: false
       - key: NEWSLETTER_KEY
         sync: false

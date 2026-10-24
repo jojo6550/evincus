@@ -17,7 +17,7 @@ See the [implementation report](security-implementation-report.md) and [operatio
 
 ### Configuration and access
 
-- [ ] **Production mode:** startup requires unpaid checkout; local SDK/capture/preview behavior is verified. Inspect actual Render settings and post-deploy endpoints.
+- [ ] **Production mode:** no payment integration exists; local preview behavior is verified. Inspect actual Render settings and post-deploy endpoints.
 - [ ] **Production secrets:** guards reject missing, short, example, or duplicate signing/admin secrets. Actual creation, rotation, revocation, and provider verification require account access.
 - [ ] **Private files/history:** local pattern-based scans pass across working files and 88 commits. Built-image exclusions and provider secret scanning still need CI/account evidence; patterns cannot detect every secret format.
 - [x] **Admin access:** tests verify wrong/missing tokens, unavailable unconfigured routes, `no-store`, and stale-version conflicts. Tokens remain server/operator-side.

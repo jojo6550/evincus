@@ -64,11 +64,10 @@ test('the conventional favicon URL serves the current icon, including HEAD reque
 });
 
 test('config.js is generated from env, never read from disk', async () => {
-  const r = await get('/assets/js/config.js', { env: { PAYPAL_CLIENT_ID: 'live-"id' } });
+  const r = await get('/assets/js/config.js');
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-type'), 'text/javascript; charset=utf-8');
-  assert.equal(await r.text(), `export const API_BASE = '';\nexport const PAYPAL_CLIENT_ID = "live-\\"id";\n`);
-  assert.match(await (await get('/assets/js/config.js')).text(), /PAYPAL_CLIENT_ID = "test"/);
+  assert.equal(await r.text(), `export const API_BASE = '';\n`);
   // A case-insensitive filesystem would otherwise resolve this to the stale file on disk.
   const cased = await get('/assets/JS/config.js');
   assert.equal(cased.status, 200);
