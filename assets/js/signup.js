@@ -17,6 +17,7 @@ export function initSignup() {
     }
     button.disabled = true;
     note.textContent = 'Signing you up…';
+    note.classList.add('is-loading');
     try {
       await api('POST', '/api/newsletter/subscribe', { email, company: form.elements.company?.value ?? '' });
       form.reset();
@@ -25,6 +26,7 @@ export function initSignup() {
       note.textContent = err.message;
     } finally {
       button.disabled = false;
+      note.classList.remove('is-loading');
     }
   });
 }
