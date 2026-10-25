@@ -23,7 +23,7 @@
 /* ---------- eras ---------- */
 .era-list { display: grid; gap: 18px; padding-bottom: 48px; }
 /* Holds the footer below the fold until the cards render, so it doesn't jump away. */
-.era-list:empty { min-height: 100svh; }
+.era-list[aria-busy="true"] { min-height: 100svh; }
 .era-card { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--char); background: var(--ash); text-decoration: none; color: inherit; transition: border-color .2s; }
 .era-card:hover, .era-card:focus-visible { border-color: var(--hazard); }
 .era-card__img { aspect-ratio: 16 / 10; background: var(--char); overflow: hidden; }
@@ -39,6 +39,14 @@
 .era-card__status--live { color: var(--hazard); border-color: var(--hazard); }
 .era-card__status--soon { color: var(--bone); border-color: var(--bone); }
 .era-card__go { color: var(--bone); border-bottom: 1px solid currentColor; justify-self: start; padding-bottom: 2px; }
+.era-card:not(.era-card--skel) { animation: land .5s var(--ease-in-out) backwards; }
+.era-card:nth-child(2) { animation-delay: .08s; }
+.era-card:nth-child(n+3) { animation-delay: .16s; }
+.era-card--skel { pointer-events: none; }
+.era-card--skel .era-card__img { display: block; }
+.era-card--skel i { height: 14px; width: 40%; }
+.era-card--skel i:nth-child(2) { height: 32px; width: 70%; }
+.era-card--skel i:nth-child(3) { width: 85%; }
 @media (min-width: 720px) {
   .era-card { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); }
   .era-card__img { aspect-ratio: auto; min-height: 280px; }

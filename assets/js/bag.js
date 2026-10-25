@@ -55,7 +55,7 @@ function footHtml(s) {
   if (s.status !== 'ready' || !s.quote) {
     return `
       ${row('Subtotal', money(cart.subtotal()))}
-      <p class="bag__note" role="status">Checking prices and availability…</p>
+      <p class="bag__note is-loading" role="status">Checking prices and availability…</p>
       ${checkout(false)}`;
   }
   const q = s.quote;
