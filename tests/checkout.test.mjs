@@ -286,7 +286,7 @@ test('a checkout that keeps losing the race gets 503 busy, never an unhandled er
   try { r = await place(body(), env); } finally { logs.restore(); }
   assert.equal(r.status, 503);
   assert.equal(r.json.error.code, 'busy');
-  assert.equal(r.json.error.message, 'Lots of people are checking out right now. Your cart is safe — press Place order again.');
+  assert.equal(r.json.error.message, 'Lots of people are checking out right now. Your cart is safe — try again in a moment.');
   assert.ok(!logs.lines.some(l => l.event === 'unhandled'));
   assert.equal(up.emails.length, 0);
 });
