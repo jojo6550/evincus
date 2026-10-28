@@ -140,6 +140,25 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
 5. Merge `main` into `prod` and push. The Actions run must end green, then place a pickup test order on the live site.
 6. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
 
+## Inventory
+
+`/inventory` is the staff page: sign in, then use the Inventory, Orders, Stats and Logs tabs (Logs is for owners
+only). It is never linked from the store, carries `noindex`, is disallowed in `robots.txt`, and stays reachable
+while `STATUS` closes the public site.
+
+- **Roles:** `viewer` can look; `owner` can also change things and see Logs.
+- **Accounts** are made from your own machine, never on the site. They need `ADMIN_TOKEN` in your environment or `.env`:
+  ```bash
+  npm run add-viewer you@example.com owner     # create a login, or reset its password; prints a generated password
+  npm run remove-viewer you@example.com        # delete a login; its sessions stop working
+  npm run list-viewers
+  ```
+  Add `local` to talk to `npm run dev` on localhost, or `url=<base>` for another server.
+- **Live vs local:** the page shows a LOCAL badge when the server runs with `ENVIRONMENT=development`. Local KV is
+  separate from production, so nothing done there touches the live store.
+- **Rollout:** stock the shop at `/inventory` while `STATUS=stocking`, then open the store with WiPay.
+- `data/eras/` is seed data. Once the store is live, stock and products are managed in `/inventory`, not by editing those files.
+
 ## Orders and fulfillment
 
 `POST /api/orders` accepts `checkoutToken` (a UUID), `items`, `customer` (`name`, `email`, `phone`),

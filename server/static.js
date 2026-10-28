@@ -74,9 +74,12 @@ async function staticResponse(req, { env = {}, readFile, statFile, data, now = n
     try { path = decodeURIComponent(new URL(req.url).pathname); } catch { return await errorPage(404); }
     if (path === '/') path = '/index.html';
     if (path === '/favicon.ico') path = '/assets/img/favicon.ico';
+    // Staff stock the shop while the public site is closed, so the inventory page ignores STATUS.
+    const staffPage = path === '/inventory' || path === '/inventory.html';
+    if (path === '/inventory') path = '/inventory.html';
     // Assets stay up for the 503 page itself, media for sent emails; newsletter.html so unsubscribe links keep working.
     const status = siteStatus(req, env);
-    if (status !== 'live' && !path.startsWith('/assets/') && !path.startsWith('/media/') && path !== '/newsletter.html') {
+    if (status !== 'live' && !staffPage && !path.startsWith('/assets/') && !path.startsWith('/media/') && path !== '/newsletter.html') {
       const page = status === 'stocking' ? 'restocking.html' : '503.html';
       return send(await readFile(page), page, 503, 'no-store');
     }

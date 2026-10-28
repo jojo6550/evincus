@@ -141,6 +141,25 @@ test('robots.txt allows crawling only on the live domain, whatever ENVIRONMENT s
   }
 });
 
+test('/inventory serves the noindex shell, also while the store is closed', async () => {
+  const pages = { 'inventory.html': '<meta name="robots" content="noindex">', 'restocking.html': 'restocking' };
+  const at = (path, STATUS) => serveStatic(new Request(`https://shop.test${path}`, { headers: { host: 'shop.test' } }), { env: { STATUS }, readFile: async p => new TextEncoder().encode(pages[p]) });
+  for (const STATUS of [undefined, 'stocking', 'maintenance']) {
+    for (const path of ['/inventory', '/inventory.html']) {
+      const r = await at(path, STATUS);
+      assert.equal(r.status, 200, `${path} ${STATUS}`);
+      assert.equal(r.headers.get('content-type'), 'text/html; charset=utf-8');
+      assert.equal(r.headers.get('cache-control'), 'no-cache');
+      assert.match(await r.text(), /noindex/);
+    }
+  }
+});
+
+test('robots.txt disallows /inventory', async () => {
+  const r = await serveStatic(new Request('https://shop.test/robots.txt', { headers: { host: 'www.evincus.shop' } }), { env: {}, readFile });
+  assert.match(await r.text(), /^Disallow: \/inventory$/m);
+});
+
 test('sitemap.xml lists released products with their images and hides unreleased ones', async () => {
   const data = {
     eras: [{ slug: 'live', name: 'Live', dropsAt: null, endsAt: null }, { slug: 'soon', name: 'Soon', dropsAt: '2999-01-01T00:00:00Z', endsAt: null }],
