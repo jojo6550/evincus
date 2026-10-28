@@ -57,9 +57,10 @@ export async function logoutRoute(req, c) {
 // POST /api/inventory/stock { opId, productId, changes: [{ key, delta }], reason, note } → { stock }.
 export async function adjustStockRoute(req, c) {
   const { email } = await requireStaff(req, c, { role: 'owner', write: true });
-  const b = (await readJson(req, 65536)) ?? {};
-  const result = await adjustStock(c.env, { ...b, by: email, now: c.now, products: c.data.products });
-  c.log.info('stock.adjusted', { account: email, changes: b.changes.length });
+  const b = await readJson(req, 65536);
+  if (!b || typeof b !== 'object' || Array.isArray(b)) throw new HttpError('invalid-stock', 400);
+  const { result, replayed } = await adjustStock(c.env, { ...b, by: email, now: c.now, products: c.data.products });
+  c.log.info(replayed ? 'stock.adjust_replayed' : 'stock.adjusted', { account: email, changes: b.changes.length });
   return json(result, 200, noStore);
 }
 

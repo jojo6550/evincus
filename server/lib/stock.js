@@ -1,5 +1,5 @@
 import { HttpError } from './http.js';
-import { isOpId, readOp, opPut } from './ops.js';
+import { isOpId, readOpEntry, opPut } from './ops.js';
 
 // Stock is one document per product, `stock:<productId>` → { '<colour>|<size>': { onHand, committed } }, so a
 // checkout or stock save checks one key per product, within @deno/kv's 10 checks per commit. No metadata: a
@@ -39,19 +39,21 @@ export const REASONS = ['received', 'correction', 'damaged', 'returned', 'other'
 const bad = () => new HttpError('invalid-stock', 400);
 
 // Adds or removes units from one product's On hand. Deltas never touch Committed; removing may not dip below it.
-// `products` is the current catalog, for key validation. A stored op: result is returned as-is (the first one wins).
+// `products` is the current catalog, for key validation. A stored op: result is returned as-is (the first one wins). -> { result, replayed }.
 export async function adjustStock(env, { opId, productId, changes, reason, note = '', by, now, products }) {
-  const product = products.find(p => p.id === productId);
-  if (!product) throw new HttpError('unknown-product', 404);
-  const known = new Set(product.colors.flatMap(c => product.sizes.map(s => `${productId}|${c.name}|${s}`)));
-  if (!isOpId(opId) || !REASONS.includes(reason) || typeof note !== 'string' || note.length > 200
-    || !Array.isArray(changes) || !changes.length || changes.length > 200
-    || !changes.every(ch => known.has(ch?.key) && Number.isInteger(ch.delta) && ch.delta !== 0)) throw bad();
-  const at = now.toISOString();
+  if (!isOpId(opId)) throw bad();
   const key = stockKey(productId);
+  // The op is looked up before the payload is validated, so a retry replays even if the catalog has changed.
   for (let round = 0; round < 5; round++) {
-    const done = await readOp(env, opId);
-    if (done) return done;
+    const op = await readOpEntry(env, opId);
+    if (op.result) return { result: op.result, replayed: true };
+    const product = products.find(p => p.id === productId);
+    if (!product) throw new HttpError('unknown-product', 404);
+    const known = new Set(product.colors.flatMap(c => product.sizes.map(s => `${productId}|${c.name}|${s}`)));
+    if (!REASONS.includes(reason) || typeof note !== 'string' || note.length > 200
+      || !Array.isArray(changes) || !changes.length || changes.length > 200
+      || !changes.every(ch => known.has(ch?.key) && Number.isSafeInteger(ch.delta) && ch.delta !== 0 && Math.abs(ch.delta) <= 100000)) throw bad();
+    const at = now.toISOString();
     const { value, version } = await env.ORDERS.getEntry(key);
     const doc = JSON.parse(value ?? '{}');
     const stock = {};
@@ -64,14 +66,14 @@ export async function adjustStock(env, { opId, productId, changes, reason, note 
     }
     const result = { stock };
     const ok = await env.ORDERS.commit({
-      checks: [{ key, version }],
+      checks: [{ key, version }, op.check],
       puts: [
         { key, value: stockDoc(doc) },
         ...changes.map((ch, i) => ({ key: adjKey(productId, at, opId, i), value: JSON.stringify({ key: ch.key, onHand: ch.delta, committed: 0, reason, note, by, at }) })),
         opPut(opId, result),
       ],
     });
-    if (ok) return result;
+    if (ok) return { result, replayed: false };
   }
   throw new HttpError('stock-busy', 409);
 }

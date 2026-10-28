@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeEnv, putStock, stockOf, captureLogs } from './helpers/fake-env.mjs';
+import { makeEnv, call, putStock, stockOf, captureLogs } from './helpers/fake-env.mjs';
 import { signIn, post, ADMIN_TOKEN } from './helpers/staff.mjs';
 import { NOW } from './helpers/fixture.mjs';
 
@@ -82,14 +82,33 @@ test('a lost commit retries from the read, and gives up after 5 rounds', async (
   assert.deepEqual([r.status, r.json.error.code], [409, 'stock-busy']);
 });
 
+test('two requests with one opId racing between the reads apply once', async () => {
+  const env = env0();
+  const cookie = await signIn(env);
+  const opId = crypto.randomUUID();
+  const real = env.ORDERS.getEntry.bind(env.ORDERS);
+  let armed = true, a;
+  env.ORDERS.getEntry = async k => {
+    const e = await real(k);
+    if (armed && k === 'op:' + opId) { armed = false; a = await send(env, cookie, { opId }); } // twin A commits after B's op read
+    return e;
+  };
+  const b = await send(env, cookie, { opId });
+  assert.equal(a.status, 200);
+  assert.equal(b.text, a.text);
+  assert.equal(stockOf(env, K).onHand, 13);
+  assert.equal(adj(env).length, 1);
+});
+
 test('the commit stays within 2 checks', async () => {
   const env = env0();
   const cookie = await signIn(env);
   const real = env.ORDERS.commit.bind(env.ORDERS);
-  let max = 0;
-  env.ORDERS.commit = async o => { if (o.puts.some(p => p.key.startsWith('adj:'))) max = Math.max(max, o.checks.length); return real(o); };
+  let max = 0, keys = [];
+  env.ORDERS.commit = async o => { if (o.puts.some(p => p.key.startsWith('adj:'))) max = Math.max(max, o.checks.length); keys = o.checks.map(c => c.key); return real(o); };
   await send(env, cookie);
-  assert.ok(max >= 1 && max <= 2);
+  assert.equal(max, 2);
+  assert.ok(keys.some(k => k.startsWith('op:')) && keys.includes('stock:alpha-tee'));
 });
 
 test('bad requests are 400 invalid-stock or 404 unknown-product, and change nothing', async () => {
@@ -98,7 +117,7 @@ test('bad requests are 400 invalid-stock or 404 unknown-product, and change noth
   const bad = [
     { opId: 'nope' }, { opId: undefined }, { reason: 'because' }, { reason: undefined }, { note: 'x'.repeat(201) }, { note: 5 },
     { changes: [] }, { changes: 'x' }, { changes: Array.from({ length: 201 }, () => ({ key: K, delta: 1 })) },
-    { changes: [{ key: K, delta: 0 }] }, { changes: [{ key: K, delta: 1.5 }] }, { changes: [{ key: K, delta: '1' }] },
+    { changes: [{ key: K, delta: 0 }] }, { changes: [{ key: K, delta: 100001 }] }, { changes: [{ key: K, delta: -100001 }] }, { changes: [{ key: K, delta: 2 ** 60 }] }, { changes: [{ key: K, delta: 1.5 }] }, { changes: [{ key: K, delta: '1' }] },
     { changes: [{ key: 'alpha-hood|Black|M', delta: 1 }] }, // another product
     { changes: [{ key: 'alpha-tee|Red|S', delta: 1 }] }, { changes: [{ key: 'alpha-tee|White|XL', delta: 1 }] }, { changes: [{ key: 5, delta: 1 }] },
   ];
@@ -112,6 +131,23 @@ test('bad requests are 400 invalid-stock or 404 unknown-product, and change noth
   const un = await send(env, cookie, { productId: 'ghost' });
   assert.deepEqual([un.status, un.json.error.code], [404, 'unknown-product']);
   assert.equal(stockOf(env, K).onHand, 10 + 200 + 1 + 1);
+});
+
+test('non-object or unparseable bodies are 400, and a replay survives catalog changes and logs stock.adjust_replayed', async () => {
+  const env = env0();
+  const cookie = await signIn(env);
+  for (const raw of ['[]', '"x"', 'null', '{nope']) {
+    const r = await call('POST', '/api/inventory/stock', { env, raw, headers: { cookie, origin: 'https://api.test', 'content-type': 'application/json' } });
+    assert.deepEqual([r.status, r.json.error.code], [400, 'invalid-stock'], raw);
+  }
+  const opId = crypto.randomUUID();
+  const first = await send(env, cookie, { opId });
+  const logs = captureLogs();
+  let again;
+  try { again = await send(env, cookie, { opId, productId: 'ghost', reason: 'bogus' }); } finally { logs.restore(); }
+  assert.equal(again.text, first.text);
+  assert.equal(logs.lines.filter(l => l.event === 'stock.adjusted').length, 0);
+  assert.equal(logs.lines.filter(l => l.event === 'stock.adjust_replayed').length, 1);
 });
 
 test('viewers get 403, signed-out 401, and cross-origin writes get bad-origin', async () => {
