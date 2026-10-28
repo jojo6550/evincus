@@ -65,16 +65,16 @@ export function fail(c, code, status, extra = {}) {
   return json({ error: { code, message, requestId: c.reqId, ...extra } }, status, { 'Cache-Control': 'no-store' });
 }
 
-// Parses a JSON body. Returns undefined for unparseable bodies; throws 413 for oversized ones.
-export async function readJson(req, maxBytes = 16384) {
+// Reads a body of at most maxBytes; throws 413 above that.
+export async function readBytes(req, maxBytes) {
   if (Number(req.headers.get('content-length') ?? 0) > maxBytes) {
     if (req.body) void req.body.cancel().catch(() => {});
     throw new HttpError('too-large', 413);
   }
-  if (!req.body) return undefined;
+  if (!req.body) return new Uint8Array(0);
   const reader = req.body.getReader();
-  const decoder = new TextDecoder();
-  let text = '', bytes = 0;
+  const chunks = [];
+  let bytes = 0;
   try {
     while (true) {
       const { value, done } = await reader.read();
@@ -84,11 +84,20 @@ export async function readJson(req, maxBytes = 16384) {
         void reader.cancel().catch(() => {});
         throw new HttpError('too-large', 413);
       }
-      text += decoder.decode(value, { stream: true });
+      chunks.push(value);
     }
-    text += decoder.decode();
   } finally { reader.releaseLock(); }
-  try { return JSON.parse(text); } catch { return undefined; }
+  const out = new Uint8Array(bytes);
+  let at = 0;
+  for (const ch of chunks) { out.set(ch, at); at += ch.byteLength; }
+  return out;
+}
+
+// Parses a JSON body. Returns undefined for unparseable bodies; throws 413 for oversized ones.
+export async function readJson(req, maxBytes = 16384) {
+  if (!req.body) return undefined;
+  const bytes = await readBytes(req, maxBytes);
+  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { return undefined; }
 }
 
 // Limit before parsing or reading prices. A storage outage fails closed.

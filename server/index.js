@@ -5,6 +5,7 @@ import { loadStock } from './lib/stock.js';
 import { createLogger } from './lib/log.js';
 import { HttpError, corsHeaders, fail, enforceLimit, siteStatus } from './lib/http.js';
 import { secureResponse } from './lib/security.js';
+import { cleanMedia } from './lib/media.js';
 import { alert } from './lib/alerts.js';
 import { retryEmails } from './lib/delivery.js';
 import { health } from './routes/health.js';
@@ -16,8 +17,8 @@ import { checkoutOptions, placeOrderRoute } from './routes/checkout.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
-import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute, listErasAdminRoute, newEraRoute } from './routes/admin.js';
-import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute } from './routes/inventory.js';
+import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute, listErasAdminRoute, newEraRoute, uploadMediaAdminRoute, attachPhotosRoute } from './routes/admin.js';
+import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute, uploadMediaRoute } from './routes/inventory.js';
 
 // The fourth field marks routes that read the catalog: only they load it, with running sales and stock applied.
 // Health loads its own, so a KV failure still answers 503 with kv: 'error'.
@@ -41,6 +42,9 @@ const ROUTES = [
   ['DELETE', /^\/api\/admin\/accounts\/([^/]+)$/, deleteAccountRoute],
   ['GET', /^\/api\/admin\/eras$/, listErasAdminRoute],
   ['POST', /^\/api\/admin\/eras$/, newEraRoute],
+  ['PUT', /^\/api\/admin\/media$/, uploadMediaAdminRoute],
+  ['POST', /^\/api\/admin\/photos$/, attachPhotosRoute],
+  ['PUT', /^\/api\/inventory\/media$/, uploadMediaRoute],
   ['POST', /^\/api\/inventory\/login$/, loginRoute],
   ['POST', /^\/api\/inventory\/logout$/, logoutRoute],
   ['GET', /^\/api\/inventory\/me$/, meRoute],
@@ -122,6 +126,12 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
         // Drop emails list only buyable products, so they need stock too.
         if (data === undefined) c.data = applyStock(await liveCatalog(env), await loadStock(env));
         await newsletter(c);
+      })().catch(logFailure));
+      ctx.waitUntil((async () => {
+        const marker = `media-gc:${new Date(now - 5 * 3600000).toISOString().slice(0, 10)}`; // Jamaica day, UTC-5
+        if (await env.ORDERS.get(marker)) return;
+        await cleanMedia(env, c.now, log);
+        await env.ORDERS.put(marker, '1', { expirationTtl: 172800 });
       })().catch(logFailure));
     },
   };

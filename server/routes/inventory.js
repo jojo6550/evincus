@@ -4,6 +4,7 @@ import { adjustStock, stockKey, listAll } from '../lib/stock.js';
 import { productKey, loadCatalog } from '../lib/catalog-store.js';
 import { saveProduct, saveEra, setEraOrder, readEraOrder, productHistory } from '../lib/catalog-save.js';
 import { lineKey, imagesFor } from '../../data/catalog.js';
+import { uploadPhoto } from '../lib/media.js';
 import { photoPath, manifestEntry } from '../../data/photos.js';
 
 const noStore = { 'Cache-Control': 'no-store' };
@@ -160,4 +161,12 @@ export async function eraOrderRoute(req, c) {
 export async function meRoute(req, c) {
   const staff = await requireStaff(req, c);
   return json({ ...staff, local: c.env.ENVIRONMENT === 'development' }, 200, noStore);
+}
+
+// PUT /api/inventory/media (multipart, one `file` per variant) → the photo ref. Content-named, so repeating it is a no-op.
+export async function uploadMediaRoute(req, c) {
+  const { email } = await requireStaff(req, c, { role: 'owner', write: true });
+  const ref = await uploadPhoto(req, c.env.MEDIA);
+  c.log.info('media.uploaded', { account: email, photo: ref.id });
+  return json(ref, 200, noStore);
 }

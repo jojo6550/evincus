@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile, rename, readdir, stat, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { HttpError } from './http.js';
+import { HttpError, readBytes } from './http.js';
+import { listAll } from './stock.js';
+import { createLogger } from './log.js';
 import { WIDTHS, MAX_VARIANT_BYTES, variantWidths } from '../../data/photos.js';
 
 export const MEDIA_NAME = /^[0-9a-f]{24}-[0-9]{3,4}\.(webp|jpg)$/;
@@ -83,4 +85,49 @@ export async function storePhoto(media, files) {
   const id = [...new Uint8Array(hash).slice(0, 12)].map(x => x.toString(16).padStart(2, '0')).join('');
   for (const [i, f] of files.entries()) await media.write(`${id}-${infos[i].width}.${ext}`, f);
   return { id, width: widest.width, height: widest.height, widths, ext };
+}
+
+const MAX_UPLOAD = 1024 * 1024;
+
+// Stores the `file` parts of a multipart body as one photo; 400 invalid-photo for anything else.
+export async function uploadPhoto(req, media) {
+  const type = req.headers.get('content-type') ?? '';
+  const bytes = await readBytes(req, MAX_UPLOAD);
+  let form;
+  try {
+    if (!type.startsWith('multipart/form-data')) throw new Error('not multipart');
+    form = await new Request(req.url, { method: 'POST', headers: { 'content-type': type }, body: bytes }).formData();
+  } catch { throw new HttpError('invalid-photo', 400); }
+  const parts = form.getAll('file').filter(v => typeof v !== 'string');
+  return storePhoto(media, await Promise.all(parts.map(async f => new Uint8Array(await f.arrayBuffer()))));
+}
+
+const DAY = 24 * 3600 * 1000;
+
+// Deletes media files over 24 h old that no era or product references, whatever its status. A doc it can't read
+// means keep everything this run.
+export async function cleanMedia(env, now, log = createLogger({ route: 'media-gc' })) {
+  const keep = new Set();
+  try {
+    for (const prefix of ['era:', 'product:']) {
+      for (const { name } of await listAll(env.ORDERS, prefix)) {
+        const doc = await env.ORDERS.get(name, 'json');
+        if (doc === null) continue; // deleted since the listing
+        if (typeof doc !== 'object' || Array.isArray(doc)) throw new Error(`unreadable ${name}`);
+        const refs = [doc.hero, ...(doc.images ?? []), ...(doc.colors ?? []).flatMap(c => c.images ?? [])].filter(Boolean);
+        for (const r of refs) for (const w of r.widths) keep.add(`${r.id}-${w}.${r.ext}`);
+      }
+    }
+  } catch (err) {
+    log.warn('media.gc_skipped', { message: String(err?.message ?? err) });
+    return 0;
+  }
+  let removed = 0;
+  for (const { name, mtimeMs } of await env.MEDIA.list()) {
+    if (keep.has(name) || +now - mtimeMs <= DAY) continue;
+    await env.MEDIA.remove(name);
+    removed++;
+  }
+  if (removed) log.info('media.cleaned', { removed });
+  return removed;
 }

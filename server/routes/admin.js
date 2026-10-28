@@ -1,9 +1,10 @@
-import { json, fail, readJson } from '../lib/http.js';
+import { HttpError, json, fail, readJson } from '../lib/http.js';
+import { uploadPhoto, MEDIA_NAME } from '../lib/media.js';
 import { SALES_KEY } from '../lib/sales.js';
 import { isSale } from '../../data/catalog.js';
 import { ROLES, ITERATIONS, accountKey } from '../lib/accounts.js';
-import { loadCatalog } from '../lib/catalog-store.js';
-import { saveEra } from '../lib/catalog-save.js';
+import { loadCatalog, eraKey, productKey } from '../lib/catalog-store.js';
+import { saveEra, saveProduct } from '../lib/catalog-save.js';
 
 const MAX_SALES = 50;
 const noStore = { 'Cache-Control': 'no-store' };
@@ -124,4 +125,62 @@ export async function deleteAccountRoute(req, c) {
   await c.env.ORDERS.delete(key);
   c.log.info('account.removed', { account: mail });
   return new Response(null, { status: 204 });
+}
+
+// PUT /api/admin/media: the same upload as the inventory app, for the CLI.
+export async function uploadMediaAdminRoute(req, c) {
+  const refused = await denied(req, c);
+  if (refused) return refused;
+  const ref = await uploadPhoto(req, c.env.MEDIA);
+  c.log.info('media.uploaded', { photo: ref.id });
+  return json(ref, 200, noStore);
+}
+
+const refShape = r => !!r && typeof r === 'object' && Array.isArray(r.widths) && r.widths.length > 0
+  && r.widths.every(w => MEDIA_NAME.test(`${r.id}-${w}.${r.ext}`));
+const loadDoc = async (env, key, code) => {
+  const { value, version } = await env.ORDERS.getEntry(key);
+  if (!value) throw new HttpError(code, 404);
+  return { doc: JSON.parse(value), version };
+};
+
+// POST /api/admin/photos { era, target, color?, refs } → { product | era, version }: attaches uploaded photos to a
+// product (a colour's, or its shared ones) or sets the era hero when target is 'hero'. Retries a lost version race.
+export async function attachPhotosRoute(req, c) {
+  const refused = await denied(req, c);
+  if (refused) return refused;
+  const { era, target, color, refs } = (await readJson(req, 65536)) ?? {};
+  const bad = () => new HttpError('invalid-photo', 400);
+  if (typeof era !== 'string' || typeof target !== 'string' || (color !== undefined && typeof color !== 'string')
+    || !Array.isArray(refs) || !refs.length || refs.length > 30 || !refs.every(refShape)) throw bad();
+  if (target === 'hero' && (refs.length !== 1 || color !== undefined)) throw bad();
+  for (const r of refs) for (const w of r.widths) if (!(await c.env.MEDIA.has(`${r.id}-${w}.${r.ext}`))) throw bad();
+  let last;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const opId = crypto.randomUUID(); // per attempt: a retry re-reads and must not replay the lost one
+      if (target === 'hero') {
+        const { doc, version } = await loadDoc(c.env, eraKey(era), 'unknown-era');
+        const saved = await saveEra(c.env, { opId, era: { ...doc, hero: refs[0] }, version, now: c.now });
+        c.log.info('photos.attached', { era, target });
+        return json({ era: saved.era, version: saved.version }, 200, noStore);
+      }
+      const { doc, version } = await loadDoc(c.env, productKey(target), 'unknown-product');
+      if (doc.era !== era) throw new HttpError('unknown-product', 404);
+      const perColor = doc.colors.some(x => x.images !== undefined);
+      const col = color === undefined ? undefined : doc.colors.find(x => x.name === color);
+      if ((color !== undefined && !col) || (color === undefined && perColor)) throw bad();
+      const add = list => [...(list ?? []), ...refs.filter(r => !(list ?? []).some(x => x.id === r.id))];
+      const product = col
+        ? { ...doc, colors: doc.colors.map(x => (x === col ? { ...x, images: add(x.images) } : x)) }
+        : { ...doc, images: add(doc.images) };
+      const saved = await saveProduct(c.env, { opId, product, version, by: null, now: c.now });
+      c.log.info('photos.attached', { era, target, color });
+      return json({ product: saved.product, version: saved.version }, 200, noStore);
+    } catch (err) {
+      if (!(err instanceof HttpError) || !['product-changed', 'era-changed'].includes(err.code)) throw err;
+      last = err;
+    }
+  }
+  throw last;
 }
