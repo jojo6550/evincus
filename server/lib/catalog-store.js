@@ -52,14 +52,15 @@ export async function loadCatalog(env) {
   const media = {};
   const eras = [];
   const products = [];
-  for (const rec of eraRecs.filter(Boolean)) {
-    const r = resolve(rec, productRecs.filter(p => p?.era === rec.slug));
+  // Eras follow eraOrder and products their position, so the store keeps the owner's order, not key order.
+  const rank = slug => { const i = head.eraOrder.indexOf(slug); return i < 0 ? Infinity : i; };
+  const position = p => p.position ?? Number.MAX_SAFE_INTEGER;
+  for (const rec of eraRecs.filter(Boolean).sort((a, b) => rank(a.slug) - rank(b.slug))) {
+    const r = resolve(rec, productRecs.filter(p => p?.era === rec.slug).sort((a, b) => position(a) - position(b)));
     Object.assign(media, r.media);
     eras.push(r.era);
     products.push(...r.products);
   }
-  const rank = slug => { const i = head.eraOrder.indexOf(slug); return i < 0 ? Infinity : i; };
-  eras.sort((a, b) => rank(a.slug) - rank(b.slug));
   const out = { eras, products, media, rev: head.rev };
   cache.set(kv, out);
   return out;
@@ -84,7 +85,7 @@ export async function seedCatalog(env, { modules, manifest, root, seedStock }) {
   const taken = new Set();
   for (const { era, products } of modules) {
     puts.push({ key: eraKey(era.slug), value: JSON.stringify({ ...era, hero: await photo(era.slug, era.hero), state: 'published' }) });
-    for (const { id, soldOut, soldOutVariants = [], ...p } of products) {
+    for (const [position, { id, soldOut, soldOutVariants = [], ...p }] of products.entries()) {
       const skus = {};
       for (const c of p.colors) for (const size of p.sizes) {
         skus[`${c.name}|${size}`] = defaultSku(id, c.name, size, taken);
@@ -95,7 +96,7 @@ export async function seedCatalog(env, { modules, manifest, root, seedStock }) {
         id, era: era.slug, ...p,
         ...(p.images && { images: await Promise.all(p.images.map(f => photo(era.slug, f))) }),
         colors: await Promise.all(p.colors.map(async c => (c.images ? { ...c, images: await Promise.all(c.images.map(f => photo(era.slug, f))) } : c))),
-        skus, status: 'active', costCents: 0, continueSelling: false, lowStockAt: 3,
+        skus, status: 'active', costCents: 0, continueSelling: false, lowStockAt: 3, position,
       };
       puts.push({ key: productKey(id), value: JSON.stringify(rec) });
     }

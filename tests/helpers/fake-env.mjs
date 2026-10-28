@@ -155,10 +155,10 @@ export async function seedFromFixture(env, data = FIXTURE) {
   };
   const puts = [
     ...data.eras.map(e => ({ key: eraKey(e.slug), value: JSON.stringify({ ...e, hero: ref(e.hero) }) })),
-    ...data.products.map(p => ({ key: productKey(p.id), value: JSON.stringify({
+    ...data.products.map((p, position) => ({ key: productKey(p.id), value: JSON.stringify({
       ...p, ...(p.images && { images: p.images.map(ref) }),
       colors: p.colors.map(c => (c.images ? { ...c, images: c.images.map(ref) } : c)),
-      skus: {}, costCents: 1200,
+      skus: {}, costCents: 1200, position,
     }) })),
     { key: REV_KEY, value: JSON.stringify({ rev: crypto.randomUUID(), eraOrder: data.eras.map(e => e.slug) }) },
   ];

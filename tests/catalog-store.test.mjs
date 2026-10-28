@@ -78,6 +78,14 @@ test('seedCatalog seeds sold-out products and variants at 0 whatever seedStock i
   assert.ok((await loadCatalog(env)).products.every(p => !('soldOut' in p) && !('soldOutVariants' in p)));
 });
 
+test('the seeded catalog keeps the era files\' era and product order', async () => {
+  const env = fresh();
+  await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 1 });
+  const cat = await loadCatalog(env);
+  assert.deepEqual(cat.products.map(p => p.id), ERAS.flatMap(m => m.products.map(p => p.id)));
+  assert.deepEqual(cat.products.filter(p => p.era === 'core').map(p => p.position), ERAS.find(m => m.era.slug === 'core').products.map((_, i) => i));
+});
+
 // File-backed @deno/kv allows 10 checks per commit and kvStore guards every key it writes; the real catalog has 140 keys.
 test('seedCatalog seeds the real era files into real Deno KV', { skip }, async t => {
   const env = { ORDERS: kvStore(await fileKv(t)), MEDIA: fakeMedia() };

@@ -198,6 +198,26 @@ test('health counts the KV catalog and fails until it is seeded', async () => {
   assert.deepEqual(seeded.json.catalog, { eras: 3, products: 4 });
 });
 
+test('without injected data, a KV failure makes health 503 with kv error, and routes that never read the catalog keep working', async () => {
+  for (const failing of [() => true, key => key === 'catalog:rev']) {
+    const env = makeEnv(); await seedFromFixture(env);
+    env.ORDERS.failGets = failing;
+    const logs = captureLogs();
+    let r;
+    try { r = await callWithoutData('GET', '/api/health', { env }); } finally { logs.restore(); }
+    assert.equal(r.status, 503);
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.kv, 'error');
+    assert.ok(!logs.lines.some(l => l.event === 'unhandled'));
+  }
+  const env = makeEnv(); await seedFromFixture(env);
+  env.ORDERS.failGets = key => key === 'catalog:rev';
+  const logs = captureLogs();
+  let beacon;
+  try { beacon = await callWithoutData('POST', '/api/beacon', { env, raw: JSON.stringify({ event: 'api-unreachable' }) }); } finally { logs.restore(); }
+  assert.equal(beacon.status, 204);
+});
+
 test('a draft product is absent from catalog, era, product, quote, product page and sitemap', async () => {
   const data = {
     ...FIXTURE,

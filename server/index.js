@@ -18,7 +18,8 @@ import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
 import { getSalesRoute, putSalesRoute } from './routes/admin.js';
 
-// The fourth field marks routes that read prices: they get the catalog with running sales and stock applied.
+// The fourth field marks routes that read the catalog: only they load it, with running sales and stock applied.
+// Health loads its own, so a KV failure still answers 503 with kv: 'error'.
 const ROUTES = [
   ['GET', /^\/api\/checkout\/options$/, checkoutOptions],
   ['GET', /^\/api\/health$/, health],
@@ -64,11 +65,10 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
             if (url.pathname === '/api/bag/quote') await enforceLimit(c, env.QUOTE_LIMIT);
             if (url.pathname === '/api/newsletter/confirm' || url.pathname === '/api/newsletter/unsubscribe') await enforceLimit(c, env.LINK_LIMIT);
             c.params = url.pathname.match(hit[1]).slice(1);
-            if (data === undefined) c.data = await liveCatalog(env);
             if (hit[3]) {
-              const [sales, stock] = await Promise.all([loadSales(env, log), loadStock(env)]);
+              const [catalog, sales, stock] = await Promise.all([data === undefined ? liveCatalog(env) : data, loadSales(env, log), loadStock(env)]);
               c.sales = sales;
-              c.data = applyStock(applySales(c.data, sales, c.now), stock);
+              c.data = applyStock(applySales(catalog, sales, c.now), stock);
             }
             res = await hit[2](req, c);
           }
