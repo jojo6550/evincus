@@ -92,6 +92,9 @@ export function makeEnv(over = {}) {
     COMMIT_SHA: 'abc1234',
     ORDERS: fakeKV(),
     BEACON_LIMIT: fakeLimiter(10),
+    LOGIN_IP_LIMIT: fakeLimiter(10),
+    LOGIN_EMAIL_LIMIT: fakeLimiter(5),
+    INVENTORY_LIMIT: fakeLimiter(120),
     MEDIA: fakeMedia(),
     ...over,
   };

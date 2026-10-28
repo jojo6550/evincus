@@ -77,7 +77,7 @@ function sameOrigin(req, env) {
 }
 
 export async function requireStaff(req, c, { role = 'viewer', write = false } = {}) {
-  const staff = await staffFrom(req, c.env);
+  const staff = await staffFrom(req, c.env, c.now); // c.now may be undefined: staffFrom then defaults to the clock
   if (!staff) throw new HttpError('signed-out', 401);
   if (role === 'owner' && staff.role !== 'owner') throw new HttpError('forbidden', 403);
   if (write && !sameOrigin(req, c.env)) throw new HttpError('bad-origin', 403);

@@ -37,6 +37,9 @@ const env = {
   BEACON_LIMIT: kvLimiter(kv, 'beacon', { limit: 10, period: 60 }),
   QUOTE_LIMIT: kvLimiter(kv, 'quote', { limit: 60, period: 60 }),
   ADMIN_LIMIT: kvLimiter(kv, 'admin', { limit: 20, period: 60 }),
+  LOGIN_IP_LIMIT: kvLimiter(kv, 'login-ip', { limit: 10, period: 900 }),
+  LOGIN_EMAIL_LIMIT: kvLimiter(kv, 'login-email', { limit: 5, period: 900 }),
+  INVENTORY_LIMIT: kvLimiter(kv, 'inventory', { limit: 120, period: 60 }),
   LINK_LIMIT: kvLimiter(kv, 'link', { limit: 30, period: 60 }),
 };
 // MEDIA_PATH puts catalog photos next to KV on the persistent disk. Unset (dev), .media/ in the working directory.

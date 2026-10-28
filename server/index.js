@@ -16,7 +16,8 @@ import { checkoutOptions, placeOrderRoute } from './routes/checkout.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
-import { getSalesRoute, putSalesRoute } from './routes/admin.js';
+import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute } from './routes/admin.js';
+import { loginRoute, logoutRoute, meRoute } from './routes/inventory.js';
 
 // The fourth field marks routes that read the catalog: only they load it, with running sales and stock applied.
 // Health loads its own, so a KV failure still answers 503 with kv: 'error'.
@@ -35,6 +36,12 @@ const ROUTES = [
   ['POST', /^\/api\/newsletter\/unsubscribe$/, unsubscribeRoute],
   ['GET', /^\/api\/admin\/sales$/, getSalesRoute],
   ['PUT', /^\/api\/admin\/sales$/, putSalesRoute],
+  ['GET', /^\/api\/admin\/accounts$/, listAccountsRoute],
+  ['PUT', /^\/api\/admin\/accounts$/, putAccountRoute],
+  ['DELETE', /^\/api\/admin\/accounts\/([^/]+)$/, deleteAccountRoute],
+  ['POST', /^\/api\/inventory\/login$/, loginRoute],
+  ['POST', /^\/api\/inventory\/logout$/, logoutRoute],
+  ['GET', /^\/api\/inventory\/me$/, meRoute],
 ];
 
 // `data` replaces the KV catalog (tests); stock still comes from env.ORDERS.
@@ -51,7 +58,7 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
       try {
         // No orders while the store is down; health and newsletter.html's confirm/unsubscribe keep working.
         const status = siteStatus(req, env);
-        if (status !== 'live' && !/^\/api\/(health|newsletter\/(confirm|unsubscribe))$/.test(url.pathname)) {
+        if (status !== 'live' && !/^\/api\/(health|newsletter\/(confirm|unsubscribe)|(inventory|admin)\/.*)$/.test(url.pathname)) {
           res = fail(c, status, 503);
         } else if (req.method === 'OPTIONS') {
           res = new Response(null, { status: 204 });
@@ -62,6 +69,7 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
           else if (!hit) res = fail(c, 'method-not-allowed', 405);
           else {
             if (url.pathname.startsWith('/api/admin/')) await enforceLimit(c, env.ADMIN_LIMIT);
+            if (url.pathname.startsWith('/api/inventory/')) await enforceLimit(c, env.INVENTORY_LIMIT);
             if (url.pathname === '/api/bag/quote') await enforceLimit(c, env.QUOTE_LIMIT);
             if (url.pathname === '/api/newsletter/confirm' || url.pathname === '/api/newsletter/unsubscribe') await enforceLimit(c, env.LINK_LIMIT);
             c.params = url.pathname.match(hit[1]).slice(1);

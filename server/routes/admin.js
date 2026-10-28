@@ -1,6 +1,7 @@
 import { json, fail, readJson } from '../lib/http.js';
 import { SALES_KEY } from '../lib/sales.js';
 import { isSale } from '../../data/catalog.js';
+import { ROLES, ITERATIONS, accountKey } from '../lib/accounts.js';
 
 const MAX_SALES = 50;
 const noStore = { 'Cache-Control': 'no-store' };
@@ -47,4 +48,59 @@ export async function putSalesRoute(req, c) {
   // Return the stored entry's own list and version, so a write that lands after ours can't be paired with our list.
   const cur = await c.env.ORDERS.getEntry(SALES_KEY);
   return json({ sales: JSON.parse(cur.value), version: cur.version }, 200, noStore);
+}
+
+const B64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})$/;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// PUT /api/admin/accounts { email, role?, salt, hash, iterations }: creates an account or replaces its password
+// (epoch +1 signs its sessions out). The CLI hashes the password, so it never reaches the server.
+export async function putAccountRoute(req, c) {
+  const refused = await denied(req, c);
+  if (refused) return refused;
+  const { email, role, salt, hash, iterations } = (await readJson(req, 4096)) ?? {};
+  const mail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const valid = mail.length <= 254 && EMAIL.test(mail) && (role === undefined || ROLES.includes(role)) &&
+    typeof salt === 'string' && B64.test(salt) && typeof hash === 'string' && B64.test(hash) &&
+    Number.isInteger(iterations) && iterations >= ITERATIONS;
+  if (!valid) return fail(c, 'invalid-account', 400);
+  const key = accountKey(mail);
+  const { value, version } = await c.env.ORDERS.getEntry(key);
+  const old = value ? JSON.parse(value) : null;
+  const next = old
+    ? { ...old, email: mail, role: role ?? old.role, salt, hash, iterations, epoch: old.epoch + 1 }
+    : { email: mail, role: role ?? 'viewer', salt, hash, iterations, epoch: 1, createdAt: c.now.toISOString() };
+  if (!(await c.env.ORDERS.commit({ checks: [{ key, version }], puts: [{ key, value: JSON.stringify(next) }] }))) return fail(c, 'busy', 409);
+  c.log.info('account.added', { account: mail, created: !old });
+  return json({ email: mail, role: next.role, created: !old }, 200, noStore);
+}
+
+// GET /api/admin/accounts → { accounts }, never the hash or salt.
+export async function listAccountsRoute(req, c) {
+  const refused = await denied(req, c);
+  if (refused) return refused;
+  const accounts = [];
+  let cursor;
+  do {
+    const page = await c.env.ORDERS.list({ prefix: 'account:', cursor });
+    for (const { name } of page.keys) {
+      const a = await c.env.ORDERS.get(name, 'json');
+      if (a) accounts.push({ email: a.email, role: a.role, createdAt: a.createdAt ?? null, lastLoginAt: a.lastLoginAt ?? null });
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return json({ accounts }, 200, noStore);
+}
+
+// DELETE /api/admin/accounts/<urlencoded email>: its sessions stop working at once, since staffFrom needs the account.
+export async function deleteAccountRoute(req, c) {
+  const refused = await denied(req, c);
+  if (refused) return refused;
+  let mail;
+  try { mail = decodeURIComponent(c.params[0]).trim().toLowerCase(); } catch { return fail(c, 'not-found', 404); }
+  const key = accountKey(mail);
+  if (!(await c.env.ORDERS.get(key))) return fail(c, 'not-found', 404);
+  await c.env.ORDERS.delete(key);
+  c.log.info('account.removed', { account: mail });
+  return new Response(null, { status: 204 });
 }
