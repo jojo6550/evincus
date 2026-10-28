@@ -1,8 +1,9 @@
 export class HttpError extends Error {
-  constructor(code, status) {
+  constructor(code, status, extra = {}) {
     super(code);
     this.code = code;
     this.status = status;
+    this.extra = extra; // merged into the error body, e.g. { key }
   }
 }
 
@@ -36,6 +37,9 @@ export const MESSAGES = {
   'signed-out': 'Sign in to continue.',
   'forbidden': "Your account can't do that.",
   'bad-origin': 'That request came from another site and was refused.',
+  'invalid-stock': "Those stock changes can't be saved. Reload and try again.",
+  'stock-below-committed': "You can't remove units that are promised to orders. Cancel or refund the order first.",
+  'stock-busy': 'Someone else changed this stock at the same time. Reload and try again.',
   'sales-changed': 'Sales changed since you read them. Read them again, then retry.',
 };
 

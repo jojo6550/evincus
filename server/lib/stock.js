@@ -1,3 +1,6 @@
+import { HttpError } from './http.js';
+import { isOpId, readOp, opPut } from './ops.js';
+
 // Stock is one document per product, `stock:<productId>` → { '<colour>|<size>': { onHand, committed } }, so a
 // checkout or stock save checks one key per product, within @deno/kv's 10 checks per commit. No metadata: a
 // document can outgrow its 1 KiB.
@@ -29,6 +32,48 @@ export function checkoutStock(entries, lines, products, { orderId, now }) {
     checks: [...entries].map(([id, e]) => ({ key: stockKey(id), version: e.version })),
     puts: [...[...docs].map(([id, doc]) => ({ key: stockKey(id), value: stockDoc(doc) })), ...adjs],
   };
+}
+
+export const REASONS = ['received', 'correction', 'damaged', 'returned', 'other'];
+
+const bad = () => new HttpError('invalid-stock', 400);
+
+// Adds or removes units from one product's On hand. Deltas never touch Committed; removing may not dip below it.
+// `products` is the current catalog, for key validation. A stored op: result is returned as-is (the first one wins).
+export async function adjustStock(env, { opId, productId, changes, reason, note = '', by, now, products }) {
+  const product = products.find(p => p.id === productId);
+  if (!product) throw new HttpError('unknown-product', 404);
+  const known = new Set(product.colors.flatMap(c => product.sizes.map(s => `${productId}|${c.name}|${s}`)));
+  if (!isOpId(opId) || !REASONS.includes(reason) || typeof note !== 'string' || note.length > 200
+    || !Array.isArray(changes) || !changes.length || changes.length > 200
+    || !changes.every(ch => known.has(ch?.key) && Number.isInteger(ch.delta) && ch.delta !== 0)) throw bad();
+  const at = now.toISOString();
+  const key = stockKey(productId);
+  for (let round = 0; round < 5; round++) {
+    const done = await readOp(env, opId);
+    if (done) return done;
+    const { value, version } = await env.ORDERS.getEntry(key);
+    const doc = JSON.parse(value ?? '{}');
+    const stock = {};
+    for (const { key: k, delta } of changes) {
+      const variant = k.slice(productId.length + 1);
+      const { onHand = 0, committed = 0 } = doc[variant] ?? {};
+      if (delta < 0 && (onHand + delta < 0 || onHand + delta < committed)) throw new HttpError('stock-below-committed', 409, { key: k });
+      doc[variant] = { ...doc[variant], onHand: onHand + delta, committed };
+      stock[k] = { onHand: onHand + delta, committed };
+    }
+    const result = { stock };
+    const ok = await env.ORDERS.commit({
+      checks: [{ key, version }],
+      puts: [
+        { key, value: stockDoc(doc) },
+        ...changes.map((ch, i) => ({ key: adjKey(productId, at, opId, i), value: JSON.stringify({ key: ch.key, onHand: ch.delta, committed: 0, reason, note, by, at }) })),
+        opPut(opId, result),
+      ],
+    });
+    if (ok) return result;
+  }
+  throw new HttpError('stock-busy', 409);
 }
 
 // Pages through every key under a prefix.

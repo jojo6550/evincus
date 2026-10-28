@@ -17,7 +17,7 @@ import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
 import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute } from './routes/admin.js';
-import { loginRoute, logoutRoute, meRoute } from './routes/inventory.js';
+import { loginRoute, logoutRoute, meRoute, adjustStockRoute } from './routes/inventory.js';
 
 // The fourth field marks routes that read the catalog: only they load it, with running sales and stock applied.
 // Health loads its own, so a KV failure still answers 503 with kv: 'error'.
@@ -42,6 +42,7 @@ const ROUTES = [
   ['POST', /^\/api\/inventory\/login$/, loginRoute],
   ['POST', /^\/api\/inventory\/logout$/, logoutRoute],
   ['GET', /^\/api\/inventory\/me$/, meRoute],
+  ['POST', /^\/api\/inventory\/stock$/, adjustStockRoute, true],
 ];
 
 // `data` replaces the KV catalog (tests); stock still comes from env.ORDERS.
@@ -82,7 +83,7 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
           }
         }
       } catch (err) {
-        if (err instanceof HttpError) res = fail(c, err.code, err.status);
+        if (err instanceof HttpError) res = fail(c, err.code, err.status, err.extra);
         else {
           log.error('unhandled', { message: String(err?.message ?? err), stack: String(err?.stack ?? '') });
           c.waitUntil(alert(c, 'unhandled', { subject: 'Unhandled error', rows: [['Route', `${req.method} ${url.pathname}`], ['Message', String(err?.message ?? err)]] }));

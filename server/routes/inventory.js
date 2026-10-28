@@ -1,5 +1,6 @@
 import { HttpError, json, fail, readJson } from '../lib/http.js';
 import { accountKey, verifyLogin, startSession, sessionCookie, clearCookie, staffFrom, requireStaff, isHttps } from '../lib/accounts.js';
+import { adjustStock } from '../lib/stock.js';
 
 const noStore = { 'Cache-Control': 'no-store' };
 
@@ -51,6 +52,15 @@ export async function logoutRoute(req, c) {
     if (staff) await c.env.ORDERS.delete(staff.sessionKey);
   } catch (err) { c.log.error('logout.failed', { message: String(err?.message ?? err) }); } // the cookie is cleared regardless
   return new Response(null, { status: 204, headers: { 'Set-Cookie': clearCookie(isHttps(req)) } });
+}
+
+// POST /api/inventory/stock { opId, productId, changes: [{ key, delta }], reason, note } → { stock }.
+export async function adjustStockRoute(req, c) {
+  const { email } = await requireStaff(req, c, { role: 'owner', write: true });
+  const b = (await readJson(req, 65536)) ?? {};
+  const result = await adjustStock(c.env, { ...b, by: email, now: c.now, products: c.data.products });
+  c.log.info('stock.adjusted', { account: email, changes: b.changes.length });
+  return json(result, 200, noStore);
 }
 
 // GET /api/inventory/me → { email, role, local }.
