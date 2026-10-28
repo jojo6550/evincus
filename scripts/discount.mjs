@@ -1,13 +1,12 @@
 // Runs a timed sale on the live store: `npm run discount <eras|all> <days> <percent>`.
 // Sales are stored in KV (key config:sales) through the server's /api/admin/sales endpoint and apply on the next
 // page load, with no deploy. See `npm run discount help`.
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SALE_MAX_PERCENT, isSale, pendingSales } from '../data/catalog.js';
+import { PROD_URL, LOCAL_URL, parseOptions, apiBase, adminToken, adminFetch, problem } from './lib/admin-cli.mjs';
 
-export const PROD_URL = 'https://evincus.shop';
-export const LOCAL_URL = 'http://localhost:8000';
+export { PROD_URL, LOCAL_URL, apiBase, adminToken };
 
 export const SALES_KEY = 'config:sales';
 const DAY = 86_400_000;
@@ -37,29 +36,9 @@ Examples:
   npm run discount list local
   npm run discount end all`;
 
-// Options also work as plain words (local, dry-run, label=..., starts=..., url=...). npm never sees those,
-// unlike --flags, which npm keeps for itself whenever the `--` is missing (Windows PowerShell drops it).
-const WORDS = { local: 'local', 'dry-run': 'dryRun' };
-
 export function parseArgs(argv) {
-  const flags = { local: false, dryRun: false, label: null, starts: null, url: null };
-  const rest = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    const bare = a.replace(/^--/, '');
-    if (bare === 'staging') throw new Error('staging is gone: each branch has its own preview. Use url=<preview URL> instead.');
-    const word = WORDS[bare];
-    const kv = /^(?:--)?(label|starts|url)=([\s\S]*)$/.exec(a);
-    if (word) flags[word] = true;
-    else if (kv) flags[kv[1]] = kv[2];
-    else if (a === '--label' || a === '--starts' || a === '--url') {
-      const v = argv[++i];
-      if (v === undefined) throw new Error(`${a} needs a value.`);
-      flags[a.slice(2)] = v;
-    } else if (a.startsWith('--')) throw new Error(`Unknown option ${a}.`);
-    else rest.push(a);
-  }
-  if (flags.url && flags.local) throw new Error('Use url= or local, not both.');
+  if (argv.some(a => a.replace(/^--/, '') === 'staging')) throw new Error('staging is gone: each branch has its own preview. Use url=<preview URL> instead.');
+  const { flags, rest } = parseOptions(argv, { words: { 'dry-run': 'dryRun' }, values: ['label', 'starts'] });
   const [cmd, ...args] = rest;
   if (!cmd || cmd === 'help') return { cmd: 'help', flags };
   if (cmd === 'list') return { cmd: 'list', flags };
@@ -124,33 +103,7 @@ export function describe(s, now) {
 
 // ---------- the admin endpoint ----------
 
-export const apiBase = flags => (flags.local ? LOCAL_URL : flags.url ?? PROD_URL).replace(/\/+$/, '');
-
-// ADMIN_TOKEN from the environment, else from .env in the repo root.
-export function adminToken(env = process.env, readEnvFile = () => readFileSync(new URL('../.env', import.meta.url), 'utf8')) {
-  if (env.ADMIN_TOKEN) return env.ADMIN_TOKEN;
-  let text = '';
-  try { text = readEnvFile(); } catch { /* no .env */ }
-  const token = /^[ \t]*ADMIN_TOKEN[ \t]*=[ \t]*(["']?)([^"'\r\n]*?)\1[ \t]*$/m.exec(text)?.[2];
-  if (token) return token;
-  throw new Error('Set ADMIN_TOKEN (the same value as on the server) in your environment or in .env.');
-}
-
-async function request(base, token, init, fetchFn) {
-  try {
-    return await fetchFn(`${base}/api/admin/sales`, { ...init, headers: { Authorization: `Bearer ${token}`, ...init.headers } });
-  } catch (err) {
-    throw new Error(`Could not reach ${base} (${err.message}). ${base === LOCAL_URL ? 'Start it with npm run dev.' : 'Check the URL and your connection.'}`);
-  }
-}
-
-async function problem(res) {
-  if (res.status === 401) return 'The API refused the admin token. Check ADMIN_TOKEN matches the server.';
-  if (res.status === 404) return 'The API has no admin endpoint. Set ADMIN_TOKEN on the server (Render environment variables, or .env for npm run dev).';
-  let message = '';
-  try { message = (await res.json())?.error?.message ?? ''; } catch { /* not JSON */ }
-  return `The API answered ${res.status}${message ? `: ${message}` : ''}.`;
-}
+const request = (base, token, init, fetchFn) => adminFetch(base, token, '/api/admin/sales', init, fetchFn);
 
 export async function readSales(base, token, fetchFn = fetch) {
   const res = await request(base, token, { method: 'GET' }, fetchFn);
