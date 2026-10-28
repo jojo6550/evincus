@@ -5,7 +5,7 @@ import { MEDIA_NAME } from '../../server/lib/media.js';
 
 // In-memory stand-in for the ORDERS store (server/lib/kv-store.js has the same surface).
 // Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
-export function fakeKV() {
+export function fakeKV({ pageSize = 1000 } = {}) {
   const store = new Map();
   const versions = new Map();
   let clock = 0;
@@ -41,9 +41,12 @@ export function fakeKV() {
       for (const key of deletes) remove(key);
       return true;
     },
-    async list({ prefix = '' } = {}) {
-      const keys = [...store.keys()].filter(k => k.startsWith(prefix)).sort().map(name => ({ name, ...(store.get(name).opts.metadata && { metadata: store.get(name).opts.metadata }) }));
-      return { keys, list_complete: true };
+    async list({ prefix = '', cursor, limit = pageSize } = {}) {
+      const all = [...store.keys()].filter(k => k.startsWith(prefix)).sort().map(name => ({ name, ...(store.get(name).opts.metadata && { metadata: store.get(name).opts.metadata }) }));
+      const at = Number(cursor ?? 0);
+      const keys = all.slice(at, at + Math.min(limit, pageSize));
+      const end = at + keys.length;
+      return end >= all.length ? { keys, list_complete: true } : { keys, list_complete: false, cursor: String(end) };
     },
   };
 }

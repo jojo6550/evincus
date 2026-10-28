@@ -5,7 +5,7 @@ import * as era_catastrophe from './catastrophe/era.js';
 import * as era_reflection from './reflection/era.js';
 import * as era_core from './core/era.js';
 
-const ERAS = [
+export const ERAS = [
   // eras:list
   era_catastrophe,
   era_reflection,
