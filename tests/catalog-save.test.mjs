@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeEnv, call, callWithoutData, seedFromFixture, putStock, stockOf, captureLogs } from './helpers/fake-env.mjs';
 import { signIn, ADMIN_TOKEN } from './helpers/staff.mjs';
-import { REV_KEY, ERA_ORDER_KEY, productHistory, saveProduct } from '../server/lib/catalog-store.js';
+import { REV_KEY, ERA_ORDER_KEY } from '../server/lib/catalog-store.js';
+import { productHistory, saveProduct } from '../server/lib/catalog-save.js';
 import { NOW } from './helpers/fixture.mjs';
 
 const setup = async (role = 'owner') => {

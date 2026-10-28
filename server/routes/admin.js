@@ -2,7 +2,8 @@ import { json, fail, readJson } from '../lib/http.js';
 import { SALES_KEY } from '../lib/sales.js';
 import { isSale } from '../../data/catalog.js';
 import { ROLES, ITERATIONS, accountKey } from '../lib/accounts.js';
-import { loadCatalog, saveEra } from '../lib/catalog-store.js';
+import { loadCatalog } from '../lib/catalog-store.js';
+import { saveEra } from '../lib/catalog-save.js';
 
 const MAX_SALES = 50;
 const noStore = { 'Cache-Control': 'no-store' };

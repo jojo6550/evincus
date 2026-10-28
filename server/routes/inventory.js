@@ -1,7 +1,8 @@
 import { HttpError, json, fail, readJson } from '../lib/http.js';
 import { accountKey, verifyLogin, startSession, sessionCookie, clearCookie, staffFrom, requireStaff, isHttps } from '../lib/accounts.js';
 import { adjustStock, stockKey, listAll } from '../lib/stock.js';
-import { productKey, loadCatalog, saveProduct, saveEra, setEraOrder, readEraOrder, productHistory } from '../lib/catalog-store.js';
+import { productKey, loadCatalog } from '../lib/catalog-store.js';
+import { saveProduct, saveEra, setEraOrder, readEraOrder, productHistory } from '../lib/catalog-save.js';
 import { lineKey, imagesFor } from '../../data/catalog.js';
 import { photoPath, manifestEntry } from '../../data/photos.js';
 

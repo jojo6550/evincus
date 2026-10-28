@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { ERAS } from '../data/eras/index.js';
 import manifest from '../assets/js/image-manifest.js';
-import { seedCatalog, loadCatalog, defaultSku, validateProduct, validateEra, REV_KEY, ERA_ORDER_KEY, eraKey, productKey } from '../server/lib/catalog-store.js';
+import { seedCatalog, loadCatalog, defaultSku, REV_KEY, ERA_ORDER_KEY, eraKey, productKey } from '../server/lib/catalog-store.js';
+import { validateProduct, validateEra } from '../server/lib/catalog-save.js';
 import { loadStock, stockKey, stockDoc } from '../server/lib/stock.js';
 import { makeEnv, fakeKV, fakeMedia } from './helpers/fake-env.mjs';
 
