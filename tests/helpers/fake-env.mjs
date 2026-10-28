@@ -1,6 +1,7 @@
 import { createApp } from '../../server/index.js';
 import { FIXTURE, NOW, fixtureStock } from './fixture.mjs';
 import { applyStock } from '../../data/catalog.js';
+import { MEDIA_NAME } from '../../server/lib/media.js';
 
 // In-memory stand-in for the ORDERS store (server/lib/kv-store.js has the same surface).
 // Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
@@ -58,6 +59,20 @@ export function fakeLimiter(limit) {
   };
 }
 
+// In-memory stand-in for server/lib/media.js mediaStore.
+export function fakeMedia() {
+  const files = new Map();
+  const check = name => { if (!MEDIA_NAME.test(name)) throw new Error('bad media name'); return name; };
+  return {
+    files,
+    async read(name) { return files.get(check(name)) ?? null; },
+    async write(name, bytes) { if (!files.has(check(name))) files.set(name, new Uint8Array(bytes)); },
+    async has(name) { return files.has(check(name)); },
+    async list() { return [...files.keys()].sort().map(name => ({ name, mtimeMs: 0 })); },
+    async remove(name) { files.delete(check(name)); },
+  };
+}
+
 export function makeEnv(over = {}) {
   const env = {
     ENVIRONMENT: 'production',
@@ -69,6 +84,7 @@ export function makeEnv(over = {}) {
     COMMIT_SHA: 'abc1234',
     ORDERS: fakeKV(),
     BEACON_LIMIT: fakeLimiter(10),
+    MEDIA: fakeMedia(),
     ...over,
   };
   for (const [k, v] of fixtureStock()) putStock(env, k, v.onHand, v.committed);
