@@ -13,7 +13,7 @@ function remember(value) {
 }
 
 export async function mountCheckout(container, { q, onPlaced, onBagChanged }) {
-  container.innerHTML = '<p role="status">Loading pickup options…</p>';
+  container.innerHTML = '<p class="is-loading" role="status">Loading pickup options…</p>';
   let options;
   try { options = await api('GET', '/api/checkout/options'); }
   catch (err) {

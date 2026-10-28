@@ -56,7 +56,12 @@
       <h1 class="head__title">Eras <em>every drop, in order</em></h1>
       <span class="mono u-smoke"><span id="eraTotal">0</span> eras</span>
     </div>
-    <div class="era-list" id="eraList" aria-live="polite"></div>
+    <!-- Placeholders until the catalog loads; eras.js replaces them with the real cards. -->
+    <div class="era-list" id="eraList" aria-live="polite" aria-busy="true">
+      <div class="era-card era-card--skel" aria-hidden="true"><div class="era-card__img skel"></div><div class="era-card__copy"><i class="skel"></i><i class="skel"></i><i class="skel"></i></div></div>
+      <div class="era-card era-card--skel" aria-hidden="true"><div class="era-card__img skel"></div><div class="era-card__copy"><i class="skel"></i><i class="skel"></i><i class="skel"></i></div></div>
+      <div class="era-card era-card--skel" aria-hidden="true"><div class="era-card__img skel"></div><div class="era-card__copy"><i class="skel"></i><i class="skel"></i><i class="skel"></i></div></div>
+    </div>
   </section>
 </main>
 

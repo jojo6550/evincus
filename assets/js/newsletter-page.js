@@ -8,10 +8,14 @@ const title = document.getElementById('nlTitle');
 const text = document.getElementById('nlText');
 const button = document.getElementById('nlAction');
 
-const show = (heading, body) => { title.textContent = heading; text.textContent = body; };
+const show = (heading, body, busy = false) => {
+  title.textContent = heading;
+  text.textContent = body;
+  title.classList.toggle('is-loading', busy);
+};
 
 async function confirm() {
-  show('Confirming…', 'One second.');
+  show('Confirming…', 'One second.', true);
   try {
     await api('POST', '/api/newsletter/confirm', params);
     show("You're on the list", "Drops, sales and early access land in your inbox first. One email a day at most, only when something's new.");
@@ -25,6 +29,7 @@ function unsubscribe() {
   button.hidden = false;
   button.addEventListener('click', async () => {
     button.disabled = true;
+    button.classList.add('is-loading');
     try {
       await api('POST', '/api/newsletter/unsubscribe', params);
       button.hidden = true;
@@ -32,6 +37,8 @@ function unsubscribe() {
     } catch (err) {
       button.disabled = false;
       show("That didn't work", err.message);
+    } finally {
+      button.classList.remove('is-loading');
     }
   }, { once: true });
 }

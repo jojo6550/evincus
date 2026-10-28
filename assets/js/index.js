@@ -7,9 +7,10 @@ import { initProductView, openProduct } from './product-view.js';
 import { initSale, priceHtml, saleTag } from './sale.js';
 import { initSignup } from './signup.js';
 import { initReel } from './reel.js';
-import { imageAttrs } from './images.js';
+import { imageAttrs, initImageFade } from './images.js';
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const TAGS = { 'disaster-zone-tee': ['New', true], 'made-for-chaos-tee': ['Distressed'], 'catastrophe-zip-hoodie': ['New', true], 'flaming-eye-tee': ['Core'] };
+initImageFade();
 initReel();
 await loadCatalog();
 initSale();
@@ -31,6 +32,7 @@ grid.innerHTML = PRODUCTS.map(p => {
     <div class="card__meta"><h3>${esc(p.name)}</h3><span class="price">${priceHtml(p)}</span><span class="mono">${esc(eraName(p.era))} · ${esc(colors)} · USD</span></div>
   </a>`;
 }).join('');
+grid.removeAttribute('aria-busy');
 grid.addEventListener('click', e => {
   const c = e.target.closest('[data-product]'); if (!c) return;
   e.preventDefault();
