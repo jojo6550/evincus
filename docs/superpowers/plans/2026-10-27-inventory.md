@@ -335,6 +335,59 @@ git add -A server main.js render.yaml .env.example scripts/lib assets/js tests
 git commit -m "feat(catalog)!: storefront reads eras, products, photos and stock from KV"
 ```
 
+### Task 4b: Fit every write inside the KV commit limits (inserted during execution)
+
+Measured: file-backed `@deno/kv` allows at most **10 checks** and **1000 mutations** per atomic commit. `kvStore.commit` adds one check per written key, so today's design can't commit a 4-line checkout or a product-wide stock save.
+
+**Files:**
+- Modify: `server/lib/kv-store.js`, `server/lib/stock.js`, `server/lib/catalog-store.js`, `server/lib/pricing.js`, `server/routes/quote.js`, `server/lib/http.js`, `assets/js/bag.js`, `tests/helpers/fake-env.mjs`
+- Test: `tests/kv-store.test.mjs`, `tests/catalog-store.test.mjs`, `tests/quote.test.mjs`, `tests/kv-limits.test.mjs` (new, real file-backed KV)
+
+**Interfaces:**
+- `kvStore.commit` adds its implicit guard only for written or deleted keys whose current head is chunked (`n > 0`). Unchunked and absent keys are written without a guard, with this comment: `shortcut: a concurrent chunked write between read and commit can orphan its chunks (storage leak only); guard all keys again if large values start racing`. Explicit `checks` are unchanged.
+- Stock is one document per product: `stockKey(productId) → 'stock:' + productId`, value `{ '<colour>|<size>': { onHand, committed } }`, with no metadata.
+  - `loadStock(env)` still returns `Map<lineKey, { onHand, committed }>`. It lists `stock:` (paged) and `get`s each document.
+  - `stockDoc(map) → string` serialises a document for commit puts and replaces `stockEntry`.
+  - `putStock` / `stockOf` in `fake-env.mjs` keep their signatures and read or write the product document.
+  - Seeding writes one stock document per product.
+- `MAX_PRODUCTS = 8` in `server/lib/pricing.js`. `quote` adds `problem: 'too-many-products'` and `checkoutReady: false` when a cart spans more than 8 distinct product ids; lines keep their own statuses. `MESSAGES['too-many-products']` = "A cart can hold up to 8 different pieces per checkout. Remove some, then check out." `bag.js` shows that message when `quote.problem` is set. Task 5's order route refuses such a cart with `400 too-many-products`.
+- Commit budget, which later tasks must keep:
+  - checkout: submission + ≤ 8 products = 9 checks;
+  - owner stock save: 1 product + `op:` = 2;
+  - order action: order + ≤ 8 products + `op:` = 10;
+  - product save: product + its stock document + `op:` = 3.
+- `seedCatalog` keeps Task 4's batching, but batches may now hold up to 900 puts, each guarded only by `REV_KEY` absent. The final commit writes `REV_KEY`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```js
+// tests/kv-limits.test.mjs (real file-backed KV via tests/helpers/deno-kv.mjs fileKv)
+test('a commit writing 50 unchunked keys with one explicit check succeeds', async () => {});
+test('a chunked key is still guarded: a concurrent rewrite of it makes the commit retry, never orphaning the current chunk set', async () => {});
+test('seeding the real era files into file-backed KV succeeds and writes one stock document per product', async () => {});
+// tests/quote.test.mjs
+test('a cart spanning 9 products is not checkout-ready and says too-many-products', () => {});
+```
+
+- [ ] **Step 2: Run them and see them fail**
+
+Run: `node --test tests/kv-limits.test.mjs tests/quote.test.mjs`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement the guard change, the stock document, `MAX_PRODUCTS` and the bag message; update every caller and fake of the old per-variant `stock:` keys**
+
+- [ ] **Step 4: Run the full suite and the server checks**
+
+Run: `node --test; npm run check:load; npm run check:restore`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A server assets tests
+git commit -m "fix(kv): fit commits inside @deno/kv limits; one stock document per product"
+```
+
 ### Task 5: Checkout commits stock
 
 **Files:**
@@ -345,8 +398,8 @@ git commit -m "feat(catalog)!: storefront reads eras, products, photos and stock
 - Consumes: `stockKey`, `stockEntry` (Task 3); `quote` with `insufficient-stock` (Task 1).
 - Produces:
   - `adjKey(productId, iso, opId, i) → 'adj:<productId>:<iso>:<opId>:<i>'`.
-  - `checkoutStock(entries: Map<lineKey, { value, version }>, lines, products, { orderId, now }) → { checks, puts } | { short: [{ key, available }] }`. Pure. For each line it adds Committed + qty, skips the Available check when `continueSelling`, and emits one `adj:` put per line with `reason: 'order'`.
-  - `submitOrder(env, id, fingerprint, record, { products } = {})`: when `record` is new, it reads each line's `stock:` entry with `getEntry`. It adds `checkoutStock`'s checks and puts to the existing commit, and retries the whole round on a failed commit (existing `ROUNDS`). If any round finds `short`, it returns `{ short }`.
+  - `checkoutStock(entries: Map<productId, { value, version }>, lines, products, { orderId, now }) → { checks, puts } | { short: [{ key, available }] }`. Pure. It works on the per-product stock documents from Task 4b: one check and one put per distinct product, plus one unguarded `adj:` put per line with `reason: 'order'`. For each line it adds Committed + qty, and skips the Available check when `continueSelling`.
+  - `submitOrder(env, id, fingerprint, record, { products } = {})`: when `record` is new, it reads each distinct product's `stock:<productId>` document with `getEntry`. A cart over `MAX_PRODUCTS` never reaches it, because the route refuses it with `400 too-many-products`. It adds `checkoutStock`'s checks and puts to the existing commit, and retries the whole round on a failed commit (existing `ROUNDS`). If any round finds `short`, it returns `{ short }`.
   - `placeOrderRoute` maps `{ short }` to `fail(c, 'bag-changed', 409, { lines })`, with those lines carrying `status: 'insufficient-stock'` (or `'sold-out'` when `available ≤ 0`) and `available`.
   - `directRecord` gains `stockCommitted: true`, plus `sku` and `costCents` on every line, read from the internal product.
   - `bag.js` `STATUS_TEXT['insufficient-stock']` is `` `Only ${l.available} left` ``, built in `lineHtml`.
@@ -375,7 +428,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement `checkoutStock`, the `submitOrder` / `placeOrderRoute` / `directRecord` changes and the bag text**
 
-Before writing the commit step, confirm the `@deno/kv` per-commit limits with a real-KV test in `tests/kv-store.test.mjs`. A 50-line cart (about 105 checks) must commit. If it can't, lower `MAX_LINES` in `server/lib/pricing.js` to the largest value that does, and pin that value in the test.
+Add a real file-backed KV test (`tests/kv-limits.test.mjs`, Task 4b's `fileKv` helper) proving that an 8-product, 50-line checkout commits.
 
 - [ ] **Step 4: Run the full suite and the load check**
 
@@ -615,12 +668,12 @@ git commit -m "feat(inventory): sign-in screen and tab shell at /inventory"
 - Produces (`server/lib/ops.js`): `OP_TTL = 604800`, `isOpId(v)` (UUID v4 regex as in `placeOrderRoute`), `opKey(opId)`, `readOp(env, opId) → Promise<result | null>`, `opPut(opId, result)` → a commit put with `expirationTtl: OP_TTL`.
 - Produces (`server/lib/stock.js`):
   - `REASONS = ['received', 'correction', 'damaged', 'returned', 'other']`.
-  - `adjustStock(env, { opId, changes: [{ key, delta }], reason, note, by, now }) → Promise<{ stock: { [key]: { onHand, committed } } }>`:
-    - validation: ≤ 200 changes, integer non-zero deltas, known keys, `note` ≤ 200 characters;
+  - `adjustStock(env, { opId, productId, changes: [{ key, delta }], reason, note, by, now }) → Promise<{ stock: { [key]: { onHand, committed } } }>`:
+    - validation: every change belongs to `productId`, ≤ 200 changes, integer non-zero deltas, keys known for that product, `note` ≤ 200 characters;
     - a stored `op:` result is returned as-is;
-    - each variant is read with `getEntry`. Deltas go to On hand only. A negative delta that would leave On hand < 0 or < Committed throws `HttpError('stock-below-committed', 409, { key })`;
-    - one commit holds the variant checks, the new `stock:` values, one `adj:` per change (`{ key, onHand: delta, committed: 0, reason, note, by, at }`) and `opPut`. A failed commit retries from the read (5 rounds).
-- Route: `POST /api/inventory/stock { opId, changes, reason, note }` (owner, write) → `{ stock }`. Logs `stock.adjusted` with `account` and the count of changes.
+    - the product's stock document is read with `getEntry`. Deltas go to On hand only. A negative delta that would leave On hand < 0 or < Committed throws `HttpError('stock-below-committed', 409, { key })`;
+    - one commit holds the document check and put, one `adj:` per change (`{ key, onHand: delta, committed: 0, reason, note, by, at }`) and `opPut`, which is 2 checks in all (Task 4b budget). A failed commit retries from the read (5 rounds).
+- Route: `POST /api/inventory/stock { opId, productId, changes, reason, note }` (owner, write) → `{ stock }`. Logs `stock.adjusted` with `account` and the count of changes.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -674,7 +727,7 @@ git commit -m "feat(stock): idempotent delta adjustments with history"
   - `validateEra(era) → string[]`: a `published` era needs a tagline, story and hero; `dropsAt` / `endsAt` are ISO with an offset, or null.
   - `saveProduct(env, { opId, product, version, by, now }) → { product, version }`:
     - `version` null means create, and refuses an existing id;
-    - one commit holds the `product:` check and put, the moved `stock:` keys for a colour rename, the `adj:` records with `reason: 'edit'` and a `summary` (e.g. `Price 32.99 → 34.99`, one per changed field), a new `REV_KEY` and `opPut`;
+    - one commit holds the `product:` check and put, the product's stock document (checked, with variant keys renamed for a colour rename), the `adj:` records with `reason: 'edit'` and a `summary` (e.g. `Price 32.99 → 34.99`, one per changed field), a new `REV_KEY` and `opPut`;
     - a version mismatch throws `HttpError('product-changed', 409, { current })`.
   - `saveEra(env, { opId, era, version, by, now })`: the same pattern, error `era-changed`. A new era is put first in `eraOrder`.
   - `setEraOrder(env, { opId, order, version })`, checked against `REV_KEY`'s version.
@@ -973,8 +1026,8 @@ git commit -m "feat(orders): pure fulfilment, cancel and refund rules"
   - `submitOrder` writes the `day:` entry with `metadata: orderSummary(record)`. `directRecord` adds `fulfilmentStatus: 'UNFULFILLED'` and `events: [{ at, type: 'placed', by: null }]`.
   - `POST /api/inventory/orders/:id/actions { opId, version, action }` (owner, write):
     - returns a stored `op:` result if there is one;
-    - otherwise `getEntry`, version check, `applyAction`, then reads the movement variants;
-    - one commit holds the order and day checks, the order put, the stock puts with their checks, the `adj:` puts (`orderId` set) and `opPut`;
+    - otherwise `getEntry`, version check, `applyAction`, then reads the stock documents of the products the movements touch;
+    - one commit holds the order check, the order and day puts, each touched stock document (checked and put), the `adj:` puts (`orderId` set) and `opPut`, which is ≤ 10 checks (Task 4b budget);
     - responds with `{ order, version }`, or `409 order-changed` with `{ current }`.
     Logs `order.ready` / `order.fulfilled` / `order.cancelled` / `order.refunded`.
 
