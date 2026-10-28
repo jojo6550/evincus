@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { makeEnv } from './helpers/fake-env.mjs';
 import { HttpError } from '../server/lib/http.js';
 import { ITERATIONS, accountKey, hashPassword, verifyLogin, startSession, sessionCookie, clearCookie, staffFrom, requireStaff, isHttps } from '../server/lib/accounts.js';
@@ -81,4 +82,60 @@ test('sessionCookie adds Secure only over HTTPS', () => {
   assert.equal(sessionCookie('tok', true), 'evincus_inv=tok; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800; Secure');
   assert.equal(clearCookie(true), 'evincus_inv=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0; Secure');
   assert.equal(clearCookie(false), 'evincus_inv=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+});
+
+test('session is stored under the token hash only; the raw token is never stored', async () => {
+  const env = makeEnv();
+  const acct = await mkAccount(env, 'a@evincus.shop', 'owner');
+  const token = await startSession(env, acct, new Date());
+  const key = 'session:' + createHash('sha256').update(token).digest('hex');
+  assert.ok(env.ORDERS.store.has(key));
+  for (const [k, { value }] of env.ORDERS.store) assert.ok(!k.includes(token) && !value.includes(token));
+});
+
+test('startSession accepts a Date or ms; an expired session is refused using the passed now', async () => {
+  const env = makeEnv();
+  const acct = await mkAccount(env, 'a@evincus.shop', 'owner');
+  const t0 = Date.now();
+  const token = await startSession(env, acct, new Date(t0));
+  const { expiresAt } = await env.ORDERS.get((await staffFrom(reqWith(token), env)).sessionKey, 'json');
+  assert.equal(expiresAt, t0 + 604800000);
+  const t2 = await startSession(env, acct, t0);
+  assert.ok(await staffFrom(reqWith(t2), env, new Date(t0 + 604799000)));
+  assert.equal(await staffFrom(reqWith(t2), env, new Date(t0 + 604800000)), null);
+});
+
+test('cookie parsing skips malformed parts and finds the real one among several', async () => {
+  const env = makeEnv();
+  const acct = await mkAccount(env, 'a@evincus.shop', 'owner');
+  const token = await startSession(env, acct, Date.now());
+  const req = new Request('https://api.test/x', { headers: { cookie: `a=1; evincus_invX; evincus_invX=bad; flag; evincus_inv=${token}; z=9` } });
+  assert.ok(await staffFrom(req, env));
+});
+
+test('Host is normalised like URL.host; empty Host falls back; empty-host Origin is refused', async () => {
+  const env = makeEnv();
+  const owner = await mkAccount(env, 'o@evincus.shop', 'owner');
+  const t = await startSession(env, owner, Date.now());
+  const w = (headers, url = 'http://localhost/x') => code(requireStaff(reqWith(t, headers, url), { env }, { write: true }));
+  assert.equal(await w({ host: 'Evincus.shop', origin: 'https://evincus.shop' }), null);
+  assert.equal(await w({ host: 'evincus.shop:443', origin: 'https://evincus.shop' }), null);
+  assert.equal(await w({ host: 'evincus.shop:8443', origin: 'https://evincus.shop' }), 'bad-origin:403');
+  assert.equal(await w({ host: '', origin: 'https://localhost' }), null);
+  assert.equal(await w({ host: 'evincus.shop', origin: 'file://' }), 'bad-origin:403');
+});
+
+test('isHttps uses the first forwarded-proto value, case-insensitive', () => {
+  const r = v => isHttps(new Request('http://localhost/x', { headers: { 'x-forwarded-proto': v } }));
+  assert.equal(r('https,http'), true);
+  assert.equal(r(' HTTPS '), true);
+  assert.equal(r('http,https'), false);
+});
+
+test('staffFrom returns null for an account with an unknown role', async () => {
+  const env = makeEnv();
+  const acct = await mkAccount(env, 'a@evincus.shop', 'owner');
+  const token = await startSession(env, acct, Date.now());
+  await env.ORDERS.put(accountKey(acct.email), JSON.stringify({ ...acct, role: 'admin' }));
+  assert.equal(await staffFrom(reqWith(token), env), null);
 });

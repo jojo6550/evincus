@@ -33,9 +33,9 @@ export async function verifyLogin(env, email, password) {
   return account && await sameSecret(hash, account.hash) ? account : null;
 }
 
-export async function startSession(env, account, now) {
+export async function startSession(env, account, now) { // now: Date or ms
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
-  const session = { email: account.email, epoch: account.epoch, expiresAt: now + SESSION_TTL * 1000 };
+  const session = { email: account.email, epoch: account.epoch, expiresAt: +now + SESSION_TTL * 1000 };
   await env.ORDERS.put('session:' + await sha256Hex(token), JSON.stringify(session), { expirationTtl: SESSION_TTL });
   return token;
 }
@@ -45,24 +45,25 @@ export const sessionCookie = (token, secure) => `${COOKIE}=${token}; ${attrs}; M
 export const clearCookie = secure => `${COOKIE}=; ${attrs}; Max-Age=0${secure ? '; Secure' : ''}`;
 
 // Render terminates TLS, so the app sees http://localhost plus x-forwarded-proto.
-export const isHttps = req => req.headers.get('x-forwarded-proto') === 'https' || new URL(req.url).protocol === 'https:';
+export const isHttps = req => req.headers.get('x-forwarded-proto')?.split(',')[0].trim().toLowerCase() === 'https' || new URL(req.url).protocol === 'https:';
 
 function cookieToken(req) {
   for (const part of (req.headers.get('cookie') ?? '').split(';')) {
     const i = part.indexOf('=');
+    if (i < 0) continue;
     if (part.slice(0, i).trim() === COOKIE) return part.slice(i + 1).trim();
   }
   return null;
 }
 
-export async function staffFrom(req, env) {
+export async function staffFrom(req, env, now = Date.now()) {
   const token = cookieToken(req);
   if (!token || !/^[0-9a-f]{64}$/.test(token)) return null;
   const sessionKey = 'session:' + await sha256Hex(token);
   const session = await env.ORDERS.get(sessionKey, 'json');
-  if (!session || session.expiresAt <= Date.now()) return null;
+  if (!session || session.expiresAt <= +now) return null;
   const account = await env.ORDERS.get(accountKey(session.email), 'json');
-  if (!account || account.epoch !== session.epoch) return null;
+  if (!account || account.epoch !== session.epoch || !ROLES.includes(account.role)) return null;
   return { email: account.email, role: account.role, sessionKey };
 }
 
@@ -70,7 +71,9 @@ function sameOrigin(req, env) {
   let origin;
   try { origin = new URL(req.headers.get('origin') ?? ''); } catch { return false; }
   if (env.ENVIRONMENT === 'production' && origin.protocol !== 'https:') return false;
-  return origin.host === (req.headers.get('host') ?? new URL(req.url).host);
+  if (!origin.host) return false;
+  // Normalise Host like URL.host (case, default port for the Origin's scheme); empty Host falls back to the URL host.
+  try { return origin.host === new URL(origin.protocol + '//' + (req.headers.get('host') || new URL(req.url).host)).host; } catch { return false; }
 }
 
 export async function requireStaff(req, c, { role = 'viewer', write = false } = {}) {
