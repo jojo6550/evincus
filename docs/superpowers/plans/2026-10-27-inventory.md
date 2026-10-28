@@ -395,7 +395,7 @@ git commit -m "fix(kv): fit commits inside @deno/kv limits; one stock document p
 - Test: `tests/checkout.test.mjs`, `tests/submissions.test.mjs`
 
 **Interfaces:**
-- Consumes: `stockKey`, `stockEntry` (Task 3); `quote` with `insufficient-stock` (Task 1).
+- Consumes: `stockKey(productId)`, `stockDoc` (Task 4b); `MAX_PRODUCTS` (Task 4b); `quote` with `insufficient-stock` (Task 1).
 - Produces:
   - `adjKey(productId, iso, opId, i) → 'adj:<productId>:<iso>:<opId>:<i>'`.
   - `checkoutStock(entries: Map<productId, { value, version }>, lines, products, { orderId, now }) → { checks, puts } | { short: [{ key, available }] }`. Pure. It works on the per-product stock documents from Task 4b: one check and one put per distinct product, plus one unguarded `adj:` put per line with `reason: 'order'`. For each line it adds Committed + qty, and skips the Available check when `continueSelling`.
@@ -1019,7 +1019,7 @@ git commit -m "feat(orders): pure fulfilment, cancel and refund rules"
 - Test: `tests/order-actions.test.mjs`, `tests/emails.test.mjs` (existing, must pass)
 
 **Interfaces:**
-- Consumes: Task 16; `stockKey`, `stockEntry`, `adjKey` (Tasks 3, 5); `opPut`, `readOp` (Task 10).
+- Consumes: Task 16; `stockKey(productId)`, `stockDoc` (Task 4b); `adjKey` (Task 5); `opPut`, `readOp` (Task 10).
 - Produces:
   - `changeOrder(env, id, change: (record) => record | { record, extraPuts }) → Promise<record>`: `getEntry`, apply, then one commit that checks the order's version and puts `order:` plus the `day:` entry with `metadata: orderSummary(record)`. It retries 5 times on a clash.
   - `updateOrder(env, record)` is removed. `delivery.js` uses `changeOrder(env, id, r => ({ ...r, email: record.email }))`, so email delivery only ever changes `email`.

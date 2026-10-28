@@ -109,7 +109,7 @@ All in the existing KV unless noted. Values are JSON.
 | `catalog:rev` | `{ rev, eraOrder: [slug…] }` | Bumped in the same commit as every era or product write. `eraOrder` is newest first, as `data/eras/index.js` is today. |
 | `era:<slug>` | `{ slug, name, tagline, story, hero, dropsAt, endsAt, state, createdAt, updatedAt }` | `hero` is a photo reference. `state`: `draft` (hidden from shoppers) \| `published` (Live / Upcoming / Ended from the dates, as today) \| `archived` (hidden). |
 | `product:<id>` | see Product below | |
-| `stock:<id>\|<colour>\|<size>` | `{ onHand, committed }` | Same numbers also in the key's metadata, so one `list` reads all stock. |
+| `stock:<id>` | `{ '<colour>\|<size>': { onHand, committed } }` | One document per product (changed during build: `@deno/kv` allows ≤ 10 checks per commit, so per-variant keys couldn't commit a multi-line checkout). A cart may span at most 8 products. |
 | `adj:<id>:<ISO time>:<opId>` | one stock movement | Product history. Kept forever. |
 | `op:<opId>` | `{ result }` | Idempotency record, written in the same commit as the change. 7-day TTL. |
 | `account:<lowercased email>` | `{ email, role, salt, hash, iterations, epoch, createdAt, lastLoginAt }` | `role`: `owner` \| `viewer`. |
@@ -149,8 +149,8 @@ in an era or product is `{ id, width, height, widths: [480, 960, …] }`. Served
 - SKU default: `<ID>-<COLOUR CODE>-<SIZE>` upper-case (e.g. `99-TEE-BLK-M`); the builder picks the colour code rule.
 - Draft and archived products are hidden from shoppers. Archived products stay in KV for order history and stats.
 - Removing a colour or size is blocked while any of its variants has On hand or Committed above 0.
-- Renaming a colour is allowed only while its variants have Committed = 0; the save moves its `stock:` keys and
-  `skus` entries in the same commit. Carts holding the old name get the existing `unknown-item` line status.
+- Renaming a colour is allowed only while its variants have Committed = 0; the save renames its variant keys in the
+  product's stock document and its `skus` entries in the same commit. Carts holding the old name get the existing `unknown-item` line status.
 - Saving a product sends the `version` it was loaded with. A mismatch returns `409 product-changed` with the current
   product; the page shows what changed and lets the owner save again. Stock is in separate keys, so stock changes and
   product edits never conflict with each other.
@@ -185,7 +185,7 @@ in an era or product is `{ id, width, height, widths: [480, 960, …] }`. Served
   `assets/js/image-manifest.js`) into `MEDIA_PATH` under content names. A restart mid-seed can't seed twice; photo
   copies are idempotent by name.
 - Seeded stock: **0** for every variant on production and local; **10** per variant on the dev service
-  (`ENVIRONMENT=staging`) so checkout can be tested there. Products whose `soldOut` was true are seeded with stock 0
+  (`SEED_STOCK=10` in its Render env) so checkout can be tested there. Products whose `soldOut` was true are seeded with stock 0
   either way; `soldOut` / `soldOutVariants` are not carried into KV.
 - After seeding, `data/eras/` is seed data only. It stays in git for the dev service, fresh local setups and tests;
   the README says plainly that it is not the live catalog. The `TODO` check in `tests/data.test.mjs` is replaced by
@@ -211,9 +211,10 @@ in an era or product is `{ id, width, height, widths: [480, 960, …] }`. Served
 | Refund with restock, after fulfilment | + qty | 0 | `refund-restock` |
 | Refund of a line not yet fulfilled | 0 (or − qty if no restock) | − qty | `refund` |
 
-- **Owner adjustments are deltas**, not "set to": the page sends `{ opId, reason, note, changes: [{ variant, delta }] }`
-  (`POST /api/inventory/stock`). The server reads each variant with `getEntry`, applies the deltas, and commits with
-  version checks on every variant plus the `adj:` records and `op:<opId>`, retrying on a version clash. Two owners
+- **Owner adjustments are deltas**, not "set to": the page sends `{ opId, productId, reason, note, changes: [{ variant,
+  delta }] }` (`POST /api/inventory/stock`). The server reads the product's stock document with `getEntry`, applies
+  the deltas, and commits with a version check on that document plus the `adj:` records and `op:<opId>`, retrying on
+  a version clash. Two owners
   adding stock at once both land; a retried request finds `op:<opId>` and returns the first result.
 - A change that **lowers** On hand is refused with `409 stock-below-committed` if On hand would end below 0 or below
   Committed (units promised to an order can't be written off; cancel or refund the order first). Raising stock is
@@ -223,15 +224,15 @@ in an era or product is `{ id, width, height, widths: [480, 960, …] }`. Served
 
 ### Checkout
 
-- `submitOrder` gains the stock step inside its existing atomic commit: for each line it checks the variant's
-  `stock:` version, checks Available ≥ qty (unless `continueSelling`), and puts Committed + qty, plus the `adj:`
-  records. Same commit as the submission, order, day index and email retry job. So:
+- `submitOrder` gains the stock step inside its existing atomic commit: for each distinct product it checks the
+  stock document's version, checks Available ≥ qty for each line (unless `continueSelling`), and puts Committed +
+  qty, plus the `adj:` records. Same commit as the submission, order, day index and email retry job. So:
   - two shoppers can't both get the last unit (the loser's commit fails its version check, re-reads, and gets
     `409 bag-changed` with `insufficient-stock` / `sold-out` lines);
   - a retried checkout (same `checkoutToken` and fingerprint) returns the saved order without touching stock again.
-- A cart is at most `MAX_LINES` (50) lines. `kvStore.commit` also checks every key it writes, so a full cart is
-  about 105 checks in one commit. The builder confirms this is inside `@deno/kv`'s per-commit check/mutation limits
-  and lowers `MAX_LINES` if it isn't.
+- `@deno/kv` allows at most 10 checks and 1000 mutations per commit (measured during build). So a cart is at most
+  `MAX_LINES` (50) lines spanning at most `MAX_PRODUCTS` (8) products ("A cart can hold up to 8 different pieces per
+  checkout."), and `kvStore.commit` guards only keys whose stored value is chunked.
 - `check:load` (CI) places orders on a fresh server, which now seeds 0 stock; it sets stock first.
 - **For WiPay (later, recorded here so its plan adopts it):** an `AWAITING_PAYMENT` order commits its units at
   creation with `holdUntil` = now + 15 minutes. Payment success clears the hold and keeps them committed. The
