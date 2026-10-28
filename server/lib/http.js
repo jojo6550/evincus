@@ -30,6 +30,9 @@ export const MESSAGES = {
   'busy': 'Lots of people are checking out right now. Your cart is safe — try again in a moment.',
   'unauthorized': 'That admin token is missing or wrong.',
   'invalid-sales': 'That sales list is not valid.',
+  'signed-out': 'Sign in to continue.',
+  'forbidden': "Your account can't do that.",
+  'bad-origin': 'That request came from another site and was refused.',
   'sales-changed': 'Sales changed since you read them. Read them again, then retry.',
 };
 
