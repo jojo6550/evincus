@@ -15,7 +15,7 @@ const STATUS_TEXT = {
   'qty-capped': 'Limit of 10 per item',
   'insufficient-stock': l => `Only ${esc(l.available)} left`,
 };
-const BUYABLE = new Set(['ok', 'qty-capped', undefined]);
+const BUYABLE = new Set(['ok', 'qty-capped', 'insufficient-stock', undefined]);
 const TITLES = { bag: 'Your cart', pay: 'Check out', paid: 'Order placed' };
 
 let dialog, title, body, foot;

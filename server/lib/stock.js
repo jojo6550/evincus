@@ -19,7 +19,8 @@ export function checkoutStock(entries, lines, products, { orderId, now }) {
     const doc = docs.get(l.id);
     const variant = `${l.color}|${l.size}`;
     const { onHand = 0, committed = 0 } = doc[variant] ?? {};
-    if (products.find(p => p.id === l.id)?.continueSelling !== true && l.qty > onHand - committed) short.push({ key: l.key, available: onHand - committed });
+    // Clamped: an earlier continueSelling oversell is never shown to shoppers.
+    if (products.find(p => p.id === l.id)?.continueSelling !== true && l.qty > onHand - committed) short.push({ key: l.key, available: Math.max(0, onHand - committed) });
     doc[variant] = { ...doc[variant], onHand, committed: committed + l.qty };
     return { key: adjKey(l.id, at, orderId, i), value: JSON.stringify({ key: l.key, onHand: 0, committed: l.qty, reason: 'order', note: '', by: null, at, orderId }) };
   });

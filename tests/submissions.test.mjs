@@ -67,8 +67,10 @@ test('the commit checks the version that was read, so an expired leftover entry 
 
 test('repeated lost races give up instead of looping forever', async () => {
   const e = env();
-  e.ORDERS.commit = async () => false;
-  await assert.rejects(submitOrder(e, 'EV-1', 'fp', record()), /Order storage unavailable/);
+  let commits = 0;
+  e.ORDERS.commit = async () => { commits++; return false; };
+  await assert.rejects(submitOrder(e, 'EV-1', 'fp', record()), { code: 'busy', status: 503 });
+  assert.equal(commits, 10);
 });
 
 test('a round that loses the race re-reads stock: units taken in between are never committed twice', async () => {
@@ -114,4 +116,6 @@ test('a short line saves nothing; continueSelling products skip the check', asyn
   assert.equal(e.ORDERS.store.has('submission:EV-1'), false);
   assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', shirt(2), { products: [{ id: 'alpha-tee', continueSelling: true }] }), { record: shirt(2) });
   assert.deepEqual(stockOf(e, SHIRT), { onHand: 1, committed: 2 });
+  // An earlier continueSelling oversell is never shown to shoppers as a negative count.
+  assert.deepEqual(await submitOrder(e, 'EV-2', 'fp', record({ id: 'EV-2', lines: shirt().lines })), { short: [{ key: SHIRT, available: 0 }] });
 });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter, putStock, stockOf } from './helpers/fake-env.mjs';
+import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter, putStock, stockOf, captureLogs } from './helpers/fake-env.mjs';
 import { createApp } from '../server/index.js';
 import { FIXTURE, NOW, fixtureStock } from './helpers/fixture.mjs';
 
@@ -253,15 +253,40 @@ test('orders store sku, costCents and stockCommitted', async () => {
   assert.equal(record.lines[0].costCents, 1200);
 });
 
-test('a cart over 8 products is refused before stock is read', async () => {
+test('a cart over 8 products gets 400 too-many-products, not bag-changed; 8 products still check out', async () => {
   fakeUpstreams();
   const env = makeEnv();
-  const b = { ...body(), items: Array.from({ length: 9 }, (_, i) => ({ id: `p${i}`, color: 'Black', size: 'M', qty: 1 })) };
-  let reads = 0;
-  const getEntry = env.ORDERS.getEntry.bind(env.ORDERS);
-  env.ORDERS.getEntry = key => { if (key.startsWith('stock:')) reads++; return getEntry(key); };
-  const r = await place(b, env);
+  // Nine buyable copies of alpha-tee, each in stock, so only the product limit can refuse the cart.
+  const data = { ...FIXTURE, products: [...FIXTURE.products, ...Array.from({ length: 9 }, (_, i) => ({ ...FIXTURE.products[0], id: `tee-${i}` }))] };
+  for (let i = 0; i < 9; i++) await putStock(env, `tee-${i}|Black, white print|S`, 10);
+  const cart = n => ({ ...body(), items: Array.from({ length: n }, (_, i) => ({ id: `tee-${i}`, color: 'Black, white print', size: 'S', qty: 1 })), expectedTotalCents: n * 3499 });
+  const r = await place(cart(9), env, data);
   assert.equal(r.status, 400);
   assert.equal(r.json.error.code, 'too-many-products');
-  assert.equal(reads, 0);
+  assert.equal((await place(cart(8), env, data)).status, 201);
+});
+
+test('five shoppers checking out one product at once all get their order', async () => {
+  fakeUpstreams();
+  const env = makeEnv(); // 10 on hand; five orders of 2
+  // Commits take a round trip, so reads overlap and each round all but one checkout loses the race.
+  const commit = env.ORDERS.commit.bind(env.ORDERS);
+  env.ORDERS.commit = async op => { await new Promise(r => setTimeout(r, 10)); return commit(op); };
+  const responses = await Promise.all(Array.from({ length: 5 }, () => place(body(), env)));
+  assert.deepEqual(responses.map(r => r.status), [201, 201, 201, 201, 201]);
+  assert.deepEqual(stockOf(env, SHIRT), { onHand: 10, committed: 10 });
+});
+
+test('a checkout that keeps losing the race gets 503 busy, never an unhandled error or owner alert', async () => {
+  const up = fakeUpstreams();
+  const env = makeEnv();
+  env.ORDERS.commit = async () => false;
+  const logs = captureLogs();
+  let r;
+  try { r = await place(body(), env); } finally { logs.restore(); }
+  assert.equal(r.status, 503);
+  assert.equal(r.json.error.code, 'busy');
+  assert.equal(r.json.error.message, 'Lots of people are checking out right now. Your cart is safe — press Place order again.');
+  assert.ok(!logs.lines.some(l => l.event === 'unhandled'));
+  assert.equal(up.emails.length, 0);
 });

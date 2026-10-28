@@ -30,3 +30,13 @@ test('cart changes immediately disable checkout and invalidate an in-flight old 
     assert.equal(quotes.current().quote.totalCents, 2000);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('a line short of stock keeps its place in the bag; only unbuyable lines are offered for removal', async () => {
+  try {
+    cart.add('test-tee', 'Black', 'M'); // an empty cart skips the request
+    const lines = ['ok', 'qty-capped', 'insufficient-stock', 'sold-out', 'unknown-item'].map(status => ({ key: status, status }));
+    globalThis.fetch = async () => new Response(JSON.stringify({ checkoutReady: false, lines }), { headers: { 'Content-Type': 'application/json' } });
+    await quotes.refreshQuote();
+    assert.deepEqual(quotes.unavailableKeys(), ['sold-out', 'unknown-item']);
+  } finally { globalThis.fetch = originalFetch; }
+});

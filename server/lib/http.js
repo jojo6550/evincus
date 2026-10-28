@@ -27,6 +27,7 @@ export const MESSAGES = {
   'newsletter-link': 'That link has expired or is incomplete. Sign up again from the bottom of the store page.',
   'invalid-beacon': 'That report was not in the expected format.',
   'bag-changed': 'Some items in your cart changed. Check your cart, then check out again.',
+  'busy': 'Lots of people are checking out right now. Your cart is safe — press Place order again.',
   'unauthorized': 'That admin token is missing or wrong.',
   'invalid-sales': 'That sales list is not valid.',
   'sales-changed': 'Sales changed since you read them. Read them again, then retry.',
