@@ -41,6 +41,15 @@ export const MESSAGES = {
   'stock-below-committed': "You can't remove units that are promised to orders. Cancel or refund the order first.",
   'stock-busy': 'Someone else changed this stock at the same time. Reload and try again.',
   'sales-changed': 'Sales changed since you read them. Read them again, then retry.',
+  'invalid-product': "Some details can't be saved. Fix the marked fields, then save again.",
+  'product-changed': 'Someone else saved this product while you were editing. Check their changes, then save again.',
+  'product-exists': 'A product with that id already exists. Pick another id.',
+  'invalid-era': "Some era details can't be saved. Fix the marked fields, then save again.",
+  'era-changed': 'Someone else saved this era while you were editing. Check their changes, then save again.',
+  'era-exists': 'An era with that slug already exists. Pick another slug.',
+  'invalid-era-order': "That era order can't be saved. Reload and try again.",
+  'era-order-changed': 'Someone else moved the eras while you were editing. Reload and try again.',
+  'catalog-busy': 'Someone else saved at the same time. Try again.',
 };
 
 export function json(data, status = 200, headers = {}) {

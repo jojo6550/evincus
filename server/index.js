@@ -16,8 +16,8 @@ import { checkoutOptions, placeOrderRoute } from './routes/checkout.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
-import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute } from './routes/admin.js';
-import { loginRoute, logoutRoute, meRoute, adjustStockRoute } from './routes/inventory.js';
+import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute, listErasAdminRoute, newEraRoute } from './routes/admin.js';
+import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute } from './routes/inventory.js';
 
 // The fourth field marks routes that read the catalog: only they load it, with running sales and stock applied.
 // Health loads its own, so a KV failure still answers 503 with kv: 'error'.
@@ -39,10 +39,19 @@ const ROUTES = [
   ['GET', /^\/api\/admin\/accounts$/, listAccountsRoute],
   ['PUT', /^\/api\/admin\/accounts$/, putAccountRoute],
   ['DELETE', /^\/api\/admin\/accounts\/([^/]+)$/, deleteAccountRoute],
+  ['GET', /^\/api\/admin\/eras$/, listErasAdminRoute],
+  ['POST', /^\/api\/admin\/eras$/, newEraRoute],
   ['POST', /^\/api\/inventory\/login$/, loginRoute],
   ['POST', /^\/api\/inventory\/logout$/, logoutRoute],
   ['GET', /^\/api\/inventory\/me$/, meRoute],
   ['POST', /^\/api\/inventory\/stock$/, adjustStockRoute, true],
+  ['GET', /^\/api\/inventory\/products$/, listProductsRoute, true],
+  ['GET', /^\/api\/inventory\/products\/([a-z0-9-]+)$/, getProductRoute],
+  ['PUT', /^\/api\/inventory\/products\/([a-z0-9-]+)$/, saveProductRoute],
+  ['GET', /^\/api\/inventory\/products\/([a-z0-9-]+)\/history$/, productHistoryRoute],
+  ['GET', /^\/api\/inventory\/eras$/, listErasRoute],
+  ['PUT', /^\/api\/inventory\/eras\/([a-z0-9-]+)$/, saveEraRoute],
+  ['PUT', /^\/api\/inventory\/era-order$/, eraOrderRoute],
 ];
 
 // `data` replaces the KV catalog (tests); stock still comes from env.ORDERS.
@@ -77,6 +86,7 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
             if (hit[3]) {
               const [catalog, sales, stock] = await Promise.all([data === undefined ? liveCatalog(env) : data, loadSales(env, log), loadStock(env)]);
               c.sales = sales;
+              c.stock = stock; // on hand and committed per line key, for the inventory list
               c.data = applyStock(applySales(catalog, sales, c.now), stock);
             }
             res = await hit[2](req, c);

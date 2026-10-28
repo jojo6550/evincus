@@ -2,6 +2,7 @@ import { json, fail, readJson } from '../lib/http.js';
 import { SALES_KEY } from '../lib/sales.js';
 import { isSale } from '../../data/catalog.js';
 import { ROLES, ITERATIONS, accountKey } from '../lib/accounts.js';
+import { loadCatalog, saveEra } from '../lib/catalog-store.js';
 
 const MAX_SALES = 50;
 const noStore = { 'Cache-Control': 'no-store' };
@@ -90,6 +91,25 @@ export async function listAccountsRoute(req, c) {
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
   return json({ accounts }, 200, noStore);
+}
+
+// GET /api/admin/eras → { eras: [{ slug, name, state }] }, in the store's order. Used by the CLI.
+export async function listErasAdminRoute(req, c) {
+  const refused = await denied(req, c);
+  if (refused) return refused;
+  const { eras } = await loadCatalog(c.env);
+  return json({ eras: eras.map(({ slug, name, state }) => ({ slug, name, state: state ?? 'published' })) }, 200, noStore);
+}
+
+// POST /api/admin/eras { slug, name } → 201 { era, version }: a draft era, first in the order. 409 era-exists.
+export async function newEraRoute(req, c) {
+  const refused = await denied(req, c);
+  if (refused) return refused;
+  const { slug, name } = (await readJson(req, 4096)) ?? {};
+  const draft = { slug, name, tagline: '', story: '', hero: null, dropsAt: null, endsAt: null, state: 'draft' };
+  const { era, version } = await saveEra(c.env, { opId: crypto.randomUUID(), era: draft, version: null, by: null, now: c.now });
+  c.log.info('era.saved', { era: era.slug, created: true });
+  return json({ era, version }, 201, noStore);
 }
 
 // DELETE /api/admin/accounts/<urlencoded email>: its sessions stop working at once, since staffFrom needs the account.

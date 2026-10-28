@@ -2,7 +2,7 @@ import { createApp } from '../../server/index.js';
 import { FIXTURE, NOW, fixtureStock } from './fixture.mjs';
 import { applyStock } from '../../data/catalog.js';
 import { MEDIA_NAME } from '../../server/lib/media.js';
-import { REV_KEY, eraKey, productKey } from '../../server/lib/catalog-store.js';
+import { REV_KEY, ERA_ORDER_KEY, eraKey, productKey } from '../../server/lib/catalog-store.js';
 import { stockKey, stockDoc } from '../../server/lib/stock.js';
 
 // In-memory stand-in for the ORDERS store (server/lib/kv-store.js has the same surface).
@@ -158,7 +158,8 @@ export const call = (method, path, { clock = () => NOW, data = applyStock(FIXTUR
 // As the live server runs: the catalog comes from env.ORDERS.
 export const callWithoutData = (method, path, { clock = () => NOW, ...opts } = {}) => send(createApp({ clock }), method, path, opts);
 
-// Stores a catalog as seedCatalog does: every image becomes a photo ref, and products carry skus and costCents.
+// Stores a catalog as seedCatalog does: every image becomes a photo ref, eras are published, and products are active
+// with skus, costCents and the stock settings.
 export async function seedFromFixture(env, data = FIXTURE) {
   const ids = new Map();
   const ref = src => {
@@ -166,13 +167,14 @@ export async function seedFromFixture(env, data = FIXTURE) {
     return { id: ids.get(src), width: 960, height: 1200, widths: [480, 960], ext: 'webp' };
   };
   const puts = [
-    ...data.eras.map(e => ({ key: eraKey(e.slug), value: JSON.stringify({ ...e, hero: ref(e.hero) }) })),
+    ...data.eras.map(e => ({ key: eraKey(e.slug), value: JSON.stringify({ state: 'published', ...e, hero: ref(e.hero) }) })),
     ...data.products.map((p, position) => ({ key: productKey(p.id), value: JSON.stringify({
-      ...p, ...(p.images && { images: p.images.map(ref) }),
+      status: 'active', continueSelling: false, lowStockAt: 3, ...p, ...(p.images && { images: p.images.map(ref) }),
       colors: p.colors.map(c => (c.images ? { ...c, images: c.images.map(ref) } : c)),
       skus: {}, costCents: 1200, position,
     }) })),
-    { key: REV_KEY, value: JSON.stringify({ rev: crypto.randomUUID(), eraOrder: data.eras.map(e => e.slug) }) },
+    { key: ERA_ORDER_KEY, value: JSON.stringify(data.eras.map(e => e.slug)) },
+    { key: REV_KEY, value: JSON.stringify({ rev: crypto.randomUUID() }) },
   ];
   await env.ORDERS.commit({ puts });
 }

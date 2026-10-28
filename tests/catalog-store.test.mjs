@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { ERAS } from '../data/eras/index.js';
 import manifest from '../assets/js/image-manifest.js';
-import { seedCatalog, loadCatalog, defaultSku, REV_KEY } from '../server/lib/catalog-store.js';
+import { seedCatalog, loadCatalog, defaultSku, validateProduct, validateEra, REV_KEY, ERA_ORDER_KEY, eraKey, productKey } from '../server/lib/catalog-store.js';
 import { loadStock, stockKey, stockDoc } from '../server/lib/stock.js';
 import { makeEnv, fakeKV, fakeMedia } from './helpers/fake-env.mjs';
 
@@ -99,4 +99,31 @@ test('defaultSku follows the colour-code rule and avoids clashes', () => {
   assert.equal(defaultSku('99-tee', 'Lucent White', '2XL', new Set()), '99-TEE-WHT-2XL');
   assert.equal(defaultSku('99-tee', 'Classic Black', 'M', new Set(['99-TEE-BLK-M'])), '99-TEE-BLK-M-2');
   assert.equal(defaultSku('99-tee', 'Classic Black', 'M', new Set(['99-TEE-BLK-M', '99-TEE-BLK-M-2'])), '99-TEE-BLK-M-3');
+});
+
+test('seedCatalog writes the era order to its own key, and every seeded era and product passes the save rules', async () => {
+  const env = fresh();
+  await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 0 });
+  assert.deepEqual(await env.ORDERS.get(ERA_ORDER_KEY, 'json'), ERAS.map(m => m.era.slug));
+  assert.deepEqual(Object.keys(await env.ORDERS.get(REV_KEY, 'json')), ['rev']);
+  const cat = await loadCatalog(env);
+  for (const m of ERAS) {
+    assert.deepEqual(validateEra(await env.ORDERS.get(eraKey(m.era.slug), 'json')), [], m.era.slug);
+    for (const { id } of m.products) {
+      const doc = await env.ORDERS.get(productKey(id), 'json');
+      assert.deepEqual(validateProduct(doc, { eras: cat.eras, products: cat.products, stock: {}, current: doc }), [], id);
+    }
+  }
+});
+
+test('loadCatalog orders eras by catalog:era-order, falling back to catalog:rev for data seeded before it', async () => {
+  const env = fresh();
+  await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 0 });
+  const slugs = ERAS.map(m => m.era.slug);
+  await env.ORDERS.delete(ERA_ORDER_KEY);
+  await env.ORDERS.put(REV_KEY, JSON.stringify({ rev: 'legacy', eraOrder: [...slugs].reverse() }));
+  assert.deepEqual((await loadCatalog(env)).eras.map(e => e.slug), [...slugs].reverse());
+  await env.ORDERS.put(ERA_ORDER_KEY, JSON.stringify(slugs));
+  await env.ORDERS.put(REV_KEY, JSON.stringify({ rev: 'next', eraOrder: [...slugs].reverse() }));
+  assert.deepEqual((await loadCatalog(env)).eras.map(e => e.slug), slugs);
 });

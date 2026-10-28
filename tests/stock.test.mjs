@@ -148,6 +148,8 @@ test('non-object or unparseable bodies are 400, and a replay survives catalog ch
   assert.equal(again.text, first.text);
   assert.equal(logs.lines.filter(l => l.event === 'stock.adjusted').length, 0);
   assert.equal(logs.lines.filter(l => l.event === 'stock.adjust_replayed').length, 1);
+  const bare = await post(env, cookie, '/api/inventory/stock', { opId }); // a replay body without changes still replays
+  assert.equal(bare.text, first.text);
 });
 
 test('viewers get 403, signed-out 401, and cross-origin writes get bad-origin', async () => {
