@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, rename, readdir, stat, rm } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, readdir, stat, rm, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { HttpError, readBytes } from './http.js';
 import { listAll } from './stock.js';
@@ -51,7 +51,7 @@ export function mediaStore(dir) {
     },
     async write(name, bytes) {
       const file = path(name);
-      if (await this.has(name)) return;
+      if (await this.has(name)) { const t = new Date(); await utimes(file, t, t); return; } // re-upload keeps cleanup away
       await mkdir(dir, { recursive: true });
       const tmp = `${file}.${crypto.randomUUID()}.tmp`;
       await writeFile(tmp, bytes);

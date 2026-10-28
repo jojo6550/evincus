@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
+import { mkdtemp, rm, utimes } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { makeEnv, callWithoutData, seedFromFixture, captureLogs, makeCtx } from './helpers/fake-env.mjs';
 import { signIn, ADMIN_TOKEN } from './helpers/staff.mjs';
-import { cleanMedia } from '../server/lib/media.js';
+import { cleanMedia, mediaStore } from '../server/lib/media.js';
 import { createApp } from '../server/index.js';
 import { NOW } from './helpers/fixture.mjs';
 
@@ -151,4 +154,19 @@ test('scheduled runs the cleanup once per Jamaica day', async () => {
   await env.MEDIA.write(file, new Uint8Array(1));
   await run();
   assert.equal(await env.MEDIA.has(file), true);
+});
+
+test('re-uploading an old orphan protects it from the next cleanup', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'media-'));
+  try {
+    const MEDIA = mediaStore(dir);
+    const env = makeEnv({ MEDIA });
+    const name = `${'c'.repeat(24)}-480.webp`;
+    await MEDIA.write(name, new Uint8Array(1));
+    const old = new Date(Date.now() - 3 * 24 * 3600 * 1000);
+    await utimes(join(dir, name), old, old);
+    await MEDIA.write(name, new Uint8Array(1));
+    assert.equal(await cleanMedia(env, new Date()), 0);
+    assert.equal(await MEDIA.has(name), true);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

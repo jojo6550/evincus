@@ -70,13 +70,14 @@ export function fakeLimiter(limit) {
 // In-memory stand-in for server/lib/media.js mediaStore.
 export function fakeMedia() {
   const files = new Map();
+  const touched = new Map(); // mtimeMs of files rewritten after the first write
   const check = name => { if (!MEDIA_NAME.test(name)) throw new Error('bad media name'); return name; };
   return {
     files,
     async read(name) { return files.get(check(name)) ?? null; },
-    async write(name, bytes) { if (!files.has(check(name))) files.set(name, new Uint8Array(bytes)); },
+    async write(name, bytes) { if (files.has(check(name))) touched.set(name, Date.now()); else files.set(name, new Uint8Array(bytes)); },
     async has(name) { return files.has(check(name)); },
-    async list() { return [...files.keys()].sort().map(name => ({ name, mtimeMs: 0 })); },
+    async list() { return [...files.keys()].sort().map(name => ({ name, mtimeMs: touched.get(name) ?? 0 })); },
     async remove(name) { files.delete(check(name)); },
   };
 }
