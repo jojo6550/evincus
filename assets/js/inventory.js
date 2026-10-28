@@ -11,6 +11,9 @@ const registry = new Map();
 let me = null;
 let current = null; // { name, tab } of the rendered tab; survives the sign-in overlay
 
+// The signed-in account ({ email, role, local }), or null.
+export const staff = () => me;
+
 // Later tasks fill a tab: registerTab('orders', { render(el, params), canLeave?() }).
 export function registerTab(name, tab) {
   registry.set(name, tab);
