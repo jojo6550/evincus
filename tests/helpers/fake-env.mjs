@@ -103,10 +103,11 @@ export function makeEnv(over = {}) {
 const splitLine = lineKey => [lineKey.slice(0, lineKey.indexOf('|')), lineKey.slice(lineKey.indexOf('|') + 1)];
 const stockDocOf = (env, productId) => JSON.parse(env.ORDERS.store.get(stockKey(productId))?.value ?? '{}');
 
-// Sets one variant in its product's stock document.
+// Sets one variant in its product's stock document, bumping its version like any write. fakeKV's put writes before
+// its first await, so callers that don't await it still see the change.
 export function putStock(env, lineKey, onHand, committed = 0) {
   const [id, variant] = splitLine(lineKey);
-  env.ORDERS.store.set(stockKey(id), { value: stockDoc({ ...stockDocOf(env, id), [variant]: { onHand, committed } }), opts: {} });
+  return env.ORDERS.put(stockKey(id), stockDoc({ ...stockDocOf(env, id), [variant]: { onHand, committed } }));
 }
 
 export const stockOf = (env, lineKey) => { const [id, variant] = splitLine(lineKey); return stockDocOf(env, id)[variant]; };

@@ -13,6 +13,7 @@ const STATUS_TEXT = {
   'era-ended': 'No longer sold',
   'unknown-item': 'No longer available',
   'qty-capped': 'Limit of 10 per item',
+  'insufficient-stock': l => `Only ${esc(l.available)} left`,
 };
 const BUYABLE = new Set(['ok', 'qty-capped', undefined]);
 const TITLES = { bag: 'Your cart', pay: 'Check out', paid: 'Order placed' };
@@ -22,13 +23,15 @@ let step = 'bag';
 
 function lineHtml(l) {
   const canChange = BUYABLE.has(l.status);
+  const text = STATUS_TEXT[l.status];
+  const status = typeof text === 'function' ? text(l) : text;
   return `
     <li class="line${canChange ? '' : ' is-unavailable'}" data-key="${esc(l.key)}">
       <span class="line__img">${l.image ? `<img ${imageAttrs(l.image, '96px')} alt="" loading="lazy">` : ''}</span>
       <div class="line__info">
         <h3 class="line__name">${esc(l.name ?? 'Item no longer available')}</h3>
         <span class="line__meta mono">${esc(l.color)}, size ${esc(l.size)}</span>
-        ${STATUS_TEXT[l.status] ? `<span class="line__status mono">${STATUS_TEXT[l.status]}</span>` : ''}
+        ${status ? `<span class="line__status mono">${status}</span>` : ''}
         ${canChange ? `
         <div class="qty" role="group" aria-label="Quantity">
           <button type="button" data-act="dec" aria-label="Remove one">−</button>

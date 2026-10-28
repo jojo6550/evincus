@@ -1,28 +1,37 @@
 import { ORDER_TTL, orderKey, retryKey, dayKey } from './orders.js';
+import { stockKey, checkoutStock } from './stock.js';
 
 export const submissionKey = id => `submission:${id}`;
 const ROUNDS = 3;
 
-// One order per checkout token. The submission, the order, its day index and its email retry job land in one
-// atomic commit that only succeeds while the submission is unchanged since it was read, so double clicks and network
-// retries can't create a second order or a half-saved one. The retry job is written before the order is
-// acknowledged, so a confirmation lost to a shutdown is still sent by the cron.
-export async function submitOrder(env, id, fingerprint, record) {
+// One order per checkout token. The submission, the order, its day index, its email retry job and its stock
+// commitment land in one atomic commit that only succeeds while the submission and every stock document read are
+// unchanged, so double clicks and network retries can't create a second order or a half-saved one, and two shoppers
+// can't both buy the last unit. The retry job is written before the order is acknowledged, so a confirmation lost to
+// a shutdown is still sent by the cron. `products` are the internal ones, read for `continueSelling`.
+export async function submitOrder(env, id, fingerprint, record, { products = [] } = {}) {
+  const ids = [...new Set(record?.lines.map(l => l.id))];
   for (let round = 0; round < ROUNDS; round++) {
+    // Stock before the submission, so a shortage seen here can't be this token's own order landing in between.
+    // Every round reads again: a lost round's versions would only fail again.
+    const entries = new Map(await Promise.all(ids.map(async pid => [pid, await env.ORDERS.getEntry(stockKey(pid))])));
     const { value, version } = await env.ORDERS.getEntry(submissionKey(id));
     if (value) {
       const saved = JSON.parse(value);
       return saved.fingerprint === fingerprint ? { record: saved.record } : { conflict: true };
     }
     if (!record) return { record: null };
+    const stock = checkoutStock(entries, record.lines, products, { orderId: record.id, now: new Date(record.placedAt) });
+    if (stock.short) return { short: stock.short };
     const ttl = { expirationTtl: ORDER_TTL };
     const saved = await env.ORDERS.commit({
-      checks: [{ key: submissionKey(id), version }],
+      checks: [{ key: submissionKey(id), version }, ...stock.checks],
       puts: [
         { key: submissionKey(id), value: JSON.stringify({ fingerprint, record }), opts: ttl },
         { key: orderKey(record.id), value: JSON.stringify(record), opts: ttl },
         { key: dayKey(record), value: '', opts: ttl },
         { key: retryKey(record.id), value: JSON.stringify({ retries: 0, nextAt: Date.parse(record.placedAt) }) },
+        ...stock.puts,
       ],
     });
     if (saved) return { record };

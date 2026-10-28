@@ -8,7 +8,8 @@ import { skip, fileKv } from './helpers/deno-kv.mjs';
 import { fakeKV, fakeMedia } from './helpers/fake-env.mjs';
 import { kvStore, CHUNK } from '../server/lib/kv-store.js';
 import { seedCatalog, loadCatalog } from '../server/lib/catalog-store.js';
-import { loadStock, listAll } from '../server/lib/stock.js';
+import { loadStock, listAll, stockKey, stockDoc } from '../server/lib/stock.js';
+import { submitOrder } from '../server/lib/submissions.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -66,4 +67,18 @@ test('seeding the real era files into file-backed KV succeeds and writes one sto
   assert.deepEqual((await listAll(env.ORDERS, 'stock:')).map(k => k.name).sort(), products.map(p => `stock:${p.id}`).sort());
   assert.equal((await loadStock(env)).size, products.reduce((n, p) => n + p.colors.length * p.sizes.length, 0));
   assert.equal(await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 10 }), false);
+});
+
+test('an 8-product, 50-line checkout commits its order and stock in one file-backed commit', { skip }, async t => {
+  const env = { ORDERS: kvStore(await fileKv(t)) };
+  const lines = Array.from({ length: 50 }, (_, i) => ({ key: `p${i % 8}|C${i}|M`, id: `p${i % 8}`, color: `C${i}`, size: 'M', qty: 2 }));
+  for (let p = 0; p < 8; p++) {
+    await env.ORDERS.put(stockKey(`p${p}`), stockDoc(Object.fromEntries(lines.filter(l => l.id === `p${p}`).map(l => [`${l.color}|M`, { onHand: 2, committed: 0 }]))));
+  }
+  const record = { id: 'EV-1', placedAt: '2026-10-03T12:00:00.000Z', totalCents: 0, lines };
+  assert.deepEqual(await submitOrder(env, 'EV-1', 'fp', record), { record });
+  const stock = await loadStock(env);
+  assert.ok(lines.every(l => stock.get(l.key).committed === 2));
+  assert.equal((await listAll(env.ORDERS, 'adj:')).length, 50);
+  assert.notEqual(await env.ORDERS.get('order:EV-1'), null);
 });

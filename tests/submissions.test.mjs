@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fakeKV } from './helpers/fake-env.mjs';
+import { fakeKV, putStock, stockOf } from './helpers/fake-env.mjs';
 import { skip, memoryKv } from './helpers/deno-kv.mjs';
 import { kvStore } from '../server/lib/kv-store.js';
 import { submitOrder } from '../server/lib/submissions.js';
 
-const record = (over = {}) => ({ id: 'EV-1', placedAt: '2026-10-03T12:00:00.000Z', totalCents: 100, ...over });
+const record = (over = {}) => ({ id: 'EV-1', placedAt: '2026-10-03T12:00:00.000Z', totalCents: 100, lines: [], ...over });
+const SHIRT = 'alpha-tee|Black|S';
+const shirt = (qty = 1) => record({ lines: [{ key: SHIRT, id: 'alpha-tee', color: 'Black', size: 'S', qty }] });
 const env = () => ({ ORDERS: fakeKV() });
 
 test('the first submit writes the submission, order, day index and retry job together', async () => {
@@ -67,4 +69,49 @@ test('repeated lost races give up instead of looping forever', async () => {
   const e = env();
   e.ORDERS.commit = async () => false;
   await assert.rejects(submitOrder(e, 'EV-1', 'fp', record()), /Order storage unavailable/);
+});
+
+test('a round that loses the race re-reads stock: units taken in between are never committed twice', async () => {
+  const e = env(); putStock(e, SHIRT, 1, 0);
+  const commit = e.ORDERS.commit.bind(e.ORDERS);
+  let commits = 0;
+  // Another checkout takes the last unit after this one has read the stock document.
+  e.ORDERS.commit = async op => { if (!commits++) putStock(e, SHIRT, 1, 1); return commit(op); };
+  assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', shirt()), { short: [{ key: SHIRT, available: 0 }] });
+  assert.equal(commits, 1);
+  assert.deepEqual(stockOf(e, SHIRT), { onHand: 1, committed: 1 });
+  assert.equal(e.ORDERS.store.has('order:EV-1'), false);
+});
+
+test('a double click on the last unit returns its one order, never a shortage of its own making', async () => {
+  const e = env(); putStock(e, SHIRT, 1, 0);
+  const getEntry = e.ORDERS.getEntry.bind(e.ORDERS);
+  let other = true;
+  // The other click's order lands after this click has read the submission.
+  e.ORDERS.getEntry = async key => {
+    const entry = await getEntry(key);
+    if (other && key.startsWith('submission:')) { other = false; await submitOrder(e, 'EV-1', 'fp', shirt()); }
+    return entry;
+  };
+  assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', shirt()), { record: shirt() });
+  assert.equal(stockOf(e, SHIRT).committed, 1);
+});
+
+test('stock is committed in the order commit, with one adj: record per line', async () => {
+  const e = env(); putStock(e, SHIRT, 5, 1); putStock(e, 'alpha-tee|Black|M', 2, 0);
+  const rec = record({ lines: [...shirt(2).lines, { key: 'alpha-tee|Black|M', id: 'alpha-tee', color: 'Black', size: 'M', qty: 2 }] });
+  assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', rec), { record: rec });
+  assert.deepEqual(stockOf(e, SHIRT), { onHand: 5, committed: 3 });
+  assert.deepEqual(stockOf(e, 'alpha-tee|Black|M'), { onHand: 2, committed: 2 });
+  assert.deepEqual(JSON.parse(e.ORDERS.store.get('adj:alpha-tee:2026-10-03T12:00:00.000Z:EV-1:1').value),
+    { key: 'alpha-tee|Black|M', onHand: 0, committed: 2, reason: 'order', note: '', by: null, at: '2026-10-03T12:00:00.000Z', orderId: 'EV-1' });
+  assert.equal([...e.ORDERS.store.keys()].filter(k => k.startsWith('adj:')).length, 2);
+});
+
+test('a short line saves nothing; continueSelling products skip the check', async () => {
+  const e = env(); putStock(e, SHIRT, 1, 0);
+  assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', shirt(2)), { short: [{ key: SHIRT, available: 1 }] });
+  assert.equal(e.ORDERS.store.has('submission:EV-1'), false);
+  assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', shirt(2), { products: [{ id: 'alpha-tee', continueSelling: true }] }), { record: shirt(2) });
+  assert.deepEqual(stockOf(e, SHIRT), { onHand: 1, committed: 2 });
 });

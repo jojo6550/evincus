@@ -1,5 +1,5 @@
 import { json, fail, readJson, HttpError } from '../lib/http.js';
-import { CartError, quote } from '../lib/pricing.js';
+import { CartError, MAX_PRODUCTS, quote } from '../lib/pricing.js';
 import { parseCheckout, directRecord } from '../lib/checkout.js';
 import { sendOrderEmails } from '../lib/delivery.js';
 import { PICKUP_LOCATIONS } from '../../data/fulfillment.js';
@@ -19,6 +19,8 @@ export async function placeOrderRoute(req, c) {
   }
   const details = parseCheckout(body);
   if (!Array.isArray(body.items) || !body.items.every(i => i && typeof i === 'object')) return fail(c, 'invalid-cart', 400);
+  // One stock check per product must fit the commit's check budget.
+  if (new Set(body.items.map(i => i.id)).size > MAX_PRODUCTS) return fail(c, 'too-many-products', 400);
   const bytes = new TextEncoder().encode(JSON.stringify({ items: body.items.map(({ id, color, size, qty }) => ({ id, color, size, qty })), ...details, expectedTotalCents: body.expectedTotalCents }));
   const fingerprint = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
   const id = `EV-${body.checkoutToken.toLowerCase()}`;
@@ -31,8 +33,12 @@ export async function placeOrderRoute(req, c) {
     catch (err) { if (err instanceof CartError) return fail(c, 'invalid-cart', 400); throw err; }
     // Never silently accept a changed price or capped quantity.
     if (!q.checkoutReady || q.lines.some(l => l.status !== 'ok') || body.expectedTotalCents !== q.totalCents) return fail(c, 'bag-changed', 409, { lines: q.lines });
-    result = await submitOrder(c.env, id, fingerprint, directRecord(id, q, details, c.now));
+    result = await submitOrder(c.env, id, fingerprint, directRecord(id, q, details, c.now, c.data.products), { products: c.data.products });
     if (result.conflict) return fail(c, 'checkout-conflict', 409);
+    if (result.short) {
+      const short = new Map(result.short.map(s => [s.key, s.available]));
+      return fail(c, 'bag-changed', 409, { lines: q.lines.map(l => (short.has(l.key) ? { ...l, status: short.get(l.key) > 0 ? 'insufficient-stock' : 'sold-out', available: short.get(l.key) } : l)) });
+    }
     ({ record } = result);
   }
   c.log.info('order.placed', { orderId: id, totalCents: record.totalCents });

@@ -22,10 +22,14 @@ export function parseCheckout(body) {
   return { customer, fulfillment: { type: 'pickup', location: { ...location } }, notes: field(body?.notes, 1000, false) };
 }
 
-export function directRecord(id, q, details, now) {
+// `products` are the internal ones, so sku and cost never come from the client.
+export function directRecord(id, q, details, now, products) {
   return {
-    id, status: 'PLACED', paymentStatus: 'NOT_COLLECTED', placedAt: now.toISOString(),
-    lines: q.lines.map(({ key, id, name, color, size, qty, unitCents }) => ({ key, id, name, color, size, qty, unitCents })),
+    id, status: 'PLACED', paymentStatus: 'NOT_COLLECTED', placedAt: now.toISOString(), stockCommitted: true,
+    lines: q.lines.map(({ key, id, name, color, size, qty, unitCents }) => {
+      const p = products.find(x => x.id === id);
+      return { key, id, name, color, size, qty, unitCents, sku: p.skus?.[`${color}|${size}`] ?? null, costCents: p.costCents ?? null };
+    }),
     subtotalCents: q.subtotalCents, totalCents: q.totalCents,
     ...details,
     payer: { ...details.customer, firstName: details.customer.name.split(' ')[0] },

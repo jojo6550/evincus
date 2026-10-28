@@ -1,12 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter, putStock } from './helpers/fake-env.mjs';
+import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter, putStock, stockOf } from './helpers/fake-env.mjs';
 import { createApp } from '../server/index.js';
 import { FIXTURE, NOW, fixtureStock } from './helpers/fixture.mjs';
 
 const envForOrders = makeEnv;
 const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, notes: '<please pack carefully>', expectedTotalCents: 6998 });
-const place = (b, env) => call('POST', '/api/orders', { body: b, env });
+const place = (b, env, data) => call('POST', '/api/orders', { body: b, env, data });
+const oneUnit = () => ({ ...body(), items: [{ ...body().items[0], qty: 1 }], expectedTotalCents: 3499 });
+const SHIRT = 'alpha-tee|Black, white print|S';
+// The fixture catalog with alpha-tee changed; the app applies stock from env.ORDERS on top.
+const withTee = over => ({ ...FIXTURE, products: FIXTURE.products.map(p => (p.id === 'alpha-tee' ? { ...p, ...over } : p)) });
 async function cron(env, iso) {
   const ctx = makeCtx();
   await createApp({ data: FIXTURE, clock: () => Date.parse(iso) }).scheduled({}, env, ctx);
@@ -183,4 +187,81 @@ test('daily summaries catch up after missed cron days', async () => {
   await cron(env, '2026-10-07T13:00:00Z');
   assert.equal(up.emails.length, 4);
   for (const day of ['2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06']) assert.ok(up.emails.some(e => e.subject.includes(day)));
+});
+
+test('two checkouts racing for the last unit: one order, one bag-changed, stock committed once', async () => {
+  fakeUpstreams();
+  const env = makeEnv(); await putStock(env, 'alpha-tee|Black, white print|S', 1, 0);
+  const [a, b] = await Promise.all([place(oneUnit(), env), place(oneUnit(), env)]);
+  assert.deepEqual([a.status, b.status].sort(), [201, 409]);
+  assert.equal(stockOf(env, 'alpha-tee|Black, white print|S').committed, 1);
+  const loser = [a, b].find(r => r.status === 409).json.error;
+  assert.equal(loser.code, 'bag-changed');
+  assert.deepEqual([loser.lines[0].status, loser.lines[0].available], ['sold-out', 0]);
+  assert.equal([...env.ORDERS.store.keys()].filter(k => k.startsWith('order:')).length, 1);
+});
+
+test('a checkout losing the race with units left gets insufficient-stock and how many remain', async () => {
+  fakeUpstreams();
+  const env = makeEnv(); await putStock(env, SHIRT, 3, 0);
+  const [a, b] = await Promise.all([place(body(), env), place(body(), env)]);
+  assert.deepEqual([a.status, b.status].sort(), [201, 409]);
+  const line = [a, b].find(r => r.status === 409).json.error.lines[0];
+  assert.deepEqual([line.status, line.available], ['insufficient-stock', 1]);
+  assert.equal(stockOf(env, SHIRT).committed, 2);
+});
+
+test('a retried checkout returns the same order and commits stock once', async () => {
+  fakeUpstreams();
+  const env = makeEnv(); const b = body();
+  const responses = [...await Promise.all([place(b, env), place(b, env)]), await place(b, env)];
+  assert.ok(responses.every(r => r.status === 201 && r.json.id === responses[0].json.id));
+  assert.equal(stockOf(env, SHIRT).committed, 2);
+  assert.deepEqual([...env.ORDERS.store.keys()].filter(k => k.startsWith('adj:')), [`adj:alpha-tee:${new Date(NOW).toISOString()}:${responses[0].json.id}:0`]);
+});
+
+test('continueSelling oversells instead of refusing', async () => {
+  fakeUpstreams();
+  const env = makeEnv(); await putStock(env, SHIRT, 0, 0);
+  const r = await place(oneUnit(), env, withTee({ continueSelling: true }));
+  assert.equal(r.status, 201);
+  assert.deepEqual(stockOf(env, SHIRT), { onHand: 0, committed: 1 });
+});
+
+test('a cart line for a renamed or removed colour is unknown-item and blocks checkout', async () => {
+  fakeUpstreams();
+  const env = makeEnv(); // stock still holds 'Black, white print' after the rename
+  const data = withTee({ colors: [{ name: 'Jet black', hex: '#151515' }] });
+  const q = await call('POST', '/api/bag/quote', { body: { items: oneUnit().items }, env, data });
+  assert.equal(q.status, 200);
+  assert.equal(q.json.lines[0].status, 'unknown-item');
+  const r = await place(oneUnit(), env, data);
+  assert.equal(r.status, 409);
+  assert.equal(r.json.error.lines[0].status, 'unknown-item');
+  assert.equal(stockOf(env, SHIRT).committed, 0);
+});
+
+test('orders store sku, costCents and stockCommitted', async () => {
+  fakeUpstreams();
+  const env = makeEnv();
+  const b = { ...body(), items: [{ ...body().items[0], price: 1, sku: 'FORGED', costCents: 1 }] };
+  const r = await place(b, env, withTee({ skus: { 'Black, white print|S': 'ALPHA-TEE-PRN-S' }, costCents: 1200 }));
+  assert.equal(r.status, 201);
+  const record = await env.ORDERS.get(`order:${r.json.id}`, 'json');
+  assert.equal(record.stockCommitted, true);
+  assert.equal(record.lines[0].sku, 'ALPHA-TEE-PRN-S');
+  assert.equal(record.lines[0].costCents, 1200);
+});
+
+test('a cart over 8 products is refused before stock is read', async () => {
+  fakeUpstreams();
+  const env = makeEnv();
+  const b = { ...body(), items: Array.from({ length: 9 }, (_, i) => ({ id: `p${i}`, color: 'Black', size: 'M', qty: 1 })) };
+  let reads = 0;
+  const getEntry = env.ORDERS.getEntry.bind(env.ORDERS);
+  env.ORDERS.getEntry = key => { if (key.startsWith('stock:')) reads++; return getEntry(key); };
+  const r = await place(b, env);
+  assert.equal(r.status, 400);
+  assert.equal(r.json.error.code, 'too-many-products');
+  assert.equal(reads, 0);
 });
