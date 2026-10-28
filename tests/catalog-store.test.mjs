@@ -6,6 +6,8 @@ import manifest from '../assets/js/image-manifest.js';
 import { seedCatalog, loadCatalog, defaultSku, REV_KEY } from '../server/lib/catalog-store.js';
 import { loadStock, stockEntry } from '../server/lib/stock.js';
 import { makeEnv, fakeKV, fakeMedia } from './helpers/fake-env.mjs';
+import { skip, fileKv } from './helpers/deno-kv.mjs';
+import { kvStore } from '../server/lib/kv-store.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const fresh = (kv = fakeKV()) => makeEnv({ ORDERS: kv, MEDIA: fakeMedia() });
@@ -74,6 +76,15 @@ test('seedCatalog seeds sold-out products and variants at 0 whatever seedStock i
   assert.equal(stock.get(`${b.id}|Classic Black|L`).onHand, 10);
   assert.equal(stock.get(`${b.id}|Lucent White|M`).onHand, 10);
   assert.ok((await loadCatalog(env)).products.every(p => !('soldOut' in p) && !('soldOutVariants' in p)));
+});
+
+// File-backed @deno/kv allows 10 checks per commit and kvStore guards every key it writes; the real catalog has 140 keys.
+test('seedCatalog seeds the real era files into real Deno KV', { skip }, async t => {
+  const env = { ORDERS: kvStore(await fileKv(t)), MEDIA: fakeMedia() };
+  assert.equal(await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 10 }), true);
+  assert.equal((await loadCatalog(env)).products.length, ERAS.flatMap(m => m.products).length);
+  assert.equal((await loadStock(env)).size, ERAS.flatMap(m => m.products).reduce((n, p) => n + p.colors.length * p.sizes.length, 0));
+  assert.equal(await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 10 }), false);
 });
 
 test('defaultSku follows the colour-code rule and avoids clashes', () => {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { call, makeEnv, makeCtx, fakeUpstreams } from './helpers/fake-env.mjs';
+import { call, makeEnv, makeCtx, fakeUpstreams, seedFromFixture } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW, fixtureStock } from './helpers/fixture.mjs';
 import { applyStock } from '../data/catalog.js';
 import { createApp } from '../server/index.js';
@@ -131,6 +131,14 @@ test('buildIssue finds new drops, new sales, drops coming up and sales about to 
   assert.ok(buildIssue(STOCKED, [], NOW - DAY, NOW).empty);
 });
 
+test('draft products and draft eras never reach the newsletter', () => {
+  const draftTee = { ...STOCKED, products: STOCKED.products.map(p => (p.id === 'future-tee' ? { ...p, status: 'draft' } : p)) };
+  assert.deepEqual(buildIssue(draftTee, [], DROP - DAY, DROP + HOUR).drops.map(d => d.products.length), [0]);
+  const draftEra = { ...STOCKED, eras: STOCKED.eras.map(e => (e.slug === 'future' ? { ...e, state: 'draft' } : e)) };
+  assert.ok(buildIssue(draftEra, [], DROP - 3 * DAY, DROP - DAY).empty, 'a draft era is never announced as coming soon');
+  assert.ok(buildIssue(draftEra, [], DROP - DAY, DROP + HOUR).empty);
+});
+
 test('new-drop products show sale prices in the issue', () => {
   const issue = buildIssue(STOCKED, [sale({ eras: ['future'], startsAt: iso(DROP), endsAt: iso(DROP + DAY) })], DROP - DAY, DROP + HOUR);
   const p = issue.drops[0].products[0];
@@ -161,6 +169,20 @@ test('after the send hour, a new drop emails every active subscriber once with t
 
   await cron(env, DROP + 2 * HOUR);
   assert.equal(up.emails.filter(e => e.batch).length, 2, 'one issue per day');
+});
+
+test('without injected data the cron emails the KV catalog, stock applied, photos under the site URL', async () => {
+  const up = fakeUpstreams();
+  const env = nlEnv(); await seedFromFixture(env);
+  await addSubscriber(env, 'a@example.com');
+  await env.ORDERS.put('nl-last', iso(DROP - DAY));
+  await env.ORDERS.put('digest-last-prepared', '2099-12-31');
+  const ctx = makeCtx();
+  await createApp({ clock: () => DROP + HOUR }).scheduled({}, env, ctx);
+  await ctx.settle();
+  const [e] = up.emails.filter(x => x.batch);
+  assert.match(e.html, /Future Tee/, 'in stock, so listed in the drop');
+  assert.match(e.html, /src="https:\/\/evincus\.shop\/media\/[0-9a-f]{24}-960\.webp"/);
 });
 
 test('one-click headers are added when API_URL is set', async () => {

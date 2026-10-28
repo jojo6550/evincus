@@ -9,6 +9,10 @@ import { openKv } from '@deno/kv';
 import { createApp } from './server/index.js';
 import { serveStatic } from './server/static.js';
 import { kvStore } from './server/lib/kv-store.js';
+import { mediaStore } from './server/lib/media.js';
+import { seedCatalog } from './server/lib/catalog-store.js';
+import { ERAS } from './data/eras/index.js';
+import manifest from './assets/js/image-manifest.js';
 import { kvLimiter } from './server/lib/limiter.js';
 import { createLogger } from './server/lib/log.js';
 import { fileAccess } from './server/lib/files.js';
@@ -35,8 +39,19 @@ const env = {
   ADMIN_LIMIT: kvLimiter(kv, 'admin', { limit: 20, period: 60 }),
   LINK_LIMIT: kvLimiter(kv, 'link', { limit: 30, period: 60 }),
 };
+// MEDIA_PATH puts catalog photos next to KV on the persistent disk. Unset (dev), .media/ in the working directory.
+env.MEDIA = mediaStore(process.env.MEDIA_PATH ?? '.media');
 const app = createApp();
 const log = createLogger({ route: 'background' });
+const root = fileURLToPath(new URL('.', import.meta.url));
+
+// An empty KV gets the era files once, before the first request; serving an empty store silently is worse than not starting.
+try {
+  if (await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: Number(process.env.SEED_STOCK ?? 0) })) log.info('catalog.seeded');
+} catch (err) {
+  log.error('catalog.seed_failed', { message: String(err?.message ?? err) });
+  process.exit(1);
+}
 const pendingWork = new Set();
 const eventLoop = monitorEventLoopDelay({ resolution: 20 }); eventLoop.enable();
 let stopping = false;
@@ -93,7 +108,7 @@ async function checkDisk() {
 }
 await checkDisk();
 const diskTimer = setInterval(checkDisk, 60000);
-const files = fileAccess(fileURLToPath(new URL('.', import.meta.url)));
+const files = fileAccess(root);
 
 // node:http to web Request/Response, so server/ stays runtime-neutral.
 async function handle(req, res) {

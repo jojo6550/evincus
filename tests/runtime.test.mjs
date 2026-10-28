@@ -4,12 +4,12 @@ import { fork } from 'node:child_process';
 import { request } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { once } from 'node:events';
 import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 
 async function start(t, file) {
-  const child = fork(new URL('../main.js', import.meta.url), [], { silent: true, execArgv: [], env: { ...process.env, PORT: '0', ENVIRONMENT: 'development', KV_PATH: file, EMAIL_DISABLED: 'true', NEWSLETTER_HOUR: '', KEEPALIVE_URL: '', CSP_MODE: 'enforce' } });
+  const child = fork(new URL('../main.js', import.meta.url), [], { silent: true, execArgv: [], env: { ...process.env, PORT: '0', ENVIRONMENT: 'development', KV_PATH: file, MEDIA_PATH: join(dirname(file), 'media'), SEED_STOCK: '10', EMAIL_DISABLED: 'true', NEWSLETTER_HOUR: '', KEEPALIVE_URL: '', CSP_MODE: 'enforce' } });
   t.after(() => { if (child.exitCode === null) child.kill(); });
   let logs = '', errors = '';
   child.stderr.on('data', value => { errors += value; });

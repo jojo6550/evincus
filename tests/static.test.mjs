@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { serveStatic, ERROR_CODES } from '../server/static.js';
-import { captureLogs } from './helpers/fake-env.mjs';
+import { captureLogs, makeEnv, seedFromFixture } from './helpers/fake-env.mjs';
+import { NOW } from './helpers/fixture.mjs';
 
 const FILES = {
   'index.html': 'home', 'eras.html': 'eras', '404.html': 'not found', '500.html': 'broken', '503.html': 'down',
@@ -159,23 +160,60 @@ test('sitemap.xml lists released products with their images and hides unreleased
 test('/products/<id> serves the storefront with that product in the head, and 404s unknown ids', async () => {
   const page = { 'index.html': '<head><!-- seo --><title>Home</title><!-- /seo --></head>shop', '404.html': 'not found' };
   const readPage = async path => { if (!(path in page)) throw Object.assign(new Error('missing'), { code: 'ENOENT' }); return new TextEncoder().encode(page[path]); };
-  const r = await serveStatic(new Request('https://shop.test/products/disaster-zone-tee'), { env: {}, readFile: readPage });
+  const env = makeEnv(); await seedFromFixture(env);
+  const at = path => serveStatic(new Request(`https://shop.test${path}`), { env, readFile: readPage, now: new Date(NOW) });
+  const r = await at('/products/alpha-tee');
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-type'), 'text/html; charset=utf-8');
   const html = await r.text();
-  assert.match(html, /<title>Disaster Zone Tee \| Evincus Streetwear<\/title>/);
-  assert.match(html, /<link rel="canonical" href="https:\/\/www\.evincus\.shop\/products\/disaster-zone-tee">/);
+  assert.match(html, /<title>Alpha &lt;Tee&gt; \| Evincus Streetwear<\/title>/);
+  assert.match(html, /<link rel="canonical" href="https:\/\/www\.evincus\.shop\/products\/alpha-tee">/);
+  assert.match(html, /<meta property="og:image" content="https:\/\/www\.evincus\.shop\/media\/[0-9a-f]{24}-960\.webp">/);
   assert.doesNotMatch(html, /<title>Home<\/title>/);
   assert.match(html, /shop$/);
-  const ld = JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/.exec(html)[1]);
-  assert.equal(ld['@type'], 'Product');
-  assert.equal(ld.offers.price, '34.99');
-  assert.equal(ld.offers.priceCurrency, 'USD');
-  assert.equal(ld.offers.availability, 'https://schema.org/InStock');
-  assert.equal(ld.brand.name, 'Evincus Streetwear');
-  for (const path of ['/products/nope', '/products/', '/products/disaster-zone-tee/x']) {
-    assert.equal((await serveStatic(new Request(`https://shop.test${path}`), { env: {}, readFile: readPage })).status, 404, path);
+  const ld = html => JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/.exec(html)[1]);
+  assert.equal(ld(html)['@type'], 'Product');
+  assert.equal(ld(html).offers.price, '34.99');
+  assert.equal(ld(html).offers.priceCurrency, 'USD');
+  assert.equal(ld(html).offers.availability, 'https://schema.org/InStock');
+  assert.equal(ld(html).brand.name, 'Evincus Streetwear');
+  // Stock comes from KV, so the page agrees with the API: alpha-hood has none left.
+  assert.equal(ld(await (await at('/products/alpha-hood')).text()).offers.availability, 'https://schema.org/OutOfStock');
+  for (const path of ['/products/nope', '/products/future-tee', '/products/', '/products/alpha-tee/x']) {
+    assert.equal((await at(path)).status, 404, path);
   }
+});
+
+const MEDIA = `${'ab'.repeat(12)}-480.webp`;
+const mediaEnv = async (over = {}) => {
+  const env = makeEnv(over);
+  await env.MEDIA.write(MEDIA, new Uint8Array([82, 73, 70, 70]));
+  return env;
+};
+
+test('/media serves only content-named files, immutable, and 404s anything else', async () => {
+  const env = await mediaEnv();
+  const r = await get(`/media/${MEDIA}`, { env });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'image/webp');
+  assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+  assert.deepEqual([...new Uint8Array(await r.arrayBuffer())], [82, 73, 70, 70]);
+  const head = await get(`/media/${MEDIA}`, { env, method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(await head.text(), '');
+  for (const path of ['/media/x.webp', '/media/../kv.sqlite3', '/media/%2e%2e%2fkv.sqlite3', '/media/..%2f.kv.sqlite3', `/media/${'cd'.repeat(12)}-480.webp`,
+    `/media/${MEDIA}/x`, `/media/${MEDIA.toUpperCase()}`, '/media/', '/media']) {
+    const res = await get(path, { env });
+    assert.equal(res.status, 404, path);
+    assert.equal(await res.text(), 'not found', path);
+  }
+});
+
+test('/media and /inventory stay up when STATUS closes the public domain', async () => {
+  const env = await mediaEnv({ STATUS: 'stocking' });
+  const r = await serveStatic(new Request(`https://evincus.shop/media/${MEDIA}`, { headers: { host: 'evincus.shop' } }), { env, readFile });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000, immutable');
 });
 
 test('pages name the speculation rules, which prefetch site links but never API or product URLs', async () => {

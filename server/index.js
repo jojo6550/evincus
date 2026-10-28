@@ -1,6 +1,7 @@
-import { CATALOG } from './lib/catalog.js';
-import { applySales } from '../data/catalog.js';
+import { liveCatalog } from './lib/catalog.js';
+import { applySales, applyStock } from '../data/catalog.js';
 import { loadSales } from './lib/sales.js';
+import { loadStock } from './lib/stock.js';
 import { createLogger } from './lib/log.js';
 import { HttpError, corsHeaders, fail, enforceLimit, siteStatus } from './lib/http.js';
 import { secureResponse } from './lib/security.js';
@@ -17,7 +18,7 @@ import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
 import { getSalesRoute, putSalesRoute } from './routes/admin.js';
 
-// The fourth field marks routes that read prices: they get the catalog with running sales applied.
+// The fourth field marks routes that read prices: they get the catalog with running sales and stock applied.
 const ROUTES = [
   ['GET', /^\/api\/checkout\/options$/, checkoutOptions],
   ['GET', /^\/api\/health$/, health],
@@ -35,7 +36,8 @@ const ROUTES = [
   ['PUT', /^\/api\/admin\/sales$/, putSalesRoute],
 ];
 
-export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
+// `data` replaces the KV catalog (tests); stock still comes from env.ORDERS.
+export function createApp({ data, clock = () => Date.now() } = {}) {
   return {
     async fetch(req, env, ctx) {
       const started = Date.now();
@@ -62,9 +64,11 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
             if (url.pathname === '/api/bag/quote') await enforceLimit(c, env.QUOTE_LIMIT);
             if (url.pathname === '/api/newsletter/confirm' || url.pathname === '/api/newsletter/unsubscribe') await enforceLimit(c, env.LINK_LIMIT);
             c.params = url.pathname.match(hit[1]).slice(1);
+            if (data === undefined) c.data = await liveCatalog(env);
             if (hit[3]) {
-              c.sales = await loadSales(env, log);
-              c.data = applySales(data, c.sales, c.now);
+              const [sales, stock] = await Promise.all([loadSales(env, log), loadStock(env)]);
+              c.sales = sales;
+              c.data = applyStock(applySales(c.data, sales, c.now), stock);
             }
             res = await hit[2](req, c);
           }
@@ -95,7 +99,11 @@ export function createApp({ data = CATALOG, clock = () => Date.now() } = {}) {
         await retryEmails(c);
         await dailyOrderSummary(c);
       })().catch(logFailure));
-      ctx.waitUntil(newsletter(c).catch(logFailure));
+      ctx.waitUntil((async () => {
+        // Drop emails list only buyable products, so they need stock too.
+        if (data === undefined) c.data = applyStock(await liveCatalog(env), await loadStock(env));
+        await newsletter(c);
+      })().catch(logFailure));
     },
   };
 }

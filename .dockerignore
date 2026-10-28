@@ -8,6 +8,7 @@
 .env
 .env.*
 .kv.sqlite3*
+.media/
 node_modules
 docs
 scripts

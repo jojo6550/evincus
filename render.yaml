@@ -15,7 +15,7 @@ services:
     # Render issues TLS and adds www.evincus.shop as a redirect to the root.
     domains:
       - evincus.shop
-    # Orders, subscribers, sales and rate limits. Snapshotted daily by Render.
+    # Orders, subscribers, sales, rate limits, the catalog, stock and its photos. Snapshotted daily by Render.
     disk:
       name: kv
       mountPath: /var/data
@@ -23,6 +23,8 @@ services:
     envVars:
       - key: KV_PATH
         value: /var/data/kv.sqlite3
+      - key: MEDIA_PATH
+        value: /var/data/media
       - key: ENVIRONMENT
         value: production
       - key: CSP_MODE
@@ -56,7 +58,8 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     branch: dev
-    # Free: no disk, so KV in /tmp resets on each deploy. KEEPALIVE_URL stops the idle sleep.
+    # Free: no disk, so KV and photos in /tmp reset on each deploy and are seeded again from data/eras.
+    # KEEPALIVE_URL stops the idle sleep.
     plan: free
     region: virginia
     healthCheckPath: /api/health
@@ -64,6 +67,11 @@ services:
     envVars:
       - key: KV_PATH
         value: /tmp/kv.sqlite3
+      - key: MEDIA_PATH
+        value: /tmp/media
+      # Each seeded variant starts with 10 on hand, so the dev store can be bought from. Prod seeds 0.
+      - key: SEED_STOCK
+        value: "10"
       - key: ENVIRONMENT
         value: staging
       - key: CSP_MODE

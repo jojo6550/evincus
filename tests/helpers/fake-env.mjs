@@ -2,6 +2,7 @@ import { createApp } from '../../server/index.js';
 import { FIXTURE, NOW, fixtureStock } from './fixture.mjs';
 import { applyStock } from '../../data/catalog.js';
 import { MEDIA_NAME } from '../../server/lib/media.js';
+import { REV_KEY, eraKey, productKey } from '../../server/lib/catalog-store.js';
 
 // In-memory stand-in for the ORDERS store (server/lib/kv-store.js has the same surface).
 // Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
@@ -123,8 +124,7 @@ export function captureLogs() {
 }
 
 // One request through the app, with waitUntil work finished before returning.
-export async function call(method, path, { body, raw, headers = {}, ip, env = makeEnv(), clock = () => NOW, data = applyStock(FIXTURE, fixtureStock()) } = {}) {
-  const app = createApp({ data, clock });
+async function send(app, method, path, { body, raw, headers = {}, ip, env = makeEnv() } = {}) {
   const ctx = makeCtx(ip);
   const init = { method, headers: { ...headers } };
   if (raw !== undefined) init.body = raw;
@@ -138,6 +138,31 @@ export async function call(method, path, { body, raw, headers = {}, ip, env = ma
   let json = null;
   try { json = JSON.parse(text); } catch { /* not JSON */ }
   return { res, status: res.status, json, text, env };
+}
+
+export const call = (method, path, { clock = () => NOW, data = applyStock(FIXTURE, fixtureStock()), ...opts } = {}) =>
+  send(createApp({ data, clock }), method, path, opts);
+
+// As the live server runs: the catalog comes from env.ORDERS.
+export const callWithoutData = (method, path, { clock = () => NOW, ...opts } = {}) => send(createApp({ clock }), method, path, opts);
+
+// Stores a catalog as seedCatalog does: every image becomes a photo ref, and products carry skus and costCents.
+export async function seedFromFixture(env, data = FIXTURE) {
+  const ids = new Map();
+  const ref = src => {
+    if (!ids.has(src)) ids.set(src, String(ids.size + 1).padStart(24, '0'));
+    return { id: ids.get(src), width: 960, height: 1200, widths: [480, 960], ext: 'webp' };
+  };
+  const puts = [
+    ...data.eras.map(e => ({ key: eraKey(e.slug), value: JSON.stringify({ ...e, hero: ref(e.hero) }) })),
+    ...data.products.map(p => ({ key: productKey(p.id), value: JSON.stringify({
+      ...p, ...(p.images && { images: p.images.map(ref) }),
+      colors: p.colors.map(c => (c.images ? { ...c, images: c.images.map(ref) } : c)),
+      skus: {}, costCents: 1200,
+    }) })),
+    { key: REV_KEY, value: JSON.stringify({ rev: crypto.randomUUID(), eraOrder: data.eras.map(e => e.slug) }) },
+  ];
+  await env.ORDERS.commit({ puts });
 }
 
 // Fake Resend on globalThis.fetch. resend: { fail(body) → boolean }
