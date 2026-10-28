@@ -25,6 +25,9 @@ main:focus { outline: 0; }
 }
 .bar__brand { font-weight: 900; font-variation-settings: "wdth" 125; font-size: 14px; letter-spacing: .3em; }
 .bar__who { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--smoke); font: 400 11px var(--mono); display: none; }
+.bar__error { min-width: 0; color: var(--hazard); font: 400 11px/1.2 var(--mono); }
+.bar__error:not(:empty) { margin-left: auto; }
+.bar__error:not(:empty) + #signout { margin-left: 0; }
 .badge { background: var(--hazard); color: var(--bone); font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; padding: 3px 7px; }
 #signout { margin-left: auto; }
 
@@ -63,7 +66,7 @@ main:focus { outline: 0; }
   .bar { grid-column: 1 / -1; padding-inline: 24px; }
   .bar__who { display: block; }
   #signout { margin-left: 0; }
-  .tabs { position: sticky; top: var(--bar); inset: auto; align-self: start; flex-direction: column; height: calc(100dvh - var(--bar)); padding: 12px 0; border-top: 0; border-right: 1px solid var(--char); }
+  .tabs { position: sticky; inset: auto; top: var(--bar); align-self: start; flex-direction: column; height: calc(100dvh - var(--bar)); padding: 12px 0; border-top: 0; border-right: 1px solid var(--char); }
   .tabs a { flex: none; justify-content: flex-start; padding: 0 24px; border-top: 0; border-left: 3px solid transparent; }
   .tabs a[aria-current="page"] { border-left-color: var(--hazard); }
   .view { padding: 32px; }

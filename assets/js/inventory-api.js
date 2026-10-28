@@ -13,6 +13,7 @@ const listeners = new Set();
 export const onSignedOut = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 export const newOpId = () => crypto.randomUUID();
 
+// Writes always carry an opId; pass one to reuse it across retries.
 export async function api(method, path, body, { opId } = {}) {
   const write = method !== 'GET';
   let res;
@@ -21,7 +22,7 @@ export async function api(method, path, body, { opId } = {}) {
       method,
       credentials: 'same-origin',
       headers: body !== undefined || write ? { 'Content-Type': 'application/json' } : {},
-      body: write ? JSON.stringify({ ...body, ...(opId && { opId }) }) : undefined,
+      body: write ? JSON.stringify({ ...body, opId: opId ?? newOpId() }) : undefined,
     });
   } catch {
     throw new ApiError(0, null);
@@ -31,8 +32,8 @@ export async function api(method, path, body, { opId } = {}) {
   try { data = await res.json(); } catch { /* error built below */ }
   if (!res.ok || data === null) {
     const err = new ApiError(res.ok ? 0 : res.status, data);
-    // A wrong password is also a 401, but the person is not "signed out" of anything.
-    if (err.status === 401 && err.code !== 'login-failed') listeners.forEach(fn => fn(err));
+    // A wrong password is also a 401 from the login route, but the person is not "signed out" of anything.
+    if (err.status === 401 && path !== '/api/inventory/login') listeners.forEach(fn => fn(err));
     throw err;
   }
   return data;

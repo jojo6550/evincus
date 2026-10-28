@@ -22,7 +22,8 @@ const visibleTabs = () => TABS.filter(t => !t.ownerOnly || me?.role === 'owner')
 function parseHash() {
   const [name, ...rest] = location.hash.slice(1).split('/');
   const tab = visibleTabs().find(t => t.name === name);
-  return tab ? { name, params: rest.map(decodeURIComponent) } : { name: 'inventory', params: [], fallback: true };
+  try { if (tab) return { name, params: rest.map(decodeURIComponent) }; } catch { /* malformed escape: fall back below */ }
+  return { name: 'inventory', params: [], fallback: true };
 }
 
 function drawTabs(active) {
@@ -43,13 +44,15 @@ function route() {
   const tab = registry.get(name);
   current = { name, tab };
   view.replaceChildren();
-  if (tab) tab.render(view, params);
-  else {
+  const note = text => {
     const p = document.createElement('p');
     p.className = 'soon';
-    p.textContent = 'Coming soon.';
+    p.textContent = text;
     view.append(p);
-  }
+  };
+  if (!tab) return note('Coming soon.');
+  try { tab.render(view, params); }
+  catch { view.replaceChildren(); note('This tab failed to load. Reload the page to try again.'); }
 }
 
 let lastHash = '';
@@ -63,17 +66,26 @@ function onHashChange() {
   route();
 }
 
+let lastEmail = '';
+let returnFocus = null;
+
 function showLogin(note) {
+  // A second signed-out while the form is up must not wipe a password being typed.
+  if (!$('login').hidden) { if (note) $('login-error').textContent = note; return; }
+  returnFocus = document.activeElement;
   $('shell').inert = true;
   $('login').hidden = false;
   $('login-error').textContent = note ?? '';
   $('login-password').value = '';
-  (me ? $('login-password') : $('login-email')).focus();
+  if (lastEmail) $('login-email').value = lastEmail;
+  (lastEmail ? $('login-password') : $('login-email')).focus();
 }
 
 function hideLogin() {
   $('login').hidden = true;
   $('shell').inert = false;
+  if (returnFocus?.isConnected) returnFocus.focus();
+  returnFocus = null;
 }
 
 function showShell() {
@@ -84,19 +96,20 @@ function showShell() {
 
 async function loadMe() {
   me = await api('GET', '/api/inventory/me');
+  lastEmail = me.email;
   showShell();
 }
 
 async function boot() {
-  try {
-    await loadMe();
-    hideLogin();
-    lastHash = location.hash;
-    route();
-  } catch (err) {
+  try { await loadMe(); }
+  catch (err) {
     // signed-out shows the login form via onSignedOut. Anything else is a real failure to tell about.
     if (err.code !== 'signed-out') showLogin(err.message);
+    return;
   }
+  hideLogin();
+  lastHash = location.hash;
+  route();
 }
 
 onSignedOut(() => showLogin(me ? 'Your session ended. Sign in again.' : ''));
@@ -104,29 +117,32 @@ onSignedOut(() => showLogin(me ? 'Your session ended. Sign in again.' : ''));
 $('login-form').addEventListener('submit', async e => {
   e.preventDefault();
   const button = $('login-submit');
+  const wasIn = me !== null;
   button.disabled = true;
   $('login-error').textContent = '';
   try {
     await api('POST', '/api/inventory/login', { email: $('login-email').value.trim(), password: $('login-password').value });
-    const wasShown = me !== null;
     $('login-form').reset();
     await loadMe();
-    hideLogin();
-    lastHash = location.hash;
-    route(); // same route as before; a fresh sign-in as someone else must not inherit the old tab
-    if (!wasShown) $('view').focus();
   } catch (err) {
     $('login-error').textContent = err.code === 'login-failed' ? 'Wrong email or password.'
       : err.code === 'rate-limited' ? 'Too many attempts. Wait a few minutes and try again.' : err.message;
     $('login-password').value = '';
     $('login-password').focus();
+    return;
   } finally {
     button.disabled = false;
   }
+  hideLogin();
+  lastHash = location.hash;
+  route(); // same route as before; a fresh sign-in as someone else must not inherit the old tab
+  if (!wasIn) $('view').focus();
 });
 
 $('signout').addEventListener('click', async () => {
-  try { await api('POST', '/api/inventory/logout', {}); } catch { /* the cookie may already be gone */ }
+  $('bar-error').textContent = '';
+  try { await api('POST', '/api/inventory/logout', {}); }
+  catch { $('bar-error').textContent = "Couldn't sign out. You are still signed in. Try again."; return; }
   me = null;
   current = null;
   $('view').replaceChildren();

@@ -14,6 +14,7 @@
     <b class="bar__brand">EVINCUS</b>
     <span id="local" class="badge" hidden>Local</span>
     <span id="who" class="bar__who"></span>
+    <span id="bar-error" class="bar__error" aria-live="polite"></span>
     <button id="signout" type="button" class="btn btn--line">Sign out</button>
   </div>
   <nav id="tabs" class="tabs" aria-label="Sections"></nav>
@@ -28,7 +29,7 @@
     <input id="login-email" name="email" type="email" autocomplete="username" required>
     <label for="login-password">Password</label>
     <input id="login-password" name="password" type="password" autocomplete="current-password" required>
-    <p id="login-error" class="login__error" role="alert" aria-live="polite"></p>
+    <p id="login-error" class="login__error" aria-live="polite"></p>
     <button id="login-submit" type="submit" class="btn">Sign in</button>
   </form>
 </section>
