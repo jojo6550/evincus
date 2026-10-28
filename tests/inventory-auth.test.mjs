@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, captureLogs, fakeLimiter } from './helpers/fake-env.mjs';
+import { createApp } from '../server/index.js';
 import { NOW } from './helpers/fixture.mjs';
 import { hashPassword, requireStaff, startSession, accountKey } from '../server/lib/accounts.js';
 
@@ -26,6 +27,13 @@ test('login sets an HttpOnly SameSite=Strict cookie and me returns the role', as
   const sc = r.res.headers.get('set-cookie');
   assert.match(sc, /HttpOnly/);
   assert.match(sc, /SameSite=Strict/);
+  assert.match(sc, /Path=\//);
+  assert.match(sc, /Max-Age=604800/);
+  assert.match(sc, /; Secure/); // the test URL is https
+  // Behind Render's proxy the app sees http plus x-forwarded-proto.
+  const viaProxy = h => createApp({ clock: () => NOW }).fetch(new Request('http://localhost/api/inventory/login', { method: 'POST', headers: { 'content-type': 'application/json', ...h }, body: JSON.stringify({ email: 'boss@evincus.shop', password: PW }) }), env, { waitUntil() {} });
+  assert.match((await viaProxy({ 'x-forwarded-proto': 'https' })).headers.get('set-cookie'), /; Secure/);
+  assert.ok(!/Secure/.test((await viaProxy({})).headers.get('set-cookie')));
   assert.deepEqual((await me(env, cookieOf(r))).json, { email: 'boss@evincus.shop', role: 'owner', local: false });
   assert.equal((await call('GET', '/api/inventory/me', { env })).status, 401);
 });
@@ -63,7 +71,9 @@ test('the 6th attempt for one email and the 11th from one IP are 429, logged log
     assert.equal(six.status, 429);
     assert.equal(six.json.error.code, 'rate-limited');
     assert.equal(derives, 5);
+    derives = 0;
     for (let i = 0; i < 10; i++) await login(env, `u${i}@x.test`, 'bad', '9.9.9.9');
+    assert.equal(derives, 10); // unknown emails still pay one PBKDF2
     derives = 0;
     const eleven = await login(env, 'u99@x.test', 'bad', '9.9.9.9');
     assert.equal(eleven.status, 429);
@@ -146,6 +156,34 @@ test('logout deletes the session, clears the cookie, and is 204 even when signed
   assert.match(again.res.headers.get('set-cookie'), /Max-Age=0/);
 });
 
+test('logout is 204 with the cookie cleared even when KV fails, and logs logout.failed without the token', async () => {
+  const env = env0();
+  await putAcct(env);
+  const cookie = cookieOf(await login(env));
+  env.ORDERS.failGets = () => true;
+  const logs = captureLogs();
+  let out;
+  try { out = await call('POST', '/api/inventory/logout', { env, headers: { cookie } }); } finally { logs.restore(); }
+  assert.equal(out.status, 204);
+  assert.match(out.res.headers.get('set-cookie'), /Max-Age=0/);
+  assert.equal(logs.lines.filter(l => l.event === 'logout.failed').length, 1);
+  assert.ok(!JSON.stringify(logs.lines).includes(cookie.split('=')[1]));
+});
+
+test('a login limiter outage is 503 server-error, logged login.limiter_error, never login.blocked', async () => {
+  const down = { async limit() { throw new Error('down'); } };
+  for (const key of ['LOGIN_IP_LIMIT', 'LOGIN_EMAIL_LIMIT']) {
+    const env = env0({ [key]: down });
+    await putAcct(env);
+    const logs = captureLogs();
+    let r;
+    try { r = await login(env); } finally { logs.restore(); }
+    assert.deepEqual([r.status, r.json.error.code], [503, 'server-error'], key);
+    assert.equal(logs.lines.filter(l => l.event === 'login.limiter_error').length, 1);
+    assert.equal(logs.lines.filter(l => l.event === 'login.blocked').length, 0);
+  }
+});
+
 test('requireStaff checks expiry against c.now', async () => {
   const env = env0();
   await putAcct(env);
@@ -157,10 +195,17 @@ test('requireStaff checks expiry against c.now', async () => {
 
 test('PUT /api/admin/accounts validates input', async () => {
   const env = env0();
-  const bad = [{ email: 'nope' }, { email: 'a'.repeat(250) + '@x.co' }, { role: 'admin' }, { salt: '!!!' }, { hash: 'abc' }, { iterations: 1000 }, { iterations: 600000.5 }, { iterations: 2000001 }, { iterations: '600000' }, { salt: undefined }];
+  const bad = [{ email: 'nope' }, { email: 'a'.repeat(250) + '@x.co' }, { role: 'admin' }, { salt: '!!!' }, { hash: 'abc' }, { iterations: 1000 }, { iterations: 600000.5 }, { iterations: 2000001 }, { iterations: '600000' }, { salt: undefined },
+    { hash: Buffer.alloc(31).toString('base64') }, { hash: Buffer.alloc(33).toString('base64') }, { salt: Buffer.alloc(15).toString('base64') }];
   for (const over of bad) assert.equal((await putAcct(env, over)).status, 400, JSON.stringify(over));
+  assert.equal((await putAcct(env, { email: 'a'.repeat(241) + '@evincus.shop' })).status, 200); // 254 chars
+  assert.equal((await putAcct(env, { email: 'a'.repeat(242) + '@evincus.shop' })).status, 400);
+  assert.equal((await putAcct(env, { salt: Buffer.alloc(16).toString('base64') })).status, 200);
+  env.ORDERS.commit = async () => false;
+  const lost = await putAcct(env);
+  assert.deepEqual([lost.status, lost.json.error.code], [409, 'account-changed']);
   assert.equal((await call('PUT', '/api/admin/accounts', { env, body: {} })).status, 401);
-  assert.equal([...env.ORDERS.store.keys()].filter(k => k.startsWith('account:')).length, 0);
+  assert.equal([...env.ORDERS.store.keys()].filter(k => k.startsWith('account:')).length, 2); // only the two valid puts
 });
 
 test('GET and DELETE accounts', async () => {

@@ -1,12 +1,15 @@
-import { json, fail, readJson } from '../lib/http.js';
+import { HttpError, json, fail, readJson } from '../lib/http.js';
 import { accountKey, verifyLogin, startSession, sessionCookie, clearCookie, staffFrom, requireStaff, isHttps } from '../lib/accounts.js';
 
 const noStore = { 'Cache-Control': 'no-store' };
 
-// A limiter outage fails closed, like enforceLimit.
-async function allowed(limiter, key) {
+// A limiter outage fails closed as 503 (not 429, which would read as abuse), like enforceLimit.
+async function allowed(c, limiter, key) {
   if (!limiter) return true;
-  try { return (await limiter.limit({ key })).success; } catch { return false; }
+  try { return (await limiter.limit({ key })).success; } catch {
+    c.log.error('login.limiter_error');
+    throw new HttpError('server-error', 503);
+  }
 }
 
 // Records the sign-in time; a lost race or outage must not fail the login.
@@ -26,7 +29,7 @@ export async function loginRoute(req, c) {
   const known = !!(await c.env.ORDERS.get(key)); // the typed address is logged only when it has an account
   const who = known ? email : null;
   // Limits first: every attempt past them would cost a 600k-round PBKDF2.
-  if (!(await allowed(c.env.LOGIN_IP_LIMIT, c.ip)) || !(await allowed(c.env.LOGIN_EMAIL_LIMIT, email))) {
+  if (!(await allowed(c, c.env.LOGIN_IP_LIMIT, c.ip)) || !(await allowed(c, c.env.LOGIN_EMAIL_LIMIT, email))) {
     c.log.warn('login.blocked', { account: who });
     return fail(c, 'rate-limited', 429);
   }
@@ -43,8 +46,10 @@ export async function loginRoute(req, c) {
 
 // POST /api/inventory/logout: always 204 with the cookie cleared, signed in or not.
 export async function logoutRoute(req, c) {
-  const staff = await staffFrom(req, c.env, c.now);
-  if (staff) await c.env.ORDERS.delete(staff.sessionKey);
+  try {
+    const staff = await staffFrom(req, c.env, c.now);
+    if (staff) await c.env.ORDERS.delete(staff.sessionKey);
+  } catch (err) { c.log.error('logout.failed', { message: String(err?.message ?? err) }); } // the cookie is cleared regardless
   return new Response(null, { status: 204, headers: { 'Set-Cookie': clearCookie(isHttps(req)) } });
 }
 

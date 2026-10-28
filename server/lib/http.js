@@ -31,6 +31,7 @@ export const MESSAGES = {
   'unauthorized': 'That admin token is missing or wrong.',
   'invalid-sales': 'That sales list is not valid.',
   'login-failed': "That email and password don't match an account.",
+  'account-changed': 'That account changed while saving. Run the command again.',
   'invalid-account': 'That account is not valid.',
   'signed-out': 'Sign in to continue.',
   'forbidden': "Your account can't do that.",

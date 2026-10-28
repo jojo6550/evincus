@@ -56,7 +56,7 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
 
       let res;
       try {
-        // No orders while the store is down; health and newsletter.html's confirm/unsubscribe keep working.
+        // No orders while the store is down; health, newsletter.html's confirm/unsubscribe, and the staff APIs (/api/inventory/*, /api/admin/*) keep working.
         const status = siteStatus(req, env);
         if (status !== 'live' && !/^\/api\/(health|newsletter\/(confirm|unsubscribe)|(inventory|admin)\/.*)$/.test(url.pathname)) {
           res = fail(c, status, 503);

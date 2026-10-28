@@ -61,7 +61,7 @@ export async function putAccountRoute(req, c) {
   const { email, role, salt, hash, iterations } = (await readJson(req, 4096)) ?? {};
   const mail = typeof email === 'string' ? email.trim().toLowerCase() : '';
   const valid = mail.length <= 254 && EMAIL.test(mail) && (role === undefined || ROLES.includes(role)) &&
-    typeof salt === 'string' && B64.test(salt) && typeof hash === 'string' && B64.test(hash) &&
+    typeof salt === 'string' && B64.test(salt) && atob(salt).length >= 16 && typeof hash === 'string' && B64.test(hash) && atob(hash).length === 32 &&
     Number.isInteger(iterations) && iterations >= ITERATIONS && iterations <= 2000000;
   if (!valid) return fail(c, 'invalid-account', 400);
   const key = accountKey(mail);
@@ -70,7 +70,7 @@ export async function putAccountRoute(req, c) {
   const next = old
     ? { ...old, email: mail, role: role ?? old.role, salt, hash, iterations, epoch: Math.max(old.epoch + 1, +c.now) }
     : { email: mail, role: role ?? 'viewer', salt, hash, iterations, epoch: +c.now, createdAt: c.now.toISOString() };
-  if (!(await c.env.ORDERS.commit({ checks: [{ key, version }], puts: [{ key, value: JSON.stringify(next) }] }))) return fail(c, 'busy', 409);
+  if (!(await c.env.ORDERS.commit({ checks: [{ key, version }], puts: [{ key, value: JSON.stringify(next) }] }))) return fail(c, 'account-changed', 409);
   c.log.info('account.added', { account: mail, created: !old });
   return json({ email: mail, role: next.role, created: !old }, 200, noStore);
 }
