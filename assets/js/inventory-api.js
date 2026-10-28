@@ -23,6 +23,7 @@ export async function api(method, path, body, { opId } = {}) {
       credentials: 'same-origin',
       headers: body !== undefined || write ? { 'Content-Type': 'application/json' } : {},
       body: write ? JSON.stringify({ ...body, opId: opId ?? newOpId() }) : undefined,
+      signal: AbortSignal.timeout(30000), // a hung request ends as a network error (status 0), never a spinner forever
     });
   } catch {
     throw new ApiError(0, null);

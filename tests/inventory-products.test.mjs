@@ -1,17 +1,21 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { onSignedOut, ApiError } from '../assets/js/inventory-api.js';
-import { filterProducts, pendingSummary, saveAll, productBody, rekeyDeltas, changedFields, editable } from '../assets/js/inventory-products.js';
+import {
+  filterProducts, pendingSummary, saveAll, productBody, rekeyDeltas, changedFields, editable, slugify, blankProduct, stockUnconfirmed, forgetStock,
+} from '../assets/js/inventory-products.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
 
-// Answers each request with the next [status, body] for its method; records every call.
+// Answers each request with the next [status, body] for its method ('lost' drops the connection); records every call.
 const stub = replies => {
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined });
-    const [status, body] = replies[init.method].shift();
+    const reply = replies[init.method].shift();
+    if (reply === 'lost') throw new TypeError('Failed to fetch');
+    const [status, body] = reply;
     return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   };
   return calls;
@@ -78,6 +82,79 @@ test('productBody sends renames by colour row and moves their SKUs with them', (
   assert.equal(productBody(p, editable(p)).renames, undefined);
 });
 
+test('typed SKUs live by colour row, follow a rename, and count as a change only when they differ', () => {
+  const e = editable(p);
+  e.colors[0].name = 'Black';
+  assert.ok(!changedFields(p, e).includes('skus'), 'a rename alone is not a SKU edit');
+  e.skus['Classic Black|M'] = ' 99-BLACK-M ';
+  e.skus['White|L'] = '99-TEE-WHT-L'; // typed back to what it was
+  e.colors.push({ name: 'Red', hex: '#ff0000', from: null, tmp: '|1' });
+  e.skus['|1|M'] = 'RED-M';
+  assert.deepEqual(changedFields(p, e), ['colors', 'skus']);
+  const { product } = productBody(p, e);
+  assert.deepEqual(product.skus, {
+    'Black|M': '99-BLACK-M', 'Black|L': '99-TEE-BLK-L', 'White|M': '99-TEE-WHT-M', 'White|L': '99-TEE-WHT-L', 'Red|M': 'RED-M',
+  });
+  assert.deepEqual(product.colors.at(-1), { name: 'Red', hex: '#ff0000' });
+});
+
+test('slugify makes a product id from a name', () => {
+  assert.equal(slugify('  Flaming Eye Tee — 2.0!  '), 'flaming-eye-tee-2-0');
+  assert.equal(slugify('Café Noir'), 'cafe-noir');
+  assert.equal(slugify('a '.repeat(40)).length <= 60, true);
+  assert.doesNotMatch(slugify('ab '.repeat(30)), /-$/);
+});
+
+test('a new product is created with version null under its own id', async () => {
+  const blank = blankProduct('core');
+  assert.equal(blank.status, 'draft');
+  const e = editable(blank);
+  e.id = 'new-tee';
+  e.name = 'New Tee';
+  const args = { productId: 'new-tee', original: blank, edited: e, version: null, deltas: {}, reason: 'received', note: '' };
+  let calls = stub({ PUT: [fail(409, 'product-exists')] });
+  assert.equal((await saveAll(args)).product.code, 'product-exists');
+  assert.equal(calls[0].url, '/api/inventory/products/new-tee');
+  assert.equal(calls[0].body.version, null);
+  assert.equal(calls[0].body.product.id, 'new-tee');
+  calls = stub({ PUT: [ok({ product: {}, version: 'v1' })] });
+  assert.deepEqual(await saveAll({ ...args, edited: { ...e, id: 'new-tee-2' }, productId: 'new-tee-2' }), { product: 'ok' });
+  assert.equal(calls[0].url, '/api/inventory/products/new-tee-2');
+});
+
+test('a stock save with no reply locks its edits until it is retried as-is or the stock is reloaded', async () => {
+  const id = 'lost-tee';
+  const e = editable({ ...p, id });
+  e.name = 'Renamed';
+  const args = { productId: id, original: { ...p, id }, edited: e, version: 'v1', deltas: { 'White|M': 6 }, reason: 'received', note: '' };
+  let calls = stub({ POST: ['lost'] });
+  const first = await saveAll(args);
+  assert.equal(first.stock.status, 0);
+  assert.equal(first.product.code, 'stock-unconfirmed', 'details wait: a rename would move the keys the lost save used');
+  assert.equal(calls.length, 1);
+  assert.equal(stockUnconfirmed(id), true);
+  const op = calls[0].body.opId;
+
+  calls = stub({});
+  const changed = await saveAll({ ...args, deltas: { 'White|M': 7 } });
+  assert.equal(calls.length, 0, 'different edits are never sent while the lost save is unresolved');
+  assert.equal(changed.stock.code, 'stock-unconfirmed');
+
+  calls = stub({ POST: [ok({ stock: {} })], PUT: [ok({ product: {}, version: 'v2' })] });
+  assert.deepEqual(await saveAll(args), { stock: 'ok', product: 'ok' });
+  assert.equal(calls[0].body.opId, op, 'Retry resends the same op');
+  assert.equal(stockUnconfirmed(id), false);
+
+  calls = stub({ POST: ['lost'] });
+  await saveAll({ ...args, edited: args.original });
+  const lostOp = calls[0].body.opId;
+  forgetStock(id); // Reload stock
+  assert.equal(stockUnconfirmed(id), false);
+  calls = stub({ POST: [ok({ stock: {} })] });
+  await saveAll({ ...args, edited: args.original });
+  assert.notEqual(calls[0].body.opId, lostOp, 'after a reload the same edits are a new op');
+});
+
 test('rekeyDeltas follows renamed colours, swaps included', () => {
   assert.deepEqual(rekeyDeltas({ 'A|M': 1, 'B|M': 2, 'C|L': 3 }, { A: 'B', B: 'A' }), { 'B|M': 1, 'A|M': 2, 'C|L': 3 });
 });
@@ -86,7 +163,7 @@ test('saveAll reuses its opIds on retry and reports product and stock results se
   const e = editable(p);
   e.name = '99 Tee v2';
   const args = { productId: p.id, original: p, edited: e, version: 'v1', deltas: { 'Classic Black|M': 6 }, reason: 'received', note: 'box 3' };
-  let calls = stub({ POST: [[503, null]], PUT: [fail(409, 'catalog-busy')] });
+  let calls = stub({ POST: [fail(409, 'stock-busy')], PUT: [fail(409, 'catalog-busy')] });
   const first = await saveAll(args);
   assert.ok(first.stock instanceof ApiError && first.product instanceof ApiError);
   assert.deepEqual(calls.map(c => c.method), ['POST', 'PUT'], 'stock goes first, while its keys still carry the old colour names');

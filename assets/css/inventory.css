@@ -86,6 +86,8 @@ main:focus { outline: 0; }
 .pp [aria-invalid="true"] { border-color: var(--hazard); }
 .pp :is(input, select, textarea):disabled { opacity: 1; color: var(--bone); -webkit-text-fill-color: var(--bone); border-style: dashed; cursor: default; }
 
+.inv__top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.inv__top .btn { display: inline-flex; align-items: center; text-decoration: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   min-height: 36px; padding: 0 12px; background: transparent; color: var(--smoke); border: 1px solid var(--line);
@@ -140,6 +142,7 @@ main:focus { outline: 0; }
 .card__body { display: grid; gap: 10px; min-width: 0; }
 .field { display: grid; gap: 4px; min-width: 0; }
 .field label { color: var(--smoke); font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.field label small { letter-spacing: 0; text-transform: none; }
 .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .margin { margin: 0; color: var(--ok); font: 400 12px var(--mono); }
 .group { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; color: var(--smoke); font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; overflow-wrap: anywhere; }
@@ -155,7 +158,8 @@ main:focus { outline: 0; }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill { display: inline-flex; align-items: center; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); font: 500 13px var(--mono); }
 .pill button { min-width: 36px; min-height: 36px; margin-right: -10px; background: none; border: 0; color: var(--smoke); font-size: 16px; cursor: pointer; }
-.pill button:hover { color: var(--hazard); }
+.pill button:hover:not(:disabled) { color: var(--hazard); }
+.pill button:disabled { opacity: .4; cursor: default; }
 .addsize { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .toggle { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 14px; }
 .toggle small { display: block; color: var(--smoke); font: 400 11px var(--mono); }
@@ -167,6 +171,7 @@ main:focus { outline: 0; }
 .vrow__l { flex: 1; min-width: 0; font: 500 13px var(--mono); overflow-wrap: anywhere; }
 .vrow__l small { display: block; color: var(--smoke); font-size: 11px; }
 .vrow .vrow__err { color: var(--hazard); }
+.pp .vrow__sku { display: block; min-height: 36px; margin: 4px 0 2px; padding: 0 8px; }
 .vrow__d { flex: none; width: 34px; text-align: right; color: var(--ok); font: 500 12px var(--mono); }
 .vrow__d--minus { color: var(--hazard); }
 .vrow__n { font: 800 16px var(--display); font-variant-numeric: tabular-nums; }

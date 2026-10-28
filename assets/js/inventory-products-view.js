@@ -19,11 +19,14 @@ const thumb = path => safeImage(path).replace(/-(\d+)\.(webp|jpg)$/, (m, w, ext)
 
 const CHIP_LABELS = { all: 'All', low: 'Low', out: 'Out', draft: 'Draft', archived: 'Archived' };
 
-export function listHtml({ totals, counts, eras, opts }) {
+export function listHtml({ totals, counts, eras, opts, owner }) {
   const chip = name => `<button type="button" class="chip" data-chip="${name}" aria-pressed="${opts.chip === name}">${CHIP_LABELS[name]} <em>${counts[name]}</em></button>`;
   const tile = (n, label) => `<div class="tile"><b>${esc(n)}</b><small>${label}</small></div>`;
   return `
-    <input class="inv__search" type="search" name="q" value="${esc(opts.q)}" placeholder="Search products, SKU…" aria-label="Search products by name or SKU" autocomplete="off">
+    <div class="inv__top">
+      <input type="search" name="q" value="${esc(opts.q)}" placeholder="Search products, SKU…" aria-label="Search products by name or SKU" autocomplete="off">
+      ${owner ? '<a class="btn" href="#inventory/new">+ Product</a>' : ''}
+    </div>
     <div class="chips" role="group" aria-label="Show">
       ${Object.keys(CHIP_LABELS).map(chip).join('')}
       <select class="chip" name="era" aria-label="Era">
@@ -80,15 +83,16 @@ export function photosHtml(p) {
 
 function optionsHtml(pg, off) {
   const { edited: e } = pg;
+  const lock = attr(pg.stockLocked, 'disabled'); // removing a variant would change the locked stock changes
   const colors = e.colors.map((c, i) => `
     <li class="crow">
       ${swatch(c)}
       <input id="c-name-${i}" name="cname" data-i="${i}" value="${esc(c.name)}" maxlength="100" aria-label="Colour ${i + 1} name"${off}>
       <input id="c-hex-${i}" name="chex" data-i="${i}" type="color" value="${esc(c.hex)}" aria-label="Colour ${i + 1} swatch"${off}>
       ${c.from && c.from !== c.name ? `<small class="note">was ${esc(c.from)}</small>` : ''}
-      ${pg.owner ? `<button type="button" class="btn btn--line" id="c-del-${i}" data-cdel="${i}" aria-label="Remove ${esc(c.name || 'new colour')}">×</button>` : ''}
+      ${pg.owner ? `<button type="button" class="btn btn--line" id="c-del-${i}" data-cdel="${i}" aria-label="Remove ${esc(c.name || 'new colour')}"${lock}>×</button>` : ''}
     </li>`).join('');
-  const sizes = e.sizes.map((s, i) => `<li class="pill">${esc(s)}${pg.owner ? ` <button type="button" id="s-del-${i}" data-sdel="${i}" aria-label="Remove size ${esc(s)}">×</button>` : ''}</li>`).join('');
+  const sizes = e.sizes.map((s, i) => `<li class="pill">${esc(s)}${pg.owner ? ` <button type="button" id="s-del-${i}" data-sdel="${i}" aria-label="Remove size ${esc(s)}"${lock}>×</button>` : ''}</li>`).join('');
   return `
     <h3 class="group">Colours</h3>
     <ul class="crows">${colors}</ul>
@@ -104,35 +108,46 @@ function optionsHtml(pg, off) {
 
 // One colour/size row. `n` numbers the row so focus survives a redraw.
 export function stockRow(pg, c, s, n) {
-  const key = `${c.from ?? c.name}|${s}`;
+  const key = `${c.from ?? c.tmp}|${s}`; // the stock document's key for a loaded colour; SKUs use it for every row
   const row = c.from === null ? undefined : pg.stock[key];
-  if (!row) return `<li class="vrow"><span class="vrow__l">${esc(s)}<small>New. Save first, then add stock.</small></span></li>`;
+  const label = `${c.name} ${s}`;
+  const errs = [pg.rowErrors[key], pg.skuErrors[key]].filter(Boolean);
+  const sku = pg.owner
+    ? `<input class="vrow__sku" id="sku-${n}" name="sku" data-k="${esc(key)}" value="${esc(pg.edited.skus?.[key] ?? '')}" maxlength="64" placeholder="SKU: automatic" aria-label="SKU for ${esc(label)}"${attr(pg.skuErrors[key], 'aria-invalid="true"')}>`
+    : `<small>${esc(pg.original.skus?.[key] ?? '')}</small>`;
+  const notes = errs.map(m => `<small class="vrow__err">${esc(m)}</small>`).join('');
+  const cls = `vrow${errs.length ? ' is-error' : ''}`;
+  if (!row) return `<li class="${cls}"><span class="vrow__l">${esc(s)}${sku}<small>New. Save first, then add stock.</small>${notes}</span></li>`;
   const avail = row.onHand - row.committed, d = pg.deltas[key] ?? 0, shown = avail + d;
   const tag = avail <= 0 ? ' <span class="tag tag--out">OUT</span>' : avail <= pg.edited.lowStockAt ? ' <span class="tag tag--low">LOW</span>' : '';
-  const err = pg.rowErrors[key];
-  const label = `${c.name} ${s}`;
+  const lock = attr(pg.stockLocked, 'disabled');
   const control = pg.owner ? `
     <span class="vrow__d${d < 0 ? ' vrow__d--minus' : ''}">${d ? signed(d) : ''}</span>
     <span class="step${d ? ' is-changed' : ''}">
-      <button type="button" id="st-minus-${n}" data-step="-1" aria-label="One fewer ${esc(label)}"${attr(d <= Math.min(0, row.committed - row.onHand), 'disabled')}>−</button>
-      <input id="st-val-${n}" name="stock" type="number" inputmode="numeric" value="${shown}" aria-label="${esc(label)} available">
-      <button type="button" id="st-plus-${n}" data-step="1" aria-label="One more ${esc(label)}">+</button>
+      <button type="button" id="st-minus-${n}" data-step="-1" aria-label="One fewer ${esc(label)}"${attr(pg.stockLocked || d <= Math.min(0, row.committed - row.onHand), 'disabled')}>−</button>
+      <input id="st-val-${n}" name="stock" type="number" inputmode="numeric" value="${shown}" aria-label="${esc(label)} available"${lock}>
+      <button type="button" id="st-plus-${n}" data-step="1" aria-label="One more ${esc(label)}"${lock}>+</button>
     </span>` : `<b class="vrow__n">${avail}</b>`;
-  return `<li class="vrow${err ? ' is-error' : ''}" data-key="${esc(key)}" data-n="${n}">
-    <span class="vrow__l">${esc(s)} · ${esc(pg.original.skus?.[key] ?? '')}${tag}<small>on hand ${row.onHand} · committed ${row.committed}</small>${err ? `<small class="vrow__err">${esc(err)}</small>` : ''}</span>
+  return `<li class="${cls}" data-key="${esc(key)}" data-n="${n}">
+    <span class="vrow__l">${esc(s)}${tag}${sku}<small>on hand ${row.onHand} · committed ${row.committed}</small>${notes}</span>
     ${control}
   </li>`;
 }
 
 export function stockHtml(pg) {
   let n = 0;
+  const lock = attr(pg.stockLocked, 'disabled');
   const groups = pg.edited.colors.map(c => `<h3 class="group">${swatch(c)}${esc(c.name)}</h3>
     <ul class="vrows">${pg.edited.sizes.map(s => stockRow(pg, c, s, n++)).join('')}</ul>`).join('');
-  const reason = pg.owner ? `<div class="two">
-      ${field('Reason for stock changes', 'f-reason', `<select id="f-reason" name="reason">${Object.entries(REASONS).map(([k, v]) => `<option value="${k}"${attr(pg.reason === k, 'selected')}>${v}</option>`).join('')}</select>`)}
-      ${field('Note', 'f-note', `<input id="f-note" name="note" maxlength="200" value="${esc(pg.note)}" placeholder="Batch from printer">`)}
+  const lost = pg.stockLocked ? `<div class="pp__conflict" role="alert">
+      <p>Couldn’t confirm the stock save. It may have gone through. Retry sends the same changes again and can’t apply them twice. Reload stock shows the real numbers and drops these changes.</p>
+      <button type="button" class="btn" data-act="retry">Retry</button> <button type="button" class="btn btn--line" data-act="reload-stock">Reload stock</button>
     </div>` : '';
-  return (groups || '<p class="note">Add colours and sizes first.</p>') + reason;
+  const reason = pg.owner ? `<div class="two">
+      ${field('Reason for stock changes', 'f-reason', `<select id="f-reason" name="reason"${lock}>${Object.entries(REASONS).map(([k, v]) => `<option value="${k}"${attr(pg.reason === k, 'selected')}>${v}</option>`).join('')}</select>`)}
+      ${field('Note', 'f-note', `<input id="f-note" name="note" maxlength="200" value="${esc(pg.note)}" placeholder="Batch from printer"${lock}>`)}
+    </div>` : '';
+  return lost + (groups || '<p class="note">Add colours and sizes first.</p>') + reason;
 }
 
 export function historyItems(items, productId) {
@@ -157,17 +172,19 @@ export function pageHtml(pg, { conflict, eraName }) {
       <button type="button" class="btn" data-act="mine">Use mine</button> <button type="button" class="btn btn--line" data-act="discard">Discard mine</button>
     </div>` : ''}
     <div class="pp__head">
-      <h1 class="pp__title">${esc(o.name || o.id)}</h1>
+      <h1 class="pp__title">${pg.isNew ? 'New product' : esc(o.name || o.id)}</h1>
       <select id="f-status" name="status" class="pp__status pp__status--${esc(e.status)}" aria-label="Status"${off}>
         ${Object.entries(STATUSES).map(([k, v]) => `<option value="${k}"${attr(e.status === k, 'selected')}>${v}</option>`).join('')}
       </select>
     </div>
-    <p class="pp__sub">${esc(eraName)} era · ${plural(Object.keys(pg.stock).length, 'variant')} · ${available} available${o.status === 'active' ? ` · <a href="/products/${encodeURIComponent(o.id)}" target="_blank" rel="noopener">View on store ↗</a>` : ''}</p>
+    <p class="pp__sub">${pg.isNew ? 'Shoppers can’t see it until it’s Active and its era is live.' : `${esc(eraName)} era · ${plural(Object.keys(pg.stock).length, 'variant')} · ${available} available${o.status === 'active' ? ` · <a href="/products/${encodeURIComponent(o.id)}" target="_blank" rel="noopener">View on store ↗</a>` : ''}`}</p>
     <div class="pp__cols">
       <div class="pp__col">
         <section class="card" aria-labelledby="h-photos"><h2 class="card__title" id="h-photos">Photos <small>per colour · first is the cover</small></h2><div class="card__body" id="photos-body">${photosHtml(e)}</div></section>
         <section class="card" aria-labelledby="h-details"><h2 class="card__title" id="h-details">Details</h2>
           ${text('Name', 'f-name', 'name', 120)}
+          ${pg.isNew ? field('ID <small>in the web address; fixed once saved</small>', 'f-id',
+            `<input id="f-id" name="id" maxlength="60" value="${esc(e.id)}" autocapitalize="off" autocomplete="off" spellcheck="false">`) : ''}
           ${field('Description', 'f-description', `<textarea id="f-description" name="description" maxlength="5000" rows="4"${off}>${esc(e.description)}</textarea>`)}
           ${text('Fabric', 'f-fabric', 'fabric', 300)}
           <div class="two">
@@ -186,10 +203,10 @@ export function pageHtml(pg, { conflict, eraName }) {
       </div>
       <div class="pp__col">
         <section class="card" aria-labelledby="h-stock"><h2 class="card__title" id="h-stock">Stock <small>available shown${owner ? ' in the stepper' : ''}</small></h2><div class="card__body" id="stock-body">${stockHtml(pg)}</div></section>
-        <section class="card" aria-labelledby="h-history"><h2 class="card__title" id="h-history">History <small>this product</small></h2>
+        ${pg.isNew ? '' : `<section class="card" aria-labelledby="h-history"><h2 class="card__title" id="h-history">History <small>this product</small></h2>
           <ul class="hist">${historyItems(pg.history.items, o.id) || '<li class="note">Nothing yet.</li>'}</ul>
           ${pg.history.next ? '<button type="button" class="btn btn--line" id="hist-more">Load more</button>' : ''}
-        </section>
+        </section>`}
       </div>
     </div>
     ${owner ? '<div class="savebar" hidden><p class="savebar__text" id="savebar-text" aria-live="polite"></p><button type="button" class="btn" id="save">Save</button></div>' : ''}`;
