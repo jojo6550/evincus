@@ -1,5 +1,6 @@
 import { createApp } from '../../server/index.js';
-import { FIXTURE, NOW } from './fixture.mjs';
+import { FIXTURE, NOW, fixtureStock } from './fixture.mjs';
+import { applyStock } from '../../data/catalog.js';
 
 // In-memory stand-in for the ORDERS store (server/lib/kv-store.js has the same surface).
 // Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
@@ -70,8 +71,17 @@ export function makeEnv(over = {}) {
     BEACON_LIMIT: fakeLimiter(10),
     ...over,
   };
+  for (const [k, v] of fixtureStock()) putStock(env, k, v.onHand, v.committed);
   return env;
 }
+
+// Stock entries carry { onHand, committed } as both value and metadata.
+export function putStock(env, lineKey, onHand, committed = 0) {
+  const v = JSON.stringify({ onHand, committed });
+  env.ORDERS.store.set(`stock:${lineKey}`, { value: v, opts: { metadata: { onHand, committed } } });
+}
+
+export const stockOf = (env, lineKey) => JSON.parse(env.ORDERS.store.get(`stock:${lineKey}`).value);
 
 // ctx.waitUntil collector; settle() also drains work queued by queued work. `ip` is the client address the runtime saw.
 export function makeCtx(ip) {
@@ -94,7 +104,7 @@ export function captureLogs() {
 }
 
 // One request through the app, with waitUntil work finished before returning.
-export async function call(method, path, { body, raw, headers = {}, ip, env = makeEnv(), clock = () => NOW, data = FIXTURE } = {}) {
+export async function call(method, path, { body, raw, headers = {}, ip, env = makeEnv(), clock = () => NOW, data = applyStock(FIXTURE, fixtureStock()) } = {}) {
   const app = createApp({ data, clock });
   const ctx = makeCtx(ip);
   const init = { method, headers: { ...headers } };

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, makeCtx, fakeUpstreams } from './helpers/fake-env.mjs';
-import { FIXTURE, NOW } from './helpers/fixture.mjs';
+import { FIXTURE, NOW, fixtureStock } from './helpers/fixture.mjs';
+import { applyStock } from '../data/catalog.js';
 import { createApp } from '../server/index.js';
 import { buildIssue, linkToken, subKey, subscriberId, BATCH } from '../server/lib/newsletter.js';
 import { SALES_KEY } from '../server/lib/sales.js';
@@ -9,13 +10,14 @@ import { UNSUB } from '../server/emails/newsletter.js';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+const STOCKED = applyStock(FIXTURE, fixtureStock());
 const DROP = Date.parse(FIXTURE.eras[0].dropsAt); // 'future' drops 2026-10-10 17:00 Jamaica
 const iso = ms => new Date(ms).toISOString();
 
 async function cron(env, at) {
   await env.ORDERS.put('digest-last-prepared', '2099-12-31'); // keep the owner's daily order summary out of these counts
   const ctx = makeCtx();
-  await createApp({ data: FIXTURE, clock: () => at }).scheduled({ cron: '*/15 * * * *', scheduledTime: at }, env, ctx);
+  await createApp({ data: STOCKED, clock: () => at }).scheduled({ cron: '*/15 * * * *', scheduledTime: at }, env, ctx);
   await ctx.settle();
 }
 
@@ -112,25 +114,25 @@ const sale = (over = {}) => ({ id: 's1', percent: 25, eras: ['alpha'], label: nu
 
 test('buildIssue finds new drops, new sales, drops coming up and sales about to end', () => {
   const afterDrop = DROP + HOUR;
-  const drop = buildIssue(FIXTURE, [], DROP - DAY, afterDrop);
+  const drop = buildIssue(STOCKED, [], DROP - DAY, afterDrop);
   assert.deepEqual(drop.drops.map(d => [d.era.slug, d.products.map(p => p.id)]), [['future', ['future-tee']]]);
 
-  const soon = buildIssue(FIXTURE, [], DROP - 3 * DAY, DROP - DAY);
+  const soon = buildIssue(STOCKED, [], DROP - 3 * DAY, DROP - DAY);
   assert.deepEqual(soon.soon.map(e => e.slug), ['future']);
-  assert.ok(buildIssue(FIXTURE, [], DROP - DAY, DROP - HOUR).empty, 'a drop announced yesterday is not repeated');
+  assert.ok(buildIssue(STOCKED, [], DROP - DAY, DROP - HOUR).empty, 'a drop announced yesterday is not repeated');
 
-  const s = buildIssue(FIXTURE, [sale()], NOW - DAY, NOW);
+  const s = buildIssue(STOCKED, [sale()], NOW - DAY, NOW);
   assert.deepEqual(s.sales.map(x => x.id), ['s1']);
 
   const ending = sale({ startsAt: iso(NOW - 5 * DAY), endsAt: iso(NOW + 10 * HOUR) });
-  assert.deepEqual(buildIssue(FIXTURE, [ending], NOW - DAY, NOW).lastCall.map(x => x.id), ['s1']);
-  assert.ok(buildIssue(FIXTURE, [ending], NOW - HOUR, NOW).empty, 'last call is sent once');
+  assert.deepEqual(buildIssue(STOCKED, [ending], NOW - DAY, NOW).lastCall.map(x => x.id), ['s1']);
+  assert.ok(buildIssue(STOCKED, [ending], NOW - HOUR, NOW).empty, 'last call is sent once');
 
-  assert.ok(buildIssue(FIXTURE, [], NOW - DAY, NOW).empty);
+  assert.ok(buildIssue(STOCKED, [], NOW - DAY, NOW).empty);
 });
 
 test('new-drop products show sale prices in the issue', () => {
-  const issue = buildIssue(FIXTURE, [sale({ eras: ['future'], startsAt: iso(DROP), endsAt: iso(DROP + DAY) })], DROP - DAY, DROP + HOUR);
+  const issue = buildIssue(STOCKED, [sale({ eras: ['future'], startsAt: iso(DROP), endsAt: iso(DROP + DAY) })], DROP - DAY, DROP + HOUR);
   const p = issue.drops[0].products[0];
   assert.equal(p.priceCents, 7499);
   assert.equal(p.compareAtCents, 9999);

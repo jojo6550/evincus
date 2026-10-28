@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MAX_QTY, lineKey, eraStatus, cacheSeconds, lineStatus, publicView, eraSummary, eraDetail, imagesFor, money, findProduct,
+  MAX_QTY, lineKey, eraStatus, cacheSeconds, lineStatus, publicView, eraSummary, eraDetail, imagesFor, money, findProduct, applyStock,
 } from '../data/catalog.js';
-import { FIXTURE, NOW } from './helpers/fixture.mjs';
+import { FIXTURE, NOW, fixtureStock } from './helpers/fixture.mjs';
 
 const at = ms => new Date(ms);
+const STOCKED = applyStock(FIXTURE, fixtureStock());
 
 test('era is upcoming until the exact drop instant, then live', () => {
   const era = { dropsAt: '2026-10-10T17:00:00-05:00', endsAt: null };
@@ -36,13 +37,13 @@ test('cacheSeconds caps at the max and never runs past the next boundary', () =>
 });
 
 test('publicView hides products of upcoming eras and sets buyable', () => {
-  const v = publicView(FIXTURE, at(NOW));
+  const v = publicView(STOCKED, at(NOW));
   assert.deepEqual(v.eras.map(e => [e.slug, e.status]), [['future', 'upcoming'], ['alpha', 'live'], ['old', 'archived']]);
   assert.deepEqual(v.products.map(p => [p.id, p.buyable]), [['alpha-tee', true], ['alpha-hood', false], ['old-tee', false]]);
 });
 
 test('lineStatus covers every status', () => {
-  const s = item => lineStatus(FIXTURE, at(NOW), item);
+  const s = item => lineStatus(STOCKED, at(NOW), item);
   assert.equal(s({ id: 'alpha-tee', color: 'Black, white print', size: 'S' }), 'ok');
   assert.equal(s({ id: 'alpha-tee', color: 'White', size: 'M' }), 'sold-out');
   assert.equal(s({ id: 'alpha-hood', color: 'Black', size: 'M' }), 'sold-out');
@@ -53,14 +54,14 @@ test('lineStatus covers every status', () => {
   assert.equal(s({ id: 'alpha-tee', color: 'White', size: 'XXL' }), 'unknown-item');
 });
 
-test('a product whose era is missing counts as not released and is hidden', () => {
+test('a product whose era is missing is unknown and hidden', () => {
   const data = { eras: [], products: [FIXTURE.products[0]] };
-  assert.equal(lineStatus(data, at(NOW), { id: 'alpha-tee', color: 'White', size: 'S' }), 'not-released');
+  assert.equal(lineStatus(data, at(NOW), { id: 'alpha-tee', color: 'White', size: 'S' }), 'unknown-item');
   assert.equal(publicView(data, at(NOW)).products.length, 0);
 });
 
 test('eraSummary hides story; upcoming eras report zero products', () => {
-  const v = publicView(FIXTURE, at(NOW));
+  const v = publicView(STOCKED, at(NOW));
   const [future, alpha] = v.eras;
   assert.deepEqual(eraSummary(future, v.products), {
     slug: 'future', name: 'Future', tagline: 'Soon', hero: 'https://img.test/future.jpg',
@@ -71,7 +72,7 @@ test('eraSummary hides story; upcoming eras report zero products', () => {
 });
 
 test('eraDetail includes story except for upcoming eras', () => {
-  const v = publicView(FIXTURE, at(NOW));
+  const v = publicView(STOCKED, at(NOW));
   assert.equal(eraDetail(v.eras[1]).story, 'Alpha story');
   assert.ok(!('story' in eraDetail(v.eras[0])));
 });
@@ -91,4 +92,22 @@ test('money, lineKey, findProduct, MAX_QTY', () => {
   assert.equal(findProduct(FIXTURE.products, 'old-tee').name, 'Old Tee');
   assert.equal(findProduct(FIXTURE.products, 'nope'), undefined);
   assert.equal(MAX_QTY, 10);
+});
+
+test('stock decides sold out; continueSelling never sells out', () => {
+  const data = applyStock(FIXTURE, fixtureStock());
+  const v = publicView(data, new Date(NOW));
+  assert.deepEqual(v.products.find(p => p.id === 'alpha-tee').soldOutVariants, ['White|M']);
+  assert.equal(v.products.find(p => p.id === 'alpha-hood').soldOut, true);
+  assert.equal('available' in v.products[0], false);
+  const keep = { ...FIXTURE, products: FIXTURE.products.map(p => p.id === 'alpha-hood' ? { ...p, continueSelling: true } : p) };
+  assert.equal(publicView(applyStock(keep, fixtureStock()), new Date(NOW)).products.find(p => p.id === 'alpha-hood').soldOut, false);
+});
+test('draft products, archived products and products of draft eras are invisible everywhere', () => {
+  const data = { ...FIXTURE, eras: FIXTURE.eras.map(e => e.slug === 'old' ? { ...e, state: 'draft' } : e),
+    products: FIXTURE.products.map(p => p.id === 'alpha-hood' ? { ...p, status: 'draft' } : p) };
+  const v = publicView(applyStock(data, fixtureStock()), new Date(NOW));
+  assert.equal(v.products.some(p => p.id === 'alpha-hood' || p.id === 'old-tee'), false);
+  assert.equal(v.eras.some(e => e.slug === 'old'), false);
+  assert.equal(lineStatus(data, new Date(NOW), { id: 'alpha-hood', color: 'Black', size: 'M' }), 'unknown-item');
 });

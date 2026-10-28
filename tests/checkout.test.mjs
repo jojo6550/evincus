@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter } from './helpers/fake-env.mjs';
 import { createApp } from '../server/index.js';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
+import { applyStock } from '../data/catalog.js';
 
 const envForOrders = makeEnv;
 const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, notes: '<please pack carefully>', expectedTotalCents: 6998 });
@@ -84,8 +85,7 @@ test('concurrent submissions and later retries create one order and preserve its
   assert.ok(responses.every(r => r.status === 201));
   assert.equal(responses[0].json.id, responses[1].json.id);
   assert.equal([...env.ORDERS.store.keys()].filter(k => k.startsWith('order:')).length, 1);
-  const changedCatalog = structuredClone(FIXTURE);
-  changedCatalog.products[0].soldOut = true;
+  const changedCatalog = applyStock(FIXTURE, new Map()); // everything sold out
   const retry = await call('POST', '/api/orders', { body: b, env, clock: () => NOW + 86400000, data: changedCatalog });
   assert.equal(retry.status, 201);
   assert.equal((await env.ORDERS.get(`order:${retry.json.id}`, 'json')).placedAt, new Date(NOW).toISOString());

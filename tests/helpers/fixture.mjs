@@ -17,16 +17,22 @@ export const FIXTURE = {
         { name: 'Black, white print', hex: '#151515', images: ['https://img.test/a1.png', 'https://img.test/a2.png'] },
         { name: 'White', hex: '#F4F4F2' },
       ],
-      images: ['https://img.test/a0.png'], soldOut: false, soldOutVariants: ['White|M'] },
+      images: ['https://img.test/a0.png'] },
     { id: 'alpha-hood', era: 'alpha', name: 'Alpha Hood', category: 'outerwear', priceCents: 4599, fabric: 'Fleece',
-      sizes: ['M'], colors: [{ name: 'Black', hex: '#151515' }], images: ['https://img.test/h.png'],
-      soldOut: true, soldOutVariants: [] },
+      sizes: ['M'], colors: [{ name: 'Black', hex: '#151515' }], images: ['https://img.test/h.png'] },
     { id: 'future-tee', era: 'future', name: 'Future Tee', category: 'tees', priceCents: 9999, fabric: 'Cotton',
-      sizes: ['M'], colors: [{ name: 'Black', hex: '#151515' }], images: ['https://img.test/f.png'],
-      soldOut: false, soldOutVariants: [] },
+      sizes: ['M'], colors: [{ name: 'Black', hex: '#151515' }], images: ['https://img.test/f.png'] },
     { id: 'old-tee', era: 'old', name: 'Old Tee', category: 'tees', priceCents: 2000, fabric: 'Cotton',
-      sizes: ['M'], colors: [{ name: 'Black', hex: '#151515' }], images: ['https://img.test/o.png'],
-      soldOut: false, soldOutVariants: [] },
+      sizes: ['M'], colors: [{ name: 'Black', hex: '#151515' }], images: ['https://img.test/o.png'] },
   ],
   site: { categories: [{ id: 'all', name: 'Everything' }], lookbook: [], careNote: 'Wash cold.' },
 };
+
+// 10 on hand per variant; two variants are out.
+export function fixtureStock(data = FIXTURE) {
+  const out = new Set(['alpha-hood|Black|M', 'alpha-tee|White|M']);
+  return new Map(data.products.flatMap(p => p.colors.flatMap(c => p.sizes.map(s => {
+    const k = `${p.id}|${c.name}|${s}`;
+    return [k, { onHand: out.has(k) ? 0 : 10, committed: 0 }];
+  }))));
+}

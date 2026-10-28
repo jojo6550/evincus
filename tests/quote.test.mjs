@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, captureLogs } from './helpers/fake-env.mjs';
+import { quote as priceBag } from '../server/lib/pricing.js';
+import { applyStock } from '../data/catalog.js';
+import { FIXTURE, NOW, fixtureStock } from './helpers/fixture.mjs';
 
 const item = (over = {}) => ({ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2, ...over });
 const quote = items => call('POST', '/api/bag/quote', { body: { items } });
@@ -80,4 +83,12 @@ test('quote logs status counts and total', async () => {
   const line = logs.lines.find(l => l.event === 'bag.quoted');
   assert.deepEqual(line.statuses, { ok: 1, 'era-ended': 1 });
   assert.equal(line.totalCents, 6998);
+});
+
+test('a line above available stock is insufficient-stock with the count, and blocks checkout', () => {
+  const stock = fixtureStock(); stock.set('alpha-tee|Black, white print|S', { onHand: 3, committed: 1 });
+  const q = priceBag(applyStock(FIXTURE, stock), new Date(NOW), [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 3 }]);
+  assert.equal(q.lines[0].status, 'insufficient-stock');
+  assert.equal(q.lines[0].available, 2);
+  assert.equal(q.checkoutReady, false);
 });

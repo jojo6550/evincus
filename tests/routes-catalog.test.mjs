@@ -32,7 +32,7 @@ test('upcoming era returns a teaser with no products or story', async () => {
 test('live era returns story and products with buyable flags', async () => {
   const { json } = await call('GET', '/api/eras/alpha');
   assert.equal(json.story, 'Alpha story');
-  assert.deepEqual(json.products.map(p => [p.id, p.buyable, p.soldOutVariants]), [['alpha-tee', true, ['White|M']], ['alpha-hood', false, []]]);
+  assert.deepEqual(json.products.map(p => [p.id, p.buyable, p.soldOutVariants]), [['alpha-tee', true, ['White|M']], ['alpha-hood', false, ['Black|M']]]);
 });
 
 test('unknown era is 404 with a shopper message and the request id', async () => {
