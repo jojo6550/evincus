@@ -78,17 +78,30 @@ test('re-adding an account bumps epoch and signs its sessions out, keeping the r
   const cookie = cookieOf(await login(env));
   assert.equal((await me(env, cookie)).status, 200);
   assert.deepEqual((await putAcct(env)).json, { email: 'boss@evincus.shop', role: 'owner', created: false });
-  assert.equal(stored(env).epoch, 2);
+  assert.equal(stored(env).epoch, NOW + 1);
   assert.equal((await me(env, cookie)).status, 401);
   assert.equal((await putAcct(env, { role: 'viewer' })).json.role, 'viewer');
 });
 
-test('a new account defaults to viewer with epoch 1 and createdAt', async () => {
+test('a new account defaults to viewer with a timestamp epoch and createdAt', async () => {
   const env = env0();
   assert.equal((await putAcct(env)).json.role, 'viewer');
   const a = stored(env);
-  assert.equal(a.epoch, 1);
+  assert.equal(a.epoch, NOW);
   assert.ok(a.createdAt);
+});
+
+test('delete then re-add never revives an old session, and 2,000,000 iterations is the cap', async () => {
+  const env = env0();
+  await putAcct(env);
+  const cookie = cookieOf(await login(env));
+  assert.equal((await me(env, cookie)).status, 200);
+  await call('DELETE', '/api/admin/accounts/boss%40evincus.shop', { env, headers: auth });
+  const hash2 = await hashPassword('another pw 2', SALT);
+  const re = await call('PUT', '/api/admin/accounts', { env, headers: auth, clock: () => NOW + 1000, body: { email: 'boss@evincus.shop', salt: SALT, hash: hash2, iterations: 600000 } });
+  assert.equal(re.status, 200);
+  assert.equal((await me(env, cookie)).status, 401);
+  assert.equal((await putAcct(env, { iterations: 2000000 })).status, 200);
 });
 
 test('login logs never contain a typed email that has no account', async () => {
@@ -144,7 +157,7 @@ test('requireStaff checks expiry against c.now', async () => {
 
 test('PUT /api/admin/accounts validates input', async () => {
   const env = env0();
-  const bad = [{ email: 'nope' }, { email: 'a'.repeat(250) + '@x.co' }, { role: 'admin' }, { salt: '!!!' }, { hash: 'abc' }, { iterations: 1000 }, { iterations: 600000.5 }, { iterations: '600000' }, { salt: undefined }];
+  const bad = [{ email: 'nope' }, { email: 'a'.repeat(250) + '@x.co' }, { role: 'admin' }, { salt: '!!!' }, { hash: 'abc' }, { iterations: 1000 }, { iterations: 600000.5 }, { iterations: 2000001 }, { iterations: '600000' }, { salt: undefined }];
   for (const over of bad) assert.equal((await putAcct(env, over)).status, 400, JSON.stringify(over));
   assert.equal((await call('PUT', '/api/admin/accounts', { env, body: {} })).status, 401);
   assert.equal([...env.ORDERS.store.keys()].filter(k => k.startsWith('account:')).length, 0);

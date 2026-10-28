@@ -54,7 +54,7 @@ const B64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // PUT /api/admin/accounts { email, role?, salt, hash, iterations }: creates an account or replaces its password
-// (epoch +1 signs its sessions out). The CLI hashes the password, so it never reaches the server.
+// (a new epoch signs its sessions out; epochs are ms timestamps so delete + re-add never revives one). The CLI hashes the password, so it never reaches the server.
 export async function putAccountRoute(req, c) {
   const refused = await denied(req, c);
   if (refused) return refused;
@@ -62,14 +62,14 @@ export async function putAccountRoute(req, c) {
   const mail = typeof email === 'string' ? email.trim().toLowerCase() : '';
   const valid = mail.length <= 254 && EMAIL.test(mail) && (role === undefined || ROLES.includes(role)) &&
     typeof salt === 'string' && B64.test(salt) && typeof hash === 'string' && B64.test(hash) &&
-    Number.isInteger(iterations) && iterations >= ITERATIONS;
+    Number.isInteger(iterations) && iterations >= ITERATIONS && iterations <= 2000000;
   if (!valid) return fail(c, 'invalid-account', 400);
   const key = accountKey(mail);
   const { value, version } = await c.env.ORDERS.getEntry(key);
   const old = value ? JSON.parse(value) : null;
   const next = old
-    ? { ...old, email: mail, role: role ?? old.role, salt, hash, iterations, epoch: old.epoch + 1 }
-    : { email: mail, role: role ?? 'viewer', salt, hash, iterations, epoch: 1, createdAt: c.now.toISOString() };
+    ? { ...old, email: mail, role: role ?? old.role, salt, hash, iterations, epoch: Math.max(old.epoch + 1, +c.now) }
+    : { email: mail, role: role ?? 'viewer', salt, hash, iterations, epoch: +c.now, createdAt: c.now.toISOString() };
   if (!(await c.env.ORDERS.commit({ checks: [{ key, version }], puts: [{ key, value: JSON.stringify(next) }] }))) return fail(c, 'busy', 409);
   c.log.info('account.added', { account: mail, created: !old });
   return json({ email: mail, role: next.role, created: !old }, 200, noStore);
