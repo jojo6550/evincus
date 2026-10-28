@@ -58,6 +58,24 @@ test('loadStock and loadCatalog follow list cursors', async () => {
   assert.equal((await loadCatalog(env)).products.length, ERAS.flatMap(m => m.products).length);
 });
 
+test('seedCatalog seeds sold-out products and variants at 0 whatever seedStock is, and does not store the flags', async () => {
+  const base = ERAS.find(m => m.era.slug === 'core');
+  const [a, b] = base.products;
+  const mod = { era: base.era, products: [
+    { ...a, soldOut: true, soldOutVariants: [] },
+    { ...b, soldOut: false, soldOutVariants: ['Classic Black|M'] },
+  ] };
+  const env = fresh();
+  await seedCatalog(env, { modules: [mod], manifest, root, seedStock: 10 });
+  const stock = await loadStock(env);
+  assert.equal(stock.get(`${a.id}|Classic Black|S`).onHand, 0);
+  assert.equal(stock.get(`${a.id}|Lucent White|XL`).onHand, 0);
+  assert.equal(stock.get(`${b.id}|Classic Black|M`).onHand, 0);
+  assert.equal(stock.get(`${b.id}|Classic Black|L`).onHand, 10);
+  assert.equal(stock.get(`${b.id}|Lucent White|M`).onHand, 10);
+  assert.ok((await loadCatalog(env)).products.every(p => !('soldOut' in p) && !('soldOutVariants' in p)));
+});
+
 test('defaultSku follows the colour-code rule and avoids clashes', () => {
   assert.equal(defaultSku('99-tee', 'Classic Black', 'M', new Set()), '99-TEE-BLK-M');
   assert.equal(defaultSku('99-tee', 'Lucent White', '2XL', new Set()), '99-TEE-WHT-2XL');

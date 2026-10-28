@@ -83,12 +83,12 @@ export async function seedCatalog(env, { modules, manifest, root, seedStock }) {
   const taken = new Set();
   for (const { era, products } of modules) {
     puts.push({ key: eraKey(era.slug), value: JSON.stringify({ ...era, hero: await photo(era.slug, era.hero), state: 'published' }) });
-    for (const { id, soldOut, soldOutVariants, ...p } of products) {
+    for (const { id, soldOut, soldOutVariants = [], ...p } of products) {
       const skus = {};
       for (const c of p.colors) for (const size of p.sizes) {
         skus[`${c.name}|${size}`] = defaultSku(id, c.name, size, taken);
         taken.add(skus[`${c.name}|${size}`]);
-        puts.push({ key: stockKey(lineKey(id, c.name, size)), ...stockEntry(seedStock, 0) });
+        puts.push({ key: stockKey(lineKey(id, c.name, size)), ...stockEntry(soldOut || soldOutVariants.includes(`${c.name}|${size}`) ? 0 : seedStock, 0) });
       }
       const rec = {
         id, era: era.slug, ...p,
