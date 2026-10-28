@@ -60,9 +60,10 @@ function footHtml(s) {
   }
   const q = s.quote;
   if (!q.checkoutReady) {
+    const unavailable = quote.unavailableKeys().length > 0;
     return `
-      <p class="bag__note" role="status">Some items can't be bought. Remove them to check out.</p>
-      <button type="button" class="btn btn--line bag__go" data-act="remove-unavailable">Remove unavailable items</button>
+      <p class="bag__note" role="status">${q.problem ? esc(q.message) : "Some items can't be bought. Remove them to check out."}</p>
+      ${unavailable ? '<button type="button" class="btn btn--line bag__go" data-act="remove-unavailable">Remove unavailable items</button>' : ''}
       ${row('Subtotal', money(q.subtotalCents))}
       ${checkout(false)}`;
   }

@@ -21,6 +21,7 @@ export const MESSAGES = {
   'unknown-era': "There's no collection at this address. It may have been renamed.",
   'unknown-product': "This piece isn't in the store. It may have sold out or been renamed.",
   'invalid-cart': "Your cart couldn't be read. Refresh the page and try again.",
+  'too-many-products': 'A cart can hold up to 8 different pieces per checkout. Remove some, then check out.',
   'invalid-order': "That order reference isn't valid. Start checkout again from your cart.",
   'invalid-email': 'Enter a valid email address, like you@email.com.',
   'newsletter-link': 'That link has expired or is incomplete. Sign up again from the bottom of the store page.',

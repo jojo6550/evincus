@@ -3,6 +3,7 @@ import { FIXTURE, NOW, fixtureStock } from './fixture.mjs';
 import { applyStock } from '../../data/catalog.js';
 import { MEDIA_NAME } from '../../server/lib/media.js';
 import { REV_KEY, eraKey, productKey } from '../../server/lib/catalog-store.js';
+import { stockKey, stockDoc } from '../../server/lib/stock.js';
 
 // In-memory stand-in for the ORDERS store (server/lib/kv-store.js has the same surface).
 // Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
@@ -36,6 +37,9 @@ export function fakeKV({ pageSize = 1000 } = {}) {
     async delete(key) { remove(key); },
     // All or nothing, with no await between the checks and the writes, like a Deno KV atomic commit.
     async commit({ checks = [], puts = [], deletes = [] } = {}) {
+      // File-backed @deno/kv's limits, so unit tests catch a write that could never commit.
+      if (checks.length > 10) throw new Error('TooManyChecks');
+      if (puts.length + deletes.length > 1000) throw new Error('TooManyMutations');
       for (const { key } of puts) if (this.failPuts?.(key)) throw new Error('KV put failed');
       if (!checks.every(({ key, version }) => versionOf(key) === (version ?? null))) return false;
       for (const { key, value, opts } of puts) write(key, value, opts);
@@ -95,13 +99,17 @@ export function makeEnv(over = {}) {
   return env;
 }
 
-// Stock entries carry { onHand, committed } as both value and metadata.
+// Product ids never hold '|', so a line key splits at its first one into product and '<colour>|<size>'.
+const splitLine = lineKey => [lineKey.slice(0, lineKey.indexOf('|')), lineKey.slice(lineKey.indexOf('|') + 1)];
+const stockDocOf = (env, productId) => JSON.parse(env.ORDERS.store.get(stockKey(productId))?.value ?? '{}');
+
+// Sets one variant in its product's stock document.
 export function putStock(env, lineKey, onHand, committed = 0) {
-  const v = JSON.stringify({ onHand, committed });
-  env.ORDERS.store.set(`stock:${lineKey}`, { value: v, opts: { metadata: { onHand, committed } } });
+  const [id, variant] = splitLine(lineKey);
+  env.ORDERS.store.set(stockKey(id), { value: stockDoc({ ...stockDocOf(env, id), [variant]: { onHand, committed } }), opts: {} });
 }
 
-export const stockOf = (env, lineKey) => JSON.parse(env.ORDERS.store.get(`stock:${lineKey}`).value);
+export const stockOf = (env, lineKey) => { const [id, variant] = splitLine(lineKey); return stockDocOf(env, id)[variant]; };
 
 // ctx.waitUntil collector; settle() also drains work queued by queued work. `ip` is the client address the runtime saw.
 export function makeCtx(ip) {

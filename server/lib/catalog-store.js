@@ -2,14 +2,15 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { photoPath, manifestEntry } from '../../data/photos.js';
 import { imgPath } from '../../data/eras/merge.js';
-import { lineKey } from '../../data/catalog.js';
 import { storePhoto } from './media.js';
-import { listAll, stockKey, stockEntry } from './stock.js';
+import { listAll, stockKey, stockDoc } from './stock.js';
 
 export const REV_KEY = 'catalog:rev';
 export const eraKey = slug => `era:${slug}`;
 export const productKey = id => `product:${id}`;
-const SEED_BATCH = 9; // keys per seed commit: each is guarded by kvStore, plus the REV_KEY check, within @deno/kv's 10
+// Puts per seed commit, within @deno/kv's 1000 mutations; new keys are unguarded, so the only check is REV_KEY's.
+// shortcut: batches count puts, not bytes (@deno/kv caps a commit at 800 KiB); split by size if seeds near ~700 KB
+const SEED_BATCH = 900;
 
 // SKU colour code: last word, vowels dropped after its first letter, "ck" read as "k", first 3 letters.
 const colorCode = color => {
@@ -87,11 +88,14 @@ export async function seedCatalog(env, { modules, manifest, root, seedStock }) {
     puts.push({ key: eraKey(era.slug), value: JSON.stringify({ ...era, hero: await photo(era.slug, era.hero), state: 'published' }) });
     for (const [position, { id, soldOut, soldOutVariants = [], ...p }] of products.entries()) {
       const skus = {};
+      const stock = {};
       for (const c of p.colors) for (const size of p.sizes) {
-        skus[`${c.name}|${size}`] = defaultSku(id, c.name, size, taken);
-        taken.add(skus[`${c.name}|${size}`]);
-        puts.push({ key: stockKey(lineKey(id, c.name, size)), ...stockEntry(soldOut || soldOutVariants.includes(`${c.name}|${size}`) ? 0 : seedStock, 0) });
+        const variant = `${c.name}|${size}`;
+        skus[variant] = defaultSku(id, c.name, size, taken);
+        taken.add(skus[variant]);
+        stock[variant] = { onHand: soldOut || soldOutVariants.includes(variant) ? 0 : seedStock, committed: 0 };
       }
+      puts.push({ key: stockKey(id), value: stockDoc(stock) });
       const rec = {
         id, era: era.slug, ...p,
         ...(p.images && { images: await Promise.all(p.images.map(f => photo(era.slug, f))) }),
@@ -101,8 +105,8 @@ export async function seedCatalog(env, { modules, manifest, root, seedStock }) {
       puts.push({ key: productKey(id), value: JSON.stringify(rec) });
     }
   }
-  // @deno/kv allows 10 checks per commit and kvStore adds one per written key, so records go in batches. Until
-  // REV_KEY lands nothing reads them and a rerun rewrites them; each batch re-checks it, so none lands after a seed.
+  // Records go in batches. Until REV_KEY lands nothing reads them and a rerun rewrites them; each batch re-checks
+  // it, so none lands after a seed.
   const unseeded = [{ key: REV_KEY, version: null }];
   for (let i = 0; i < puts.length; i += SEED_BATCH) {
     if (!await kv.commit({ checks: unseeded, puts: puts.slice(i, i + SEED_BATCH) })) return false;

@@ -92,3 +92,26 @@ test('a line above available stock is insufficient-stock with the count, and blo
   assert.equal(q.lines[0].available, 2);
   assert.equal(q.checkoutReady, false);
 });
+
+test('a cart spanning 9 products is not checkout-ready and says too-many-products', () => {
+  const tee = FIXTURE.products[0];
+  const data = { ...FIXTURE, products: Array.from({ length: 9 }, (_, i) => ({ ...tee, id: `tee-${i}` })) };
+  const stocked = applyStock(data, fixtureStock(data));
+  const items = n => Array.from({ length: n }, (_, i) => ({ id: `tee-${i}`, color: 'White', size: 'S', qty: 1 }));
+  const nine = priceBag(stocked, new Date(NOW), items(9));
+  assert.equal(nine.problem, 'too-many-products');
+  assert.equal(nine.checkoutReady, false);
+  assert.ok(nine.lines.every(l => l.status === 'ok'));
+  const eight = priceBag(stocked, new Date(NOW), [...items(8), { id: 'tee-0', color: 'White', size: 'M', qty: 1 }]);
+  assert.equal(eight.problem, undefined);
+  assert.equal(eight.checkoutReady, true);
+});
+
+test('the quote route carries the too-many-products message', async () => {
+  const items = ['alpha-tee', 'alpha-hood', 'future-tee', 'old-tee', 'a', 'b', 'c', 'd', 'e'].map(id => ({ id, color: 'Black', size: 'M', qty: 1 }));
+  const { status, json } = await quote(items);
+  assert.equal(status, 200);
+  assert.equal(json.problem, 'too-many-products');
+  assert.equal(json.message, 'A cart can hold up to 8 different pieces per checkout. Remove some, then check out.');
+  assert.equal((await quote([item()])).json.message, undefined);
+});

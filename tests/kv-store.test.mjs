@@ -143,12 +143,13 @@ test('concurrent commits expecting an absent key: exactly one wins and the loser
 test('concurrent chunked puts and gets: reads are never torn and one chunk set is left', { skip }, async t => {
   const { s, kv } = await open(t);
   const values = Array.from({ length: 4 }, (_, i) => String(i).repeat(150_000));
+  // Only a chunked head is guarded (kvStore.commit's shortcut), so the races start from one.
+  await s.put('big', values[0]);
   for (let round = 0; round < 5; round++) {
     const writes = values.map(v => s.put('big', v));
     const reads = Array.from({ length: 8 }, () => s.get('big'));
     await Promise.all(writes);
-    const allowed = round === 0 ? [null, ...values] : values; // before the very first write lands, a read may find nothing
-    for (const read of await Promise.all(reads)) assert.ok(allowed.includes(read), 'a read returned text that was never written');
+    for (const read of await Promise.all(reads)) assert.ok(values.includes(read), 'a read returned text that was never written');
 
     const [head] = await raw(kv, ['s']);
     const chunks = await raw(kv, ['c']);
@@ -176,10 +177,42 @@ test('a read whose chunk set is replaced mid-read starts over and returns the ne
   assert.ok(replaced);
 });
 
-test('a clash on a written key alone is retried, while a clash on a checked key returns false', { skip }, async t => {
+test('a clash on a chunked written key alone is retried, while a clash on a checked key returns false', { skip }, async t => {
   const { s, kv } = await open(t);
-  // Another writer lands on `other` right after commit() has read it, so the guard on `other` fails once.
+  const theirs = 't'.repeat(2 * CHUNK);
+  await s.put('other', 'o'.repeat(2 * CHUNK));
+  // Another writer lands on `other` right after commit() has read it, so the guard on chunked `other` fails once.
   let interfered = false;
+  let commits = 0;
+  const racing = kvStore({
+    get: key => kv.get(key),
+    getMany: async keys => {
+      const entries = await kv.getMany(keys);
+      if (!interfered) { interfered = true; await s.put('other', theirs); }
+      return entries;
+    },
+    atomic: () => { commits++; return kv.atomic(); },
+  });
+  assert.equal(await racing.commit({ checks: [{ key: 'mine', version: null }], puts: [{ key: 'mine', value: '1' }, { key: 'other', value: 'ours' }] }), true);
+  assert.equal(commits, 2);
+  assert.equal(await s.get('mine'), '1');
+  assert.equal(await s.get('other'), 'ours');
+
+  // Same interference, but now the checked key is the one that changed: nothing is written.
+  await s.put('other', 'o'.repeat(2 * CHUNK));
+  interfered = false;
+  const stale = await s.getEntry('mine');
+  await s.put('mine', '2');
+  assert.equal(await racing.commit({ checks: [{ key: 'mine', version: stale.version }], puts: [{ key: 'mine', value: '3' }, { key: 'other', value: 'again' }] }), false);
+  assert.equal(await s.get('mine'), '2');
+  assert.equal(await s.get('other'), theirs);
+});
+
+test('an unchunked written key is not guarded: a clash on it alone does not retry, and the last write wins', { skip }, async t => {
+  const { s, kv } = await open(t);
+  await s.put('other', 'old');
+  let interfered = false;
+  let commits = 0;
   const racing = kvStore({
     get: key => kv.get(key),
     getMany: async keys => {
@@ -187,17 +220,9 @@ test('a clash on a written key alone is retried, while a clash on a checked key 
       if (!interfered) { interfered = true; await s.put('other', 'theirs'); }
       return entries;
     },
-    atomic: () => kv.atomic(),
+    atomic: () => { commits++; return kv.atomic(); },
   });
-  assert.equal(await racing.commit({ checks: [{ key: 'mine', version: null }], puts: [{ key: 'mine', value: '1' }, { key: 'other', value: 'ours' }] }), true);
-  assert.equal(await s.get('mine'), '1');
+  assert.equal(await racing.commit({ puts: [{ key: 'other', value: 'ours' }] }), true);
+  assert.equal(commits, 1);
   assert.equal(await s.get('other'), 'ours');
-
-  // Same interference, but now the checked key is the one that changed: nothing is written.
-  interfered = false;
-  const stale = await s.getEntry('mine');
-  await s.put('mine', '2');
-  assert.equal(await racing.commit({ checks: [{ key: 'mine', version: stale.version }], puts: [{ key: 'mine', value: '3' }, { key: 'other', value: 'again' }] }), false);
-  assert.equal(await s.get('mine'), '2');
-  assert.equal(await s.get('other'), 'theirs');
 });

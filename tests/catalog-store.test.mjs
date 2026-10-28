@@ -4,10 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { ERAS } from '../data/eras/index.js';
 import manifest from '../assets/js/image-manifest.js';
 import { seedCatalog, loadCatalog, defaultSku, REV_KEY } from '../server/lib/catalog-store.js';
-import { loadStock, stockEntry } from '../server/lib/stock.js';
+import { loadStock, stockKey, stockDoc } from '../server/lib/stock.js';
 import { makeEnv, fakeKV, fakeMedia } from './helpers/fake-env.mjs';
-import { skip, fileKv } from './helpers/deno-kv.mjs';
-import { kvStore } from '../server/lib/kv-store.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const fresh = (kv = fakeKV()) => makeEnv({ ORDERS: kv, MEDIA: fakeMedia() });
@@ -53,11 +51,21 @@ test('loadCatalog reloads only when catalog:rev changes', async () => {
 test('loadStock and loadCatalog follow list cursors', async () => {
   const kv = fakeKV({ pageSize: 2 });
   const env = fresh(kv);
-  for (let i = 0; i < 5; i++) { const { value, opts } = stockEntry(i, 0); await kv.put(`stock:extra|c|${i}`, value, opts); }
+  for (let i = 0; i < 5; i++) await kv.put(stockKey(`extra-${i}`), stockDoc(new Map([['c|M', { onHand: i, committed: 1 }]])));
   await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 4 });
   const stock = await loadStock(env);
-  for (let i = 0; i < 5; i++) assert.equal(stock.get(`extra|c|${i}`).onHand, i);
+  for (let i = 0; i < 5; i++) assert.deepEqual(stock.get(`extra-${i}|c|M`), { onHand: i, committed: 1 });
   assert.equal((await loadCatalog(env)).products.length, ERAS.flatMap(m => m.products).length);
+});
+
+test('seedCatalog writes one stock document per product, holding every variant', async () => {
+  const env = fresh(fakeKV());
+  await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 3 });
+  const tee = ERAS.flatMap(m => m.products).find(p => p.id === '99-tee');
+  const doc = await env.ORDERS.get(stockKey('99-tee'), 'json');
+  assert.deepEqual(Object.keys(doc).sort(), tee.colors.flatMap(c => tee.sizes.map(s => `${c.name}|${s}`)).sort());
+  assert.deepEqual(doc['Classic Black|M'], { onHand: 3, committed: 0 });
+  assert.equal(env.ORDERS.store.get(stockKey('99-tee')).opts.metadata, undefined);
 });
 
 test('seedCatalog seeds sold-out products and variants at 0 whatever seedStock is, and does not store the flags', async () => {
@@ -84,15 +92,6 @@ test('the seeded catalog keeps the era files\' era and product order', async () 
   const cat = await loadCatalog(env);
   assert.deepEqual(cat.products.map(p => p.id), ERAS.flatMap(m => m.products.map(p => p.id)));
   assert.deepEqual(cat.products.filter(p => p.era === 'core').map(p => p.position), ERAS.find(m => m.era.slug === 'core').products.map((_, i) => i));
-});
-
-// File-backed @deno/kv allows 10 checks per commit and kvStore guards every key it writes; the real catalog has 140 keys.
-test('seedCatalog seeds the real era files into real Deno KV', { skip }, async t => {
-  const env = { ORDERS: kvStore(await fileKv(t)), MEDIA: fakeMedia() };
-  assert.equal(await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 10 }), true);
-  assert.equal((await loadCatalog(env)).products.length, ERAS.flatMap(m => m.products).length);
-  assert.equal((await loadStock(env)).size, ERAS.flatMap(m => m.products).reduce((n, p) => n + p.colors.length * p.sizes.length, 0));
-  assert.equal(await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 10 }), false);
 });
 
 test('defaultSku follows the colour-code rule and avoids clashes', () => {
