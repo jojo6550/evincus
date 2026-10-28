@@ -4,6 +4,7 @@ import { makeEnv, call, callWithoutData, seedFromFixture, putStock, stockOf, cap
 import { signIn, ADMIN_TOKEN } from './helpers/staff.mjs';
 import { REV_KEY, ERA_ORDER_KEY } from '../server/lib/catalog-store.js';
 import { productHistory, saveProduct } from '../server/lib/catalog-save.js';
+import { adjKey } from '../server/lib/stock.js';
 import { NOW } from './helpers/fixture.mjs';
 
 const setup = async (role = 'owner') => {
@@ -27,6 +28,23 @@ const errorsOf = r => [r.status, r.json.error.code, [...r.json.error.errors].sor
 const edits = (env, id = 'alpha-tee') => [...env.ORDERS.store].filter(([k]) => k.startsWith(`adj:${id}:`)).map(([, v]) => JSON.parse(v.value)).filter(a => a.reason === 'edit');
 const ref = n => ({ id: String(n).padStart(24, '0'), width: 960, height: 1200, widths: [480, 960], ext: 'webp' });
 const snapshot = env => JSON.stringify([...env.ORDERS.store].map(([k, v]) => [k, v.value]));
+const stockDocOf = (env, id = 'alpha-tee') => JSON.parse(env.ORDERS.store.get(`stock:${id}`)?.value ?? 'null');
+const reasons = env => [...env.ORDERS.store].filter(([k]) => k.startsWith('adj:')).map(([, v]) => JSON.parse(v.value).reason);
+const ZERO = { onHand: 0, committed: 0 };
+// Commits `change` the first time a request reads alpha-tee's stock document: after it loaded the catalog.
+function midRequest(env, change) {
+  const real = env.ORDERS.getEntry.bind(env.ORDERS);
+  let armed = true;
+  env.ORDERS.getEntry = async k => { if (armed && k === 'stock:alpha-tee') { armed = false; await change(); } return real(k); };
+}
+// Renames alpha-tee's White to Bone, straight through saveProduct.
+async function renameWhite(env) {
+  const { value, version } = await env.ORDERS.getEntry('product:alpha-tee');
+  const product = JSON.parse(value);
+  product.colors[1].name = 'Bone';
+  const r = await saveProduct(env, { opId: crypto.randomUUID(), product, renames: { White: 'Bone' }, version, by: 'other@evincus.shop', now: new Date(NOW) });
+  assert.equal(r.product.colors[1].name, 'Bone');
+}
 // Records each commit's check and put keys.
 function spy(env) {
   const real = env.ORDERS.commit.bind(env.ORDERS);
@@ -71,6 +89,8 @@ test('colour and size names with |, empty, or over 100 characters are refused', 
   const ok = await edit(env, cookie, p => { p.sizes.push(` ${'L'.repeat(100)} `); p.colors[0].ring = '#B3262B'; });
   assert.equal(ok.status, 200);
   assert.deepEqual(ok.json.product.sizes, ['S', 'M', 'L'.repeat(100)]);
+  assert.deepEqual(stockOf(env, `alpha-tee|White|${'L'.repeat(100)}`), ZERO); // new variants get zero rows
+  assert.equal(Object.keys(stockDocOf(env)).length, 6);
   assert.equal(ok.json.product.colors[0].ring, '#B3262B');
 });
 
@@ -104,6 +124,81 @@ test('renaming a colour moves its stock keys and SKUs in one commit; refused whi
   assert.deepEqual([stockOf(env, 'alpha-tee|Bone|S').onHand, stockOf(env, 'alpha-tee|Black, white print|S').onHand], [10, 4]);
 });
 
+test('SKUs follow the stock: a renamed colour keeps its SKUs when a new colour takes its old name in the same save', async () => {
+  const { env, cookie } = await setup();
+  await edit(env, cookie, () => {}); // fills default SKUs
+  putStock(env, 'alpha-tee|White|S', 4, 0);
+  const r = await edit(env, cookie, p => { p.colors[1].name = 'Bone'; p.colors.push({ name: 'White', hex: '#FFFFFF' }); p.skus = {}; }, { renames: { White: 'Bone' } });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.json.product.skus['Bone|S'], r.json.product.skus['White|S'], r.json.product.skus['Black, white print|S']], ['ALPHA-TEE-WHT-S', 'ALPHA-TEE-WHT-S-2', 'ALPHA-TEE-PRN-S']);
+  assert.deepEqual([stockOf(env, 'alpha-tee|Bone|S'), stockOf(env, 'alpha-tee|White|S')], [{ onHand: 4, committed: 0 }, ZERO]);
+});
+
+test("a rename committed between an adjustment's catalog load and its stock read fails the adjustment, which writes nothing", async () => {
+  const { env, cookie } = await setup();
+  midRequest(env, () => renameWhite(env));
+  const opId = crypto.randomUUID();
+  const r = await req(env, cookie, 'POST', '/api/inventory/stock', { opId, productId: 'alpha-tee', changes: [{ key: 'alpha-tee|White|S', delta: 1 }], reason: 'received' });
+  assert.deepEqual([r.status, r.json.error.code, r.json.error.message], [409, 'product-changed', 'This product changed while saving. Reload and try again.']);
+  assert.deepEqual([stockOf(env, 'alpha-tee|Bone|S'), stockOf(env, 'alpha-tee|White|S')], [{ onHand: 10, committed: 0 }, undefined]);
+  assert.equal(reasons(env).includes('received'), false);
+  assert.equal(env.ORDERS.store.has(`op:${opId}`), false);
+});
+
+test("a rename committed between a checkout's catalog load and its stock read is bag-changed, and nothing is written", async () => {
+  const { env } = await setup();
+  midRequest(env, () => renameWhite(env));
+  const order = { checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'White', size: 'S', qty: 1 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 3499 };
+  const r = await callWithoutData('POST', '/api/orders', { env, body: order });
+  assert.deepEqual([r.status, r.json.error.code, r.json.error.lines.map(l => l.status)], [409, 'bag-changed', ['unknown-item']]);
+  assert.equal([...env.ORDERS.store.keys()].some(k => /^(order|submission|day|email-retry):/.test(k)), false);
+  assert.equal(reasons(env).includes('order'), false);
+  assert.deepEqual([stockOf(env, 'alpha-tee|Bone|S'), stockOf(env, 'alpha-tee|White|S')], [{ onHand: 10, committed: 0 }, undefined]);
+});
+
+test('an opId reused on another endpoint is 409 op-reused and applies nothing', async () => {
+  const { env, cookie } = await setup();
+  const opId = crypto.randomUUID();
+  const adjust = id => req(env, cookie, 'POST', '/api/inventory/stock', { opId: id, productId: 'alpha-tee', changes: [{ key: 'alpha-tee|White|S', delta: 1 }], reason: 'received' });
+  assert.equal((await adjust(opId)).status, 200);
+  const { product, version } = await load(env, cookie);
+  const g = (await req(env, cookie, 'GET', '/api/inventory/eras')).json;
+  const before = snapshot(env);
+  for (const [path, body] of [
+    ['/api/inventory/products/alpha-tee', { opId, product: { ...product, name: 'X' }, version }],
+    ['/api/inventory/eras/alpha', { opId, era: { ...g.eras[1].era, name: 'X' }, version: g.eras[1].version }],
+    ['/api/inventory/era-order', { opId, order: [...g.order].reverse(), version: g.version }],
+  ]) {
+    const r = await req(env, cookie, 'PUT', path, body);
+    assert.deepEqual([r.status, r.json.error.code, r.json.error.message], [409, 'op-reused', 'That request ID was already used for something else. Reload and try again.'], path);
+  }
+  assert.equal(snapshot(env), before);
+  const other = crypto.randomUUID();
+  assert.equal((await req(env, cookie, 'PUT', '/api/inventory/products/alpha-tee', { opId: other, product: { ...product, name: 'Y' }, version })).status, 200);
+  const r = await adjust(other);
+  assert.deepEqual([r.status, r.json.error.code], [409, 'op-reused']);
+  assert.equal(stockOf(env, 'alpha-tee|White|S').onHand, 11);
+  assert.equal(JSON.parse(env.ORDERS.store.get(`op:${opId}`).value).kind, 'stock');
+});
+
+test('a lost commit retries from fresh reads in saveProduct and setEraOrder, and gives up as catalog-busy', async () => {
+  const { env, cookie } = await setup();
+  const real = env.ORDERS.commit.bind(env.ORDERS);
+  let lose = 1;
+  env.ORDERS.commit = async o => (lose > 0 && o.puts.some(p => p.key === REV_KEY) ? (lose--, false) : real(o));
+  const r = await edit(env, cookie, p => { p.name = 'Retried'; });
+  assert.deepEqual([r.status, r.json.product.name, lose, edits(env).length], [200, 'Retried', 0, 1]);
+  const g = (await req(env, cookie, 'GET', '/api/inventory/eras')).json;
+  lose = 1;
+  const order = [...g.order].reverse();
+  const o = await req(env, cookie, 'PUT', '/api/inventory/era-order', { opId: crypto.randomUUID(), order, version: g.version });
+  assert.deepEqual([o.status, o.json.order, lose], [200, order, 0]);
+  lose = 5;
+  const busy = await edit(env, cookie, p => { p.name = 'Busy'; });
+  assert.deepEqual([busy.status, busy.json.error.code, lose], [409, 'catalog-busy', 0]);
+  assert.equal((await load(env, cookie)).product.name, 'Retried');
+});
+
 test('removing a size with stock on hand is refused', async () => {
   const { env, cookie } = await setup();
   const drop = p => { p.sizes = ['S']; };
@@ -114,6 +209,7 @@ test('removing a size with stock on hand is refused', async () => {
   const ok = await edit(env, cookie, drop);
   assert.equal(ok.status, 200);
   assert.deepEqual(Object.keys(ok.json.product.skus).sort(), ['Black, white print|S', 'White|S']);
+  assert.deepEqual(Object.keys(stockDocOf(env)).sort(), ['Black, white print|S', 'White|S']); // removed rows are dropped
   assert.deepEqual(errorsOf(await edit(env, cookie, p => { p.colors.pop(); })), [400, 'invalid-product', ['color-has-stock']]);
 });
 
@@ -147,10 +243,13 @@ test('product ids are kebab slugs fixed at creation; a new product goes last in 
   const made = await save(env, cookie, draft(), null);
   assert.equal(made.json.product.position, 2); // alpha-tee 0, alpha-hood 1
   assert.equal(made.json.product.createdAt, made.json.product.updatedAt);
+  const sized = await save(env, cookie, draft({ id: 'alpha-sock', sizes: ['M'], colors: [{ name: 'Black', hex: '#151515' }] }), null);
+  assert.equal(sized.status, 200);
+  assert.deepEqual(stockDocOf(env, 'alpha-sock'), { 'Black|M': ZERO }); // a new product's stock document lists its variants
   const again = await save(env, cookie, draft({ name: 'Again' }), null);
   assert.deepEqual([again.status, again.json.error.code, again.json.error.current.name], [409, 'product-exists', '']);
   const direct = await saveProduct(env, { opId: crypto.randomUUID(), product: draft({ id: 'alpha-bag' }), version: null, by: 'cli', now: new Date(NOW) }); // id defaults to product.id
-  assert.deepEqual([direct.product.id, direct.product.position, direct.created], ['alpha-bag', 3, true]);
+  assert.deepEqual([direct.product.id, direct.product.position, direct.created], ['alpha-bag', 4, true]); // after alpha-cap 2, alpha-sock 3
 });
 
 test('field edits land in history with a summary', async () => {
@@ -168,6 +267,8 @@ test('field edits land in history with a summary', async () => {
   const last = history.items.filter(i => group(i.id) === group(save2)).map(i => i.summary).sort();
   assert.deepEqual(last, ['Colour swatches edited', 'Description edited', 'Keep selling when out of stock off → on', 'Low stock at 3 → 5', 'Name "Alpha <Tee>" → "B"', 'Photos: 2 added, 1 removed', 'Price 32.99 → 34.99', 'Status draft → active']);
   assert.ok(history.items.every(i => i.reason === 'edit' && i.by === 'owner@evincus.shop' && typeof i.field === 'string'));
+  assert.ok(history.items.every(i => /:\d{3}$/.test(i.id)), 'adj: keys end in a 3-digit index, so one save sorts in order');
+  assert.ok(adjKey('p', 'at', 'op', 10) > adjKey('p', 'at', 'op', 9));
   assert.ok(history.items.some(i => i.summary === 'Price 34.99 → 32.99'));
   assert.equal(edits(env).length, 10);
   const made = await save(env, cookie, draft(), null);
@@ -232,6 +333,7 @@ test('saving bumps catalog:rev so the storefront shows the edit on its next requ
   assert.equal((await edit(env, cookie, p => { p.name = 'Renamed Tee'; })).status, 200);
   assert.notEqual((await env.ORDERS.get(REV_KEY, 'json')).rev, rev);
   assert.ok(seen[0].puts.includes(REV_KEY) && !seen[0].checks.includes(REV_KEY));
+  assert.ok(!seen[0].puts.includes('stock:alpha-tee'), 'the variants did not change, so the stock document is not rewritten');
   assert.equal((await callWithoutData('GET', '/api/products/alpha-tee', { env })).json.name, 'Renamed Tee');
 });
 
@@ -294,7 +396,7 @@ test('the era order has its own key: a reorder survives a later product save, an
   const r = await send(order, g.version);
   assert.deepEqual([r.status, r.json.order], [200, order]);
   assert.deepEqual([(await send(order, g.version)).json.error.code], ['era-order-changed']);
-  for (const bad of [['old', 'alpha'], ['old', 'alpha', 'alpha'], ['old', 'alpha', 'ghost'], 'old', [1, 'alpha', 'future']]) {
+  for (const bad of [['old', 'alpha'], ['old', 'alpha', 'alpha'], ['old', 'alpha', 'ghost'], 'old', [1, 'alpha', 'future'], ['alpha|future', 'old'], ['alpha', 'future,old']]) {
     assert.deepEqual([(await send(bad, r.json.version)).json.error.code], ['invalid-era-order'], JSON.stringify(bad));
   }
   assert.equal((await edit(env, cookie, p => { p.name = 'X'; })).status, 200);
@@ -315,8 +417,15 @@ test('data seeded before catalog:era-order keeps its catalog:rev order through s
   assert.deepEqual(await slugs(), ['old', 'future', 'alpha']);
   assert.equal((await edit(env, cookie, p => { p.name = 'X'; })).status, 200);
   assert.deepEqual(await slugs(), ['old', 'future', 'alpha']);
+  assert.deepEqual((await env.ORDERS.get(REV_KEY, 'json')).eraOrder, ['old', 'future', 'alpha']); // carried while it is the only copy
   const g = (await req(env, cookie, 'GET', '/api/inventory/eras')).json;
   assert.deepEqual([g.order, g.version], [['old', 'future', 'alpha'], null]);
+  const r = await req(env, cookie, 'PUT', '/api/inventory/era-order', { opId: crypto.randomUUID(), order: ['alpha', 'old', 'future'], version: null });
+  assert.deepEqual([r.status, r.json.order], [200, ['alpha', 'old', 'future']]);
+  assert.deepEqual(Object.keys(await env.ORDERS.get(REV_KEY, 'json')), ['rev']); // ERA_ORDER_KEY exists now
+  assert.deepEqual(await slugs(), ['alpha', 'old', 'future']);
   assert.equal((await admin(env, 'POST', { slug: 'beta', name: 'Beta' })).status, 201);
-  assert.deepEqual(await env.ORDERS.get(ERA_ORDER_KEY, 'json'), ['beta', 'old', 'future', 'alpha']);
+  assert.deepEqual(await env.ORDERS.get(ERA_ORDER_KEY, 'json'), ['beta', 'alpha', 'old', 'future']);
+  assert.equal((await edit(env, cookie, p => { p.name = 'Y'; })).status, 200);
+  assert.deepEqual(Object.keys(await env.ORDERS.get(REV_KEY, 'json')), ['rev']);
 });

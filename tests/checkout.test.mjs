@@ -217,7 +217,7 @@ test('a retried checkout returns the same order and commits stock once', async (
   const responses = [...await Promise.all([place(b, env), place(b, env)]), await place(b, env)];
   assert.ok(responses.every(r => r.status === 201 && r.json.id === responses[0].json.id));
   assert.equal(stockOf(env, SHIRT).committed, 2);
-  assert.deepEqual([...env.ORDERS.store.keys()].filter(k => k.startsWith('adj:')), [`adj:alpha-tee:${new Date(NOW).toISOString()}:${responses[0].json.id}:0`]);
+  assert.deepEqual([...env.ORDERS.store.keys()].filter(k => k.startsWith('adj:')), [`adj:alpha-tee:${new Date(NOW).toISOString()}:${responses[0].json.id}:000`]);
 });
 
 test('continueSelling oversells instead of refusing', async () => {

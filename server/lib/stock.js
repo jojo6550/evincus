@@ -3,14 +3,15 @@ import { isOpId, readOpEntry, opPut } from './ops.js';
 
 // Stock is one document per product, `stock:<productId>` → { '<colour>|<size>': { onHand, committed } }, so a
 // checkout or stock save checks one key per product, within @deno/kv's 10 checks per commit. No metadata: a
-// document can outgrow its 1 KiB.
+// document can outgrow its 1 KiB. It lists exactly the product's variants (product saves keep it so), which makes it
+// the authority on which variants exist: a write against a variant it lacks was planned from an older catalog.
 export const stockKey = productId => 'stock:' + productId;
 
 // Value for a commit put, from the document as an object or a Map.
 export const stockDoc = doc => JSON.stringify(doc instanceof Map ? Object.fromEntries(doc) : doc);
 
-// One stock movement. `opId` and `i` make a retried write land on the same key.
-export const adjKey = (productId, iso, opId, i) => `adj:${productId}:${iso}:${opId}:${i}`;
+// One stock movement. `opId` and `i` make a retried write land on the same key; `i` is padded so one write's records sort.
+export const adjKey = (productId, iso, opId, i) => `adj:${productId}:${iso}:${opId}:${String(i).padStart(3, '0')}`;
 
 // Commits each order line against its product's stock document, as read into `entries` (productId → getEntry
 // result). Pure: one check and one put per product, plus an unguarded adj: put per line.
@@ -21,7 +22,8 @@ export function checkoutStock(entries, lines, products, { orderId, now }) {
   const adjs = lines.map((l, i) => {
     const doc = docs.get(l.id);
     const variant = `${l.color}|${l.size}`;
-    const { onHand = 0, committed = 0 } = doc[variant] ?? {};
+    if (!Object.hasOwn(doc, variant)) { short.push({ key: l.key, status: 'unknown-item' }); return null; } // renamed or removed since the quote
+    const { onHand = 0, committed = 0 } = doc[variant];
     // Clamped: an earlier continueSelling oversell is never shown to shoppers.
     if (products.find(p => p.id === l.id)?.continueSelling !== true && l.qty > onHand - committed) short.push({ key: l.key, available: Math.max(0, onHand - committed) });
     doc[variant] = { ...doc[variant], onHand, committed: committed + l.qty };
@@ -45,7 +47,7 @@ export async function adjustStock(env, { opId, productId, changes, reason, note 
   const key = stockKey(productId);
   // The op is looked up before the payload is validated, so a retry replays even if the catalog has changed.
   for (let round = 0; round < 5; round++) {
-    const op = await readOpEntry(env, opId);
+    const op = await readOpEntry(env, opId, 'stock');
     if (op.result) return { result: op.result, replayed: true };
     const product = products.find(p => p.id === productId);
     if (!product) throw new HttpError('unknown-product', 404);
@@ -56,6 +58,7 @@ export async function adjustStock(env, { opId, productId, changes, reason, note 
     const at = now.toISOString();
     const { value, version } = await env.ORDERS.getEntry(key);
     const doc = JSON.parse(value ?? '{}');
+    if (changes.some(ch => !Object.hasOwn(doc, ch.key.slice(productId.length + 1)))) throw new HttpError('product-changed', 409);
     const stock = {};
     for (const { key: k, delta } of changes) {
       const variant = k.slice(productId.length + 1);
@@ -70,7 +73,7 @@ export async function adjustStock(env, { opId, productId, changes, reason, note 
       puts: [
         { key, value: stockDoc(doc) },
         ...changes.map((ch, i) => ({ key: adjKey(productId, at, opId, i), value: JSON.stringify({ key: ch.key, onHand: ch.delta, committed: 0, reason, note, by, at }) })),
-        opPut(opId, result),
+        opPut(opId, 'stock', result),
       ],
     });
     if (ok) return { result, replayed: false };

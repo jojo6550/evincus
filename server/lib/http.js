@@ -42,7 +42,7 @@ export const MESSAGES = {
   'stock-busy': 'Someone else changed this stock at the same time. Reload and try again.',
   'sales-changed': 'Sales changed since you read them. Read them again, then retry.',
   'invalid-product': "Some details can't be saved. Fix the marked fields, then save again.",
-  'product-changed': 'Someone else saved this product while you were editing. Check their changes, then save again.',
+  'product-changed': 'This product changed while saving. Reload and try again.',
   'product-exists': 'A product with that id already exists. Pick another id.',
   'invalid-era': "Some era details can't be saved. Fix the marked fields, then save again.",
   'era-changed': 'Someone else saved this era while you were editing. Check their changes, then save again.',
@@ -50,6 +50,7 @@ export const MESSAGES = {
   'invalid-era-order': "That era order can't be saved. Reload and try again.",
   'era-order-changed': 'Someone else moved the eras while you were editing. Reload and try again.',
   'catalog-busy': 'Someone else saved at the same time. Try again.',
+  'op-reused': 'That request ID was already used for something else. Reload and try again.',
 };
 
 export function json(data, status = 200, headers = {}) {

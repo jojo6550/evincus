@@ -36,8 +36,9 @@ export async function placeOrderRoute(req, c) {
     result = await submitOrder(c.env, id, fingerprint, directRecord(id, q, details, c.now, c.data.products), { products: c.data.products });
     if (result.conflict) return fail(c, 'checkout-conflict', 409);
     if (result.short) {
-      const short = new Map(result.short.map(s => [s.key, s.available]));
-      return fail(c, 'bag-changed', 409, { lines: q.lines.map(l => (short.has(l.key) ? { ...l, status: short.get(l.key) > 0 ? 'insufficient-stock' : 'sold-out', available: short.get(l.key) } : l)) });
+      const short = new Map(result.short.map(s => [s.key, s]));
+      const status = s => s.status ?? (s.available > 0 ? 'insufficient-stock' : 'sold-out'); // status: a variant gone since the quote
+      return fail(c, 'bag-changed', 409, { lines: q.lines.map(l => (short.has(l.key) ? { ...l, status: status(short.get(l.key)), available: short.get(l.key).available ?? 0 } : l)) });
     }
     ({ record } = result);
   }

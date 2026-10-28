@@ -105,7 +105,7 @@ test('stock is committed in the order commit, with one adj: record per line', as
   assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', rec), { record: rec });
   assert.deepEqual(stockOf(e, SHIRT), { onHand: 5, committed: 3 });
   assert.deepEqual(stockOf(e, 'alpha-tee|Black|M'), { onHand: 2, committed: 2 });
-  assert.deepEqual(JSON.parse(e.ORDERS.store.get('adj:alpha-tee:2026-10-03T12:00:00.000Z:EV-1:1').value),
+  assert.deepEqual(JSON.parse(e.ORDERS.store.get('adj:alpha-tee:2026-10-03T12:00:00.000Z:EV-1:001').value),
     { key: 'alpha-tee|Black|M', onHand: 0, committed: 2, reason: 'order', note: '', by: null, at: '2026-10-03T12:00:00.000Z', orderId: 'EV-1' });
   assert.equal([...e.ORDERS.store.keys()].filter(k => k.startsWith('adj:')).length, 2);
 });

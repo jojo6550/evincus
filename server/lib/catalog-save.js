@@ -27,8 +27,9 @@ const colorOf = k => k.slice(0, k.indexOf('|'));
 const sizeOf = k => k.slice(k.indexOf('|') + 1);
 const skusOf = (products, id) => new Set(products.filter(o => o.id !== id).flatMap(o => Object.values(o.skus ?? {})));
 const orderOf = (entry, head) => (entry.value ? JSON.parse(entry.value) : head?.eraOrder ?? []);
-// A legacy eraOrder rides along until ERA_ORDER_KEY exists, so the fallback in loadCatalog keeps working.
-const revPut = head => ({ key: REV_KEY, value: JSON.stringify({ rev: crypto.randomUUID(), ...(head?.eraOrder && { eraOrder: head.eraOrder }) }) });
+// A store seeded before ERA_ORDER_KEY keeps its only era order in REV_KEY.eraOrder (loadCatalog's fallback), so a write
+// carries it until `ordered`: ERA_ORDER_KEY was read and exists, or this commit writes it.
+const revPut = (head, ordered) => ({ key: REV_KEY, value: JSON.stringify({ rev: crypto.randomUUID(), ...(!ordered && head?.eraOrder && { eraOrder: head.eraOrder }) }) });
 
 // Error codes for a product save; [] when it may be saved. `current` is the stored product (null when creating),
 // `stock` its stock document, `renames` { old colour: new colour }, `id` the id it is saved under.
@@ -85,19 +86,19 @@ export function validateProduct(p, { eras = [], products = [], stock = {}, curre
   return errors;
 }
 
-// The stored document: known fields only. Variants keep their SKU (through a rename too) unless the page sent one;
-// new variants get defaultSku.
-function productDoc(p, { current, catalog, rn, at }) {
-  const back = new Map(Object.entries(rn).map(([a, b]) => [b, a]));
+// The stored document: known fields only. A variant keeps the SKU of the stock it carries (`source` gives a colour's
+// old name: through a rename, or itself if kept; null when new) unless the page sent one; new variants get defaultSku.
+function productDoc(p, { current, catalog, source, at }) {
   const variants = p.colors.flatMap(c => p.sizes.map(s => [c.name, s]));
   const taken = skusOf(catalog.products, p.id);
   for (const [c, s] of variants) if (p.skus[`${c}|${s}`] !== undefined) taken.add(p.skus[`${c}|${s}`]);
   const skus = {};
-  for (const [c, s] of variants) {
-    const prev = current?.skus?.[`${back.get(c) ?? c}|${s}`];
-    skus[`${c}|${s}`] = p.skus[`${c}|${s}`] ?? (prev && !taken.has(prev) ? prev : defaultSku(p.id, c, s, taken));
-    taken.add(skus[`${c}|${s}`]);
+  for (const [c, s] of variants) { // kept SKUs first, so no default takes one a renamed colour carries over
+    const prev = source(c) === null ? undefined : current?.skus?.[`${source(c)}|${s}`];
+    skus[`${c}|${s}`] = p.skus[`${c}|${s}`] ?? (prev && !taken.has(prev) ? prev : undefined);
+    if (skus[`${c}|${s}`]) taken.add(skus[`${c}|${s}`]);
   }
+  for (const [c, s] of variants) if (!skus[`${c}|${s}`]) taken.add(skus[`${c}|${s}`] = defaultSku(p.id, c, s, taken));
   const last = Math.max(-1, ...catalog.products.filter(o => o.era === p.era && o.id !== p.id).map(o => o.position ?? -1));
   return {
     id: p.id, era: p.era, status: p.status, name: p.name, ...(p.description !== undefined && { description: p.description }),
@@ -134,13 +135,13 @@ function edits(a, b) {
   return out;
 }
 
-// Moves stock rows to their colour's new name. Renamed rows go last, so they win over a leftover row under that name
-// (a removed colour's rows are all zero: removal needs them so).
-function renameRows(stock, rn) {
-  const moved = k => Object.hasOwn(rn, colorOf(k));
-  return Object.fromEntries(Object.entries(stock).sort(([a], [b]) => moved(a) - moved(b))
-    .map(([k, v]) => [moved(k) ? `${rn[colorOf(k)]}|${sizeOf(k)}` : k, v]));
+// The stock document lists exactly the saved variants, since adjustments and checkouts refuse any other: rows move with
+// a rename, new variants get zero rows, and removed ones (all zero: validation needs them so) are dropped.
+function stockRows(doc, stock, source) {
+  return Object.fromEntries(doc.colors.flatMap(c => doc.sizes.map(s => [`${c.name}|${s}`,
+    (source(c.name) !== null && stock[`${source(c.name)}|${s}`]) || { onHand: 0, committed: 0 }])));
 }
+const canon = doc => JSON.stringify(Object.keys(doc).sort().map(k => [k, doc[k]]));
 
 const entryOf = async (env, key) => { const { value, version } = await env.ORDERS.getEntry(key); return { value: JSON.parse(value), version }; };
 const readProduct = async (env, id) => { const { value, version } = await entryOf(env, productKey(id)); return { product: value, version }; };
@@ -151,11 +152,12 @@ const invalid = (code, errors) => new HttpError(code, 400, { errors });
 export async function saveProduct(env, { opId, product, id = product?.id, renames, version, by, now }) {
   if (!isOpId(opId)) throw invalid('invalid-product', ['op-invalid']);
   for (let round = 0; round < ROUNDS; round++) {
-    const op = await readOpEntry(env, opId); // before validating, so a retry replays whatever changed since
+    const op = await readOpEntry(env, opId, 'product'); // before validating, so a retry replays whatever changed since
     if (op.result) return { ...await readProduct(env, op.result.id), created: false, replayed: true };
     if (version !== null && typeof version !== 'string') throw invalid('invalid-product', ['version-invalid']);
     const key = productKey(id);
-    const [cur, st, head, catalog] = await Promise.all([env.ORDERS.getEntry(key), env.ORDERS.getEntry(stockKey(id)), env.ORDERS.get(REV_KEY, 'json'), loadCatalog(env)]);
+    const [cur, st, head, order, catalog] = await Promise.all([env.ORDERS.getEntry(key), env.ORDERS.getEntry(stockKey(id)),
+      env.ORDERS.get(REV_KEY, 'json'), env.ORDERS.getEntry(ERA_ORDER_KEY), loadCatalog(env)]);
     const current = cur.value ? JSON.parse(cur.value) : null;
     if (version === null && current) throw new HttpError('product-exists', 409, { current, version: cur.version });
     if (version !== null && cur.version !== version) throw new HttpError('product-changed', 409, { current, version: cur.version });
@@ -168,16 +170,21 @@ export async function saveProduct(env, { opId, product, id = product?.id, rename
     const errors = validateProduct(p, { eras: catalog.eras, products: catalog.products, stock, current, renames: rn, id });
     if (errors.length) throw invalid('invalid-product', errors);
     const at = now.toISOString();
-    const doc = productDoc(p, { current, catalog, rn: rn ?? {}, at });
+    const moves = rn ?? {};
+    const back = new Map(Object.entries(moves).map(([a, b]) => [b, a]));
+    const kept = new Set(arr(current?.colors).map(c => c.name).filter(n => !Object.hasOwn(moves, n)));
+    const source = name => back.get(name) ?? (kept.has(name) ? name : null);
+    const doc = productDoc(p, { current, catalog, source, at });
+    const rows = stockRows(doc, stock, source);
     const changes = current ? edits(current, doc) : [{ field: 'created', summary: `Created as ${doc.status}` }];
     const ok = await env.ORDERS.commit({
       checks: [{ key, version: cur.version }, { key: stockKey(id), version: st.version }, op.check],
       puts: [
         { key, value: JSON.stringify(doc) },
-        ...(Object.keys(rn ?? {}).length ? [{ key: stockKey(id), value: stockDoc(renameRows(stock, rn)) }] : []),
+        ...(canon(rows) === canon(stock) ? [] : [{ key: stockKey(id), value: stockDoc(rows) }]),
         ...changes.map((ch, i) => ({ key: adjKey(id, at, opId, i), value: JSON.stringify({ reason: 'edit', ...ch, by, at }) })),
-        revPut(head),
-        opPut(opId, { id }),
+        revPut(head, !!order.value),
+        opPut(opId, 'product', { id }),
       ],
     });
     if (ok) return { ...await readProduct(env, id), created: !current, replayed: false };
@@ -210,7 +217,7 @@ export function validateEra(e) {
 export async function saveEra(env, { opId, era, slug = era?.slug, version, now }) {
   if (!isOpId(opId)) throw invalid('invalid-era', ['op-invalid']);
   for (let round = 0; round < ROUNDS; round++) {
-    const op = await readOpEntry(env, opId);
+    const op = await readOpEntry(env, opId, 'era');
     if (op.result) return { ...await readEra(env, op.result.slug), created: false, replayed: true };
     const e = isObject(era) ? { ...era, name: trim(era.name) } : era;
     const errors = validateEra(e);
@@ -230,7 +237,7 @@ export async function saveEra(env, { opId, era, slug = era?.slug, version, now }
     const first = current ? [] : [{ key: ERA_ORDER_KEY, value: JSON.stringify([slug, ...orderOf(order, head).filter(s => s !== slug)]) }];
     const ok = await env.ORDERS.commit({
       checks: [{ key, version: cur.version }, ...(current ? [] : [{ key: ERA_ORDER_KEY, version: order.version }]), op.check],
-      puts: [{ key, value: JSON.stringify(doc) }, ...first, revPut(head), opPut(opId, { slug })],
+      puts: [{ key, value: JSON.stringify(doc) }, ...first, revPut(head, !!order.value || !current), opPut(opId, 'era', { slug })],
     });
     if (ok) return { ...await readEra(env, slug), created: !current, replayed: false };
   }
@@ -246,16 +253,16 @@ export async function readEraOrder(env) {
 export async function setEraOrder(env, { opId, order, version }) {
   if (!isOpId(opId)) throw new HttpError('invalid-era-order', 400);
   for (let round = 0; round < ROUNDS; round++) {
-    const op = await readOpEntry(env, opId);
+    const op = await readOpEntry(env, opId, 'era-order');
     if (op.result) return { ...await readEraOrder(env), replayed: true };
     const [entry, head] = await Promise.all([env.ORDERS.getEntry(ERA_ORDER_KEY), env.ORDERS.get(REV_KEY, 'json')]);
     const current = orderOf(entry, head);
     if (entry.version !== version) throw new HttpError('era-order-changed', 409, { current, version: entry.version });
     // Every era is in the stored order (creating one puts it there), so a valid order is a reordering of it.
-    if (!Array.isArray(order) || !order.every(s => typeof s === 'string') || [...order].sort().join('|') !== [...current].sort().join('|')) throw new HttpError('invalid-era-order', 400);
+    if (!Array.isArray(order) || !order.every(isSlug) || JSON.stringify([...order].sort()) !== JSON.stringify([...current].sort())) throw new HttpError('invalid-era-order', 400);
     const ok = await env.ORDERS.commit({
       checks: [{ key: ERA_ORDER_KEY, version: entry.version }, op.check],
-      puts: [{ key: ERA_ORDER_KEY, value: JSON.stringify(order) }, revPut(head), opPut(opId, { order: true })],
+      puts: [{ key: ERA_ORDER_KEY, value: JSON.stringify(order) }, revPut(head, true), opPut(opId, 'era-order', { order: true })],
     });
     if (ok) return { ...await readEraOrder(env), replayed: false };
   }
