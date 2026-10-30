@@ -5,6 +5,7 @@ import { productKey, loadCatalog } from '../lib/catalog-store.js';
 import { saveProduct, saveEra, setEraOrder, readEraOrder, productHistory } from '../lib/catalog-save.js';
 import { lineKey, imagesFor } from '../../data/catalog.js';
 import { uploadPhoto } from '../lib/media.js';
+import { orderAction } from '../lib/orders.js';
 import { photoPath, manifestEntry } from '../../data/photos.js';
 
 const noStore = { 'Cache-Control': 'no-store' };
@@ -154,6 +155,17 @@ export async function eraOrderRoute(req, c) {
   const b = await objectBody(req, 16384, 'invalid-era-order');
   const { order, version, replayed } = await setEraOrder(c.env, { opId: b.opId, order: b.order, version: b.version });
   c.log.info('era.order_saved', { account: email, replayed });
+  return json({ order, version }, 200, noStore);
+}
+
+const ACTION_EVENTS = { ready: 'order.ready', fulfilled: 'order.fulfilled', cancel: 'order.cancelled', refund: 'order.refunded', note: 'order.noted' };
+
+// POST /api/inventory/orders/:id/actions { opId, version, action } → { order, version }.
+export async function orderActionRoute(req, c) {
+  const { email } = await requireStaff(req, c, { role: 'owner', write: true });
+  const b = await objectBody(req, 16384, 'invalid-action');
+  const { order, version, replayed } = await orderAction(c.env, c.params[0], b, { by: email, now: c.now });
+  c.log.info(ACTION_EVENTS[b.action?.type] ?? 'order.action', { orderId: c.params[0], account: email, replayed });
   return json({ order, version }, 200, noStore);
 }
 

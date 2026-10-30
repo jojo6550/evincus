@@ -51,6 +51,9 @@ export const MESSAGES = {
   'era-order-changed': 'Someone else moved the eras while you were editing. Reload and try again.',
   'catalog-busy': 'Someone else saved at the same time. Try again.',
   'invalid-action': "That can't be done to this order.",
+  'unknown-order': "There's no order with that reference.",
+  'order-changed': 'This order changed since you opened it. Check it again, then retry.',
+  'order-busy': 'Someone else changed this order at the same time. Reload and try again.',
   'op-reused': 'That request ID was already used for something else. Reload and try again.',
 };
 

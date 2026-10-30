@@ -26,6 +26,7 @@ export function parseCheckout(body) {
 export function directRecord(id, q, details, now, products) {
   return {
     id, status: 'PLACED', paymentStatus: 'NOT_COLLECTED', placedAt: now.toISOString(), stockCommitted: true,
+    fulfilmentStatus: 'UNFULFILLED', events: [{ at: now.toISOString(), type: 'placed', by: null }],
     lines: q.lines.map(({ key, id, name, color, size, qty, unitCents }) => {
       const p = products.find(x => x.id === id);
       return { key, id, name, color, size, qty, unitCents, sku: p.skus?.[`${color}|${size}`] ?? null, costCents: p.costCents ?? null };

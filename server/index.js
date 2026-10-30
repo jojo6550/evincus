@@ -18,7 +18,7 @@ import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
 import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute, listErasAdminRoute, newEraRoute, uploadMediaAdminRoute, attachPhotosRoute } from './routes/admin.js';
-import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute, uploadMediaRoute } from './routes/inventory.js';
+import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute, uploadMediaRoute, orderActionRoute } from './routes/inventory.js';
 
 // The fourth field marks routes that read the catalog: only they load it, with running sales and stock applied.
 // Health loads its own, so a KV failure still answers 503 with kv: 'error'.
@@ -56,6 +56,7 @@ const ROUTES = [
   ['GET', /^\/api\/inventory\/eras$/, listErasRoute],
   ['PUT', /^\/api\/inventory\/eras\/([a-z0-9-]+)$/, saveEraRoute],
   ['PUT', /^\/api\/inventory\/era-order$/, eraOrderRoute],
+  ['POST', /^\/api\/inventory\/orders\/([A-Za-z0-9-]+)\/actions$/, orderActionRoute],
 ];
 
 // `data` replaces the KV catalog (tests); stock still comes from env.ORDERS.
