@@ -61,6 +61,28 @@ export function rowsHtml(list, eraNames) {
 
 // ---- Product page ----
 
+// Server error codes → [the field to mark, what to tell the owner].
+export const ERRORS = {
+  'name-required': ['f-name', 'Add a name before making it Active.'], 'name-invalid': ['f-name', 'The name is too long.'],
+  'description-invalid': ['f-description', 'The description is too long.'], 'fabric-invalid': ['f-fabric', 'The fabric is too long.'],
+  'category-invalid': ['f-category', 'The category is too long.'], 'era-unknown': ['f-era', 'Pick an era.'],
+  'price-required': ['f-price', 'Add a price before making it Active.'], 'price-invalid': ['f-price', 'The price must be more than 0.'],
+  'cost-invalid': ['f-cost', 'Cost per item must be 0 or more.'], 'low-stock-invalid': ['f-low', 'Low stock at must be a whole number, 0 or more.'],
+  'sizes-required': ['s-new', 'Add a size before making it Active.'], 'size-invalid': ['s-new', 'Size names need 1 to 100 characters and no "|".'],
+  'size-duplicate': ['s-new', 'Two sizes have the same name.'], 'size-has-stock': [null, 'A size with stock can’t be removed. Bring its stock to 0 first.'],
+  'colors-required': [null, 'Add a colour before making it Active.'], 'color-invalid': [null, 'Colour names need 1 to 100 characters and no "|".'],
+  'color-duplicate': [null, 'Two colours have the same name.'], 'color-has-stock': [null, 'A colour with stock can’t be removed. Bring its stock to 0 first.'],
+  'color-committed': [null, 'A colour with units promised to orders can’t be renamed.'], 'photo-required': [null, 'Add a photo before making it Active.'],
+  'sku-taken': [null, 'A SKU is already used, here or by another product. Change the marked one.'],
+  'sku-invalid': [null, 'SKUs need 1 to 64 characters.'],
+  'id-invalid': ['f-id', 'The ID needs lowercase letters, numbers and single dashes, and can’t be “new”.'],
+  'product-exists': ['f-id', 'A product with that ID already exists. Pick another ID.'],
+  'rename-invalid': [null, 'A renamed colour no longer matches the saved colours. Reload the product and rename it again.'],
+  'hex-invalid': [null, 'A colour swatch isn’t a valid colour. Pick it again.'],
+  'id-changed': [null, 'A product’s ID can’t change once it’s saved. Reload the product.'],
+  'status-invalid': ['f-status', 'Pick Active, Draft or Archived.'],
+};
+
 const STATUSES = { active: 'Active', draft: 'Draft', archived: 'Archived' };
 const REASONS = { received: 'Received', correction: 'Correction', damaged: 'Damaged', returned: 'Returned', other: 'Other' };
 const HISTORY = { ...REASONS, order: 'Order' };
@@ -205,6 +227,7 @@ export function pageHtml(pg, { conflict, eraName }) {
         <section class="card" aria-labelledby="h-stock"><h2 class="card__title" id="h-stock">Stock <small>available shown${owner ? ' in the stepper' : ''}</small></h2><div class="card__body" id="stock-body">${stockHtml(pg)}</div></section>
         ${pg.isNew ? '' : `<section class="card" aria-labelledby="h-history"><h2 class="card__title" id="h-history">History <small>this product</small></h2>
           <ul class="hist">${historyItems(pg.history.items, o.id) || '<li class="note">Nothing yet.</li>'}</ul>
+          ${pg.historyError ? `<p class="note hist__err" role="alert">${esc(pg.historyError)}</p>` : ''}
           ${pg.history.next ? '<button type="button" class="btn btn--line" id="hist-more">Load more</button>' : ''}
         </section>`}
       </div>

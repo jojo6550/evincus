@@ -187,6 +187,7 @@ main:focus { outline: 0; }
 .hist__n { flex: none; font: 700 13px var(--mono); }
 .hist__n--plus { color: var(--ok); }
 .hist__n--minus { color: var(--hazard); }
+.hist__err { color: var(--hazard); }
 
 .savebar {
   position: sticky; bottom: calc(var(--tabs) + env(safe-area-inset-bottom, 0px) + 8px); z-index: 5; display: flex; align-items: center; gap: 12px;

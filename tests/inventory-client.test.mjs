@@ -55,3 +55,17 @@ test('a 401 from the login route is not signed-out; one from anywhere else is', 
   assert.equal(signedOut, 1);
   off();
 });
+
+test('a request that outlasts its timeout ends as a network error; the default is 30 s', { timeout: 2000 }, async t => {
+  const signals = [];
+  const hold = setInterval(() => {}, 1000); // AbortSignal.timeout's timer is unref'd and alone would let Node exit
+  t.after(() => clearInterval(hold));
+  globalThis.fetch = (url, init) => new Promise((resolve, reject) => {
+    signals.push(init.signal);
+    init.signal.addEventListener('abort', () => reject(init.signal.reason));
+  });
+  await assert.rejects(api('POST', '/x', {}, { timeout: 5 }), e => e instanceof ApiError && e.status === 0 && e.code === 'network');
+  assert.equal(signals[0].aborted, true);
+  api('GET', '/x').catch(() => {}); // never settles in this test; only its signal is inspected
+  assert.equal(signals[1].aborted, false);
+});

@@ -39,7 +39,7 @@ export function validateProduct(p, { eras = [], products = [], stock = {}, curre
   const check = (bad, code) => { if (bad) errors.push(code); };
   const sizes = arr(p.sizes), colors = arr(p.colors).map(c => (isObject(c) ? c : {})), names = colors.map(c => c.name);
   const photos = [p.images, ...colors.map(c => c.images)].filter(v => v !== undefined);
-  check(!isSlug(p.id), 'id-invalid');
+  check(!isSlug(p.id) || p.id === 'new', 'id-invalid'); // #inventory/new is the page for creating a product
   check(id !== undefined && p.id !== id, 'id-changed');
   check(!eras.some(e => e.slug === p.era), 'era-unknown');
   check(!['active', 'draft', 'archived'].includes(p.status), 'status-invalid');

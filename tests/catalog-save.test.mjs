@@ -231,7 +231,7 @@ test('an active product without a photo is refused; a draft one saves', async ()
 
 test('product ids are kebab slugs fixed at creation; a new product goes last in its era', async () => {
   const { env, cookie } = await setup();
-  for (const id of ['a--b', 'x'.repeat(61), '-a']) {
+  for (const id of ['a--b', 'x'.repeat(61), '-a', 'new']) { // 'new' is the inventory page's address for creating one
     const r = await req(env, cookie, 'PUT', `/api/inventory/products/${id}`, { opId: crypto.randomUUID(), product: draft({ id }), version: null });
     assert.ok(r.json.error.errors.includes('id-invalid'), id);
   }

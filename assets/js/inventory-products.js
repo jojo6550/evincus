@@ -68,15 +68,16 @@ export const rekeyDeltas = (deltas, renames = {}) => Object.fromEntries(Object.e
 // Request → opId until it lands, so pressing Save again after a failure resends the same op and it applies once.
 const opIds = new Map();
 const requestKey = (method, path, body) => `${method} ${path} ${JSON.stringify(body)}`;
+// -> { result: 'ok' | ApiError, data }: `data` is the server's reply when it landed.
 async function send(method, path, body) {
   const key = requestKey(method, path, body);
   if (!opIds.has(key)) opIds.set(key, newOpId());
   try {
-    await api(method, path, body, { opId: opIds.get(key) });
+    const data = await api(method, path, body, { opId: opIds.get(key) });
     opIds.delete(key);
-    return 'ok';
+    return { result: 'ok', data };
   } catch (err) {
-    return err;
+    return { result: err };
   }
 }
 
@@ -84,6 +85,9 @@ async function send(method, path, body) {
 // retried as-is or the stock is reloaded, other stock edits under a new opId could apply on top of it, so none go.
 const lost = new Map();
 const unanswered = res => res instanceof ApiError && (res.status === 0 || res.status >= 500);
+// Only a reply the server gives after its op lookup settles a lost save. 401, 403 and 429 come before it
+// (requireStaff, the rate limit), so they say nothing about whether the lost save landed.
+const settles = res => res === 'ok' || (!unanswered(res) && ![401, 403, 429].includes(res.status));
 const waiting = message => new ApiError(409, { error: { code: 'stock-unconfirmed', message } });
 export const stockUnconfirmed = productId => lost.has(productId);
 // After a reload shows the real stock: the lost request is settled either way, so its opId is dropped too.
@@ -94,53 +98,118 @@ export function forgetStock(productId) {
 
 const STOCK = '/api/inventory/stock';
 // Stock goes first: its keys use the names the stock document has until the product save renames them. `version`
-// null creates the product.
+// null creates the product. -> { stock?, product?: 'ok' | ApiError, replies?: { stock?, product? } }: a part is sent
+// only when it has changes, and `replies` holds what the server returned for each part that landed.
 export async function saveAll({ productId, original, edited, version, deltas, reason, note }) {
-  const out = {};
+  const out = {}, replies = {};
   const changes = Object.entries(deltas).filter(([, d]) => d).map(([k, delta]) => ({ key: `${productId}|${k}`, delta }));
   if (changes.length) {
-    const body = { productId, changes, reason, note };
-    if (lost.has(productId) && lost.get(productId) !== requestKey('POST', STOCK, body)) {
+    const body = { productId, changes, reason, note }, key = requestKey('POST', STOCK, body);
+    if (lost.has(productId) && lost.get(productId) !== key) {
       out.stock = waiting('Couldn’t confirm the last stock save. Retry it or reload the stock first.');
     } else {
-      out.stock = await send('POST', STOCK, body);
-      if (unanswered(out.stock)) lost.set(productId, requestKey('POST', STOCK, body)); else lost.delete(productId);
+      ({ result: out.stock, data: replies.stock } = await send('POST', STOCK, body));
+      if (unanswered(out.stock)) lost.set(productId, key); else if (settles(out.stock)) lost.delete(productId);
     }
   }
   if (changedFields(original, edited).length) {
     // A rename would move the keys a lost stock save used, so details wait for it too.
-    out.product = lost.has(productId) ? waiting('Details wait until the stock save is confirmed.')
-      : await send('PUT', `/api/inventory/products/${encodeURIComponent(productId)}`, { ...productBody(original, edited), version });
+    if (lost.has(productId)) out.product = waiting('Details wait until the stock save is confirmed.');
+    else ({ result: out.product, data: replies.product } = await send('PUT', `/api/inventory/products/${encodeURIComponent(productId)}`, { ...productBody(original, edited), version }));
   }
+  if (replies.stock || replies.product) out.replies = replies;
   return out;
 }
 
-// ---- UI ----
+// The state of one product page; `d` is the GET reply, or null for a new product (a Draft in the first era).
+// Pure, so tests drive a page's saves without a DOM.
+export function newPage({ id, d, eras, who }) {
+  const product = d?.product ?? blankProduct(eras[0]?.slug ?? '');
+  return {
+    id, isNew: id === 'new', idTouched: false, email: who.email, owner: who.role === 'owner', eras,
+    original: product, version: d?.version ?? null, edited: editable(product), stock: d?.stock ?? {}, history: d?.history ?? { items: [], next: null },
+    deltas: {}, reason: 'received', note: '', rowErrors: {}, skuErrors: {}, fieldErrors: [], conflict: null, msg: '', historyError: '', saving: false,
+  };
+}
 
-const ERRORS = {
-  'name-required': ['f-name', 'Add a name before making it Active.'], 'name-invalid': ['f-name', 'The name is too long.'],
-  'description-invalid': ['f-description', 'The description is too long.'], 'fabric-invalid': ['f-fabric', 'The fabric is too long.'],
-  'category-invalid': ['f-category', 'The category is too long.'], 'era-unknown': ['f-era', 'Pick an era.'],
-  'price-required': ['f-price', 'Add a price before making it Active.'], 'price-invalid': ['f-price', 'The price must be more than 0.'],
-  'cost-invalid': ['f-cost', 'Cost per item must be 0 or more.'], 'low-stock-invalid': ['f-low', 'Low stock at must be a whole number, 0 or more.'],
-  'sizes-required': ['s-new', 'Add a size before making it Active.'], 'size-invalid': ['s-new', 'Size names need 1 to 100 characters and no "|".'],
-  'size-duplicate': ['s-new', 'Two sizes have the same name.'], 'size-has-stock': [null, 'A size with stock can’t be removed. Bring its stock to 0 first.'],
-  'colors-required': [null, 'Add a colour before making it Active.'], 'color-invalid': [null, 'Colour names need 1 to 100 characters and no "|".'],
-  'color-duplicate': [null, 'Two colours have the same name.'], 'color-has-stock': [null, 'A colour with stock can’t be removed. Bring its stock to 0 first.'],
-  'color-committed': [null, 'A colour with units promised to orders can’t be renamed.'], 'photo-required': [null, 'Add a photo before making it Active.'],
-  'sku-taken': [null, 'A SKU is already used, here or by another product. Change the marked one.'],
-  'sku-invalid': [null, 'SKUs need 1 to 64 characters.'],
-  'id-invalid': ['f-id', 'The ID needs lowercase letters, numbers and single dashes, and can’t be “new”.'],
-  'product-exists': ['f-id', 'A product with that ID already exists. Pick another ID.'],
+// Back from the sign-in screen, the same account's unsaved edits are kept.
+export const resumes = (pg, id, email) => pg?.id === id && pg.email === email && dirty(pg);
+// A stepper change: the shown Available never goes below 0 by lowering (the server's rule: On hand stays ≥
+// Committed), and one change stays within the server's cap.
+export const clampDelta = (row, delta) => Math.max(Math.min(0, row.committed - row.onHand), Math.min(100000, delta));
+const dirty = pg => !!pg && pendingSummary(pg.original, pg.edited, pg.deltas).text !== '';
+// The stock document a product save leaves (as stockRows in catalog-save.js): rows follow renames, new variants are zero.
+const rowsAfter = (product, stock, renames) => {
+  const moved = rekeyDeltas(stock, renames);
+  return Object.fromEntries(product.colors.flatMap(c => product.sizes.map(s => `${c.name}|${s}`)).map(k => [k, moved[k] ?? { onHand: 0, committed: 0 }]));
 };
+
+// One Save press. Each part's reply lands in the page at once; a part that failed keeps its edits. The GET after it
+// only refreshes history and the stock others moved. -> the new product's id once it is created, else null.
+export async function savePage(pg) {
+  Object.assign(pg, { saving: true, msg: '', rowErrors: {}, skuErrors: {}, fieldErrors: [] });
+  if (pg.isNew && !isId(pg.edited.id)) {
+    Object.assign(pg, { saving: false, fieldErrors: ['id-invalid'], msg: `Details not saved: ${ERRORS['id-invalid'][1]}` });
+    return null;
+  }
+  const productId = pg.isNew ? pg.edited.id : pg.id;
+  const { renames = {} } = productBody(pg.original, pg.edited);
+  const res = await saveAll({ productId, original: pg.original, edited: pg.edited, version: pg.version, deltas: pg.deltas, reason: pg.reason, note: pg.note });
+  if (pg.isNew && res.product === 'ok') {
+    pg.saving = false;
+    return productId;
+  }
+  const msgs = [];
+  if (res.stock === 'ok') {
+    for (const [k, v] of Object.entries(res.replies.stock.stock ?? {})) pg.stock[k.slice(pg.id.length + 1)] = v;
+    Object.assign(pg, { deltas: {}, note: '' });
+  } else if (res.stock) {
+    msgs.push(stockUnconfirmed(pg.id) ? 'Couldn’t confirm the stock save.' : `Stock not saved: ${res.stock.message}`);
+    if (res.stock.details?.key) pg.rowErrors[res.stock.details.key.slice(pg.id.length + 1)] = res.stock.message;
+  }
+  if (res.product === 'ok') {
+    const { product, version } = res.replies.product;
+    Object.assign(pg, {
+      original: product, version, edited: editable(product), conflict: null, stock: rowsAfter(product, pg.stock, renames),
+      deltas: rekeyDeltas(pg.deltas, renames), rowErrors: rekeyDeltas(pg.rowErrors, renames), // kept stock changes, under the new names
+    });
+  } else if (res.product) {
+    const err = res.product;
+    if (err.code === 'product-changed' && err.details?.current) pg.conflict = err.details;
+    pg.fieldErrors = codesOf(err);
+    // The server doesn't say which SKU clashed, so every SKU typed on this page is marked.
+    const sku = pg.fieldErrors.find(c => c.startsWith('sku-'));
+    if (sku) {
+      for (const [k, v] of Object.entries(pg.edited.skus)) if (v.trim() && v.trim() !== (pg.original.skus?.[k] ?? '')) pg.skuErrors[k] = ERRORS[sku][1];
+    }
+    msgs.push(err.code === 'stock-unconfirmed' ? err.message : `Details not saved: ${errorText(err)}`);
+  }
+  if (res.replies) {
+    try {
+      const d = await api('GET', `/api/inventory/products/${encodeURIComponent(pg.id)}`);
+      registerImages(d.media);
+      Object.assign(pg, { stock: d.stock, history: d.history });
+    } catch (err) {
+      msgs.push(`Saved, but the page couldn’t refresh: ${err.message}`);
+    }
+  }
+  Object.assign(pg, { saving: false, msg: msgs.join(' ') || 'Saved.' });
+  return null;
+}
+
+const { ERRORS } = view;
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const codesOf = err => (err.code === 'invalid-product' ? err.details?.errors ?? [] : [err.code]);
+const errorText = err => [...new Set(codesOf(err).map(c => ERRORS[c]?.[1] ?? err.message))].join(' ') || err.message;
+const isId = id => SLUG.test(id) && id.length <= 60 && id !== 'new'; // 'new' is the address of the new-product page
+
+// ---- UI ----
 
 let staff = () => null; // the shell's signed-in account, set at registration
 const listOpts = { q: '', chip: 'all', era: '' };
 let page = null; // the open product page's state; kept across sign-in so unsaved edits survive
 let rowSeq = 0; // tmp keys for new colour rows
 
-const dirty = pg => !!pg && pendingSummary(pg.original, pg.edited, pg.deltas).text !== '';
 const container = (el, cls, text) => {
   const root = document.createElement('div');
   root.className = cls;
@@ -198,14 +267,9 @@ async function loadPage(el, id) {
     const [d, { eras }] = await Promise.all([
       isNew ? null : api('GET', `/api/inventory/products/${encodeURIComponent(id)}`), api('GET', '/api/inventory/eras')]);
     if (!root.isConnected) return;
-    const product = d?.product ?? blankProduct(eras[0]?.era.slug ?? '');
     if (d) registerImages(d.media);
     forgetStock(id); // the stock below is fresh, so a save lost before it is settled
-    page = {
-      el, id, isNew, idTouched: false, email: who.email, owner: who.role === 'owner', eras: eras.map(e => e.era),
-      original: product, version: d?.version ?? null, edited: editable(product), stock: d?.stock ?? {}, history: d?.history ?? { items: [], next: null },
-      deltas: {}, reason: 'received', note: '', rowErrors: {}, skuErrors: {}, fieldErrors: [], conflict: null, msg: '', saving: false,
-    };
+    page = Object.assign(newPage({ id, d, eras: eras.map(e => e.era), who }), { el });
     drawPage();
   } catch (err) {
     if (root.isConnected) failed(root, err, () => loadPage(el, id));
@@ -294,10 +358,9 @@ function redrawParts() {
   if (id) document.getElementById(id)?.focus({ preventScroll: true });
 }
 
-// The shown Available never goes below 0 by lowering (the server's rule: On hand stays ≥ Committed).
 function setDelta(li, delta) {
-  const pg = page, key = li.dataset.key, row = pg.stock[key];
-  const d = Math.max(Math.min(0, row.committed - row.onHand), Math.min(100000, delta));
+  const pg = page, key = li.dataset.key;
+  const d = clampDelta(pg.stock[key], delta);
   if (d) pg.deltas[key] = d; else delete pg.deltas[key];
   delete pg.rowErrors[key];
   pg.msg = '';
@@ -344,7 +407,7 @@ function onClick(e) {
     dropVariants(k => k.slice(k.lastIndexOf('|') + 1) === s);
   } else if (t.id === 's-add') return addSize();
   else if (t.id === 'save' || t.dataset.act === 'retry') return save();
-  else if (t.dataset.act === 'reload-stock') { t.disabled = true; return reloadStock(); }
+  else if (t.dataset.act === 'reload-stock') return reloadStock();
   else if (t.dataset.act === 'mine') return useMine();
   else if (t.dataset.act === 'discard') { page = null; return loadPage(pg.el, pg.id); }
   else if (t.id === 'hist-more') return more(t);
@@ -358,9 +421,9 @@ async function more(button) {
   button.disabled = true;
   try {
     const h = await api('GET', `/api/inventory/products/${encodeURIComponent(pg.id)}/history?before=${encodeURIComponent(pg.history.next)}`);
-    pg.history = { items: [...pg.history.items, ...h.items], next: h.next };
+    Object.assign(pg, { history: { items: [...pg.history.items, ...h.items], next: h.next }, historyError: '' });
   } catch (err) {
-    pg.msg = `Couldn’t load more history: ${err.message}`;
+    pg.historyError = `Couldn’t load more history: ${err.message}`; // shown by the list, so viewers see it too
   }
   if (page === pg) drawPage();
 }
@@ -376,64 +439,26 @@ function useMine() {
   save();
 }
 
-const codesOf = err => (err.code === 'invalid-product' ? err.details?.errors ?? [] : [err.code]);
-const errorText = err => [...new Set(codesOf(err).map(c => ERRORS[c]?.[1] ?? err.message))].join(' ') || err.message;
-const isId = id => SLUG.test(id) && id.length <= 60 && id !== 'new'; // 'new' is the address of this page
-
-async function save() {
+// Runs `work` on the open page with every control locked (as `pg.saving`), so nothing typed meanwhile is lost and
+// Save, Retry and Reload stock can't race each other. Only the page it started on is redrawn.
+async function locked(work) {
   const pg = page;
-  if (pg.isNew && !isId(pg.edited.id)) {
-    Object.assign(pg, { fieldErrors: ['id-invalid'], msg: `Details not saved: ${ERRORS['id-invalid'][1]}` });
-    return drawPage();
-  }
-  const productId = pg.isNew ? pg.edited.id : pg.id;
-  const { renames } = productBody(pg.original, pg.edited);
-  Object.assign(pg, { saving: true, msg: '', rowErrors: {}, skuErrors: {}, fieldErrors: [] });
+  if (pg.saving) return;
+  pg.saving = true;
   refreshBar();
   lockAll(pg.el);
-  const res = await saveAll({ productId, original: pg.original, edited: pg.edited, version: pg.version, deltas: pg.deltas, reason: pg.reason, note: pg.note });
-  if (pg.isNew && res.product === 'ok') {
-    page = null; // nothing left unsaved, so leaving asks nothing
-    location.hash = `#inventory/${encodeURIComponent(productId)}`;
-    return;
-  }
-  const msgs = [];
-  if (res.stock === 'ok') { pg.deltas = {}; pg.note = ''; } else if (res.stock) {
-    msgs.push(stockUnconfirmed(pg.id) ? 'Couldn’t confirm the stock save.' : `Stock not saved: ${res.stock.message}`);
-    if (res.stock.details?.key) pg.rowErrors[res.stock.details.key.slice(pg.id.length + 1)] = res.stock.message;
-  }
-  if (res.product && res.product !== 'ok') {
-    const err = res.product;
-    if (err.code === 'product-changed' && err.details?.current) pg.conflict = err.details;
-    pg.fieldErrors = codesOf(err);
-    // The server doesn't say which SKU clashed, so every SKU typed on this page is marked.
-    const sku = pg.fieldErrors.find(c => c.startsWith('sku-'));
-    if (sku) {
-      for (const [k, v] of Object.entries(pg.edited.skus)) if (v.trim() && v.trim() !== (pg.original.skus?.[k] ?? '')) pg.skuErrors[k] = ERRORS[sku][1];
-    }
-    msgs.push(err.code === 'stock-unconfirmed' ? err.message : `Details not saved: ${errorText(err)}`);
-  }
-  if (res.stock === 'ok' || res.product === 'ok') {
-    try {
-      const d = await api('GET', `/api/inventory/products/${encodeURIComponent(pg.id)}`);
-      registerImages(d.media);
-      Object.assign(pg, { stock: d.stock, history: d.history });
-      if (res.product === 'ok') {
-        Object.assign(pg, { original: d.product, version: d.version, edited: editable(d.product), conflict: null });
-        pg.deltas = rekeyDeltas(pg.deltas, renames); // a failed stock part keeps its changes, under the new names
-      }
-    } catch (err) {
-      msgs.push(`Saved, but the page couldn’t refresh: ${err.message}`);
-    }
-  }
+  const created = await work(pg);
   pg.saving = false;
-  pg.msg = msgs.join(' ') || 'Saved.';
-  if (page === pg) drawPage();
+  if (page !== pg) return;
+  if (!created) return drawPage();
+  page = null; // created: nothing is left unsaved, so leaving asks nothing
+  location.hash = `#inventory/${encodeURIComponent(created)}`;
 }
 
+const save = () => locked(savePage);
+
 // Settles a stock save whose reply was lost: once the store's real numbers are on screen, the pending changes go.
-async function reloadStock() {
-  const pg = page;
+const reloadStock = () => locked(async pg => {
   try {
     const d = await api('GET', `/api/inventory/products/${encodeURIComponent(pg.id)}`);
     forgetStock(pg.id);
@@ -442,13 +467,11 @@ async function reloadStock() {
   } catch (err) {
     pg.msg = `Couldn’t reload the stock: ${err.message}`;
   }
-  if (page === pg) drawPage();
-}
+});
 
 function render(el, [id]) {
   if (!id) { page = null; return renderList(el); }
-  // Back from the sign-in screen: the same owner gets their unsaved edits back.
-  if (page?.id === id && page.email === staff()?.email && dirty(page)) { page.el = el; return drawPage(); }
+  if (resumes(page, id, staff()?.email)) { page.el = el; return drawPage(); }
   page = null;
   return loadPage(el, id);
 }

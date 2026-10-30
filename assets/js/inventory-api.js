@@ -13,8 +13,8 @@ const listeners = new Set();
 export const onSignedOut = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 export const newOpId = () => crypto.randomUUID();
 
-// Writes always carry an opId; pass one to reuse it across retries.
-export async function api(method, path, body, { opId } = {}) {
+// Writes always carry an opId; pass one to reuse it across retries. `timeout` is in ms (uploads may need longer).
+export async function api(method, path, body, { opId, timeout = 30000 } = {}) {
   const write = method !== 'GET';
   let res;
   try {
@@ -23,7 +23,7 @@ export async function api(method, path, body, { opId } = {}) {
       credentials: 'same-origin',
       headers: body !== undefined || write ? { 'Content-Type': 'application/json' } : {},
       body: write ? JSON.stringify({ ...body, opId: opId ?? newOpId() }) : undefined,
-      signal: AbortSignal.timeout(30000), // a hung request ends as a network error (status 0), never a spinner forever
+      signal: AbortSignal.timeout(timeout), // a hung request ends as a network error (status 0), never a spinner forever
     });
   } catch {
     throw new ApiError(0, null);
