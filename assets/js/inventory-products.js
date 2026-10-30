@@ -3,6 +3,8 @@
 import { api, newOpId, ApiError } from './inventory-api.js';
 import { registerImages } from './images.js';
 import * as view from './inventory-products-view.js';
+import { photosHtml, wirePhotos } from './inventory-photos.js';
+import * as eras from './inventory-eras.js';
 
 // Product fields the page edits, in save-bar order, with their save-bar names.
 const LABELS = {
@@ -39,7 +41,9 @@ export const slugify = name => name.normalize('NFKD').replace(/[̀-ͯ]/g, '').to
 
 // A colour as stored: no row tracking, and its name trimmed as the server trims it.
 const bare = ({ from, tmp, ...c }) => ({ ...c, name: c.name.trim() });
-const value = (p, f) => (f === 'colors' ? p.colors.map(bare) : f === 'description' ? p.description ?? '' : p[f] ?? null);
+// Photos are compared on their own (so the save bar says "photos"), not as part of the colours.
+const photoIds = p => [p.images, ...p.colors.map(c => c.images)].map((l, i) => [i, l?.map(r => r.id) ?? []]).filter(([, ids]) => ids.length);
+const value = (p, f) => (f === 'colors' ? p.colors.map(({ images, ...c }) => bare(c)) : f === 'images' ? photoIds(p) : f === 'description' ? p.description ?? '' : p[f] ?? null);
 export const changedFields = (a, b) => Object.keys(LABELS).filter(f => JSON.stringify(value(a, f)) !== JSON.stringify(value(b, f)));
 
 export function pendingSummary(original, edited, deltas) {
@@ -203,7 +207,7 @@ const { ERRORS } = view;
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const codesOf = err => (err.code === 'invalid-product' ? err.details?.errors ?? [] : [err.code]);
 const errorText = err => [...new Set(codesOf(err).map(c => ERRORS[c]?.[1] ?? err.message))].join(' ') || err.message;
-const isId = id => SLUG.test(id) && id.length <= 60 && id !== 'new'; // 'new' is the address of the new-product page
+const isId = id => SLUG.test(id) && id.length <= 60 && id !== 'new' && id !== 'eras'; // 'new' and 'eras' are addresses of other pages
 
 // ---- UI ----
 
@@ -284,11 +288,12 @@ function drawPage() {
   const root = container(pg.el, 'pp');
   const conflict = pg.conflict && changedFields(pg.original, pg.conflict.current).map(f => LABELS[f]).join(', ');
   pg.stockLocked = !pg.isNew && stockUnconfirmed(pg.id);
-  root.innerHTML = view.pageHtml(pg, { conflict: conflict ?? '', eraName: pg.eras.find(x => x.slug === pg.original.era)?.name ?? pg.original.era });
+  root.innerHTML = view.pageHtml(pg, { conflict: conflict ?? '', photos: photosHtml(pg), eraName: pg.eras.find(x => x.slug === pg.original.era)?.name ?? pg.original.era });
   for (const code of pg.fieldErrors) if (ERRORS[code]?.[0]) root.querySelector(`#${ERRORS[code][0]}`)?.setAttribute('aria-invalid', 'true');
   root.addEventListener('input', onInput);
   root.addEventListener('change', onChange);
   root.addEventListener('click', onClick);
+  wirePhotos(root, () => page, refreshBar);
   root.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 's-new') { e.preventDefault(); addSize(); } });
   refreshBar();
   if (pg.saving) lockAll(root);
@@ -305,7 +310,7 @@ function refreshBar() {
   bar.hidden = !text && !page.msg;
   bar.querySelector('.savebar__text').textContent = page.msg || text;
   const button = bar.querySelector('#save');
-  button.disabled = page.saving || !text;
+  button.disabled = page.saving || !!page.uploading || !text;
   button.textContent = page.saving ? 'Saving…' : 'Save';
 }
 
@@ -355,7 +360,7 @@ function onChange(e) {
 // blur, and replacing the whole page would swallow a click on Save that caused the blur.
 function redrawParts() {
   const id = document.activeElement?.id;
-  page.el.querySelector('#photos-body').innerHTML = view.photosHtml(page.edited);
+  page.el.querySelector('#photos-body').innerHTML = photosHtml(page);
   page.el.querySelector('#stock-body').innerHTML = view.stockHtml(page);
   if (id) document.getElementById(id)?.focus({ preventScroll: true });
 }
@@ -434,7 +439,13 @@ async function more(button) {
 function useMine() {
   const pg = page, { current, version } = pg.conflict;
   const fresh = editable(current), mine = changedFields(pg.original, pg.edited);
+  const mineP = mine.includes('images');
+  const own = { top: pg.edited.images, by: Object.fromEntries(pg.edited.colors.filter(c => c.from).map(c => [c.from, c.images])) };
   for (const f of Object.keys(LABELS)) if (!mine.includes(f)) pg.edited[f] = fresh[f];
+  // Photos are per colour row, whichever side the rows came from: mine stay if I changed them, else theirs.
+  const theirs = Object.fromEntries(fresh.colors.map(c => [c.name, c.images]));
+  if (mineP) pg.edited.images = own.top; else pg.edited.images = fresh.images;
+  for (const c of pg.edited.colors) if (c.from) c.images = mineP ? own.by[c.from] ?? c.images : theirs[c.from];
   pg.original = current;
   pg.version = version;
   pg.conflict = null;
@@ -475,7 +486,8 @@ const reloadStock = () => locked(async pg => {
   }
 });
 
-function render(el, [id]) {
+function render(el, [id, ...rest]) {
+  if (id === 'eras') { page = null; return eras.render(el, rest, staff()); }
   if (!id) { page = null; return renderList(el); }
   if (resumes(page, id, staff()?.email)) { page.el = el; return drawPage(); }
   page = null;
@@ -483,6 +495,7 @@ function render(el, [id]) {
 }
 
 function canLeave() {
+  if (!eras.canLeave()) return false;
   if (dirty(page) && !confirm('Leave this product? Your unsaved changes will be lost.')) return false;
   page = null;
   return true;

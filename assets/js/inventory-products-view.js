@@ -1,6 +1,6 @@
 // HTML for the Inventory tab's list and product page. Every server value goes through esc().
-import { imageAttrs, safeImage } from './images.js';
-import { photoPath, variantWidths } from '../../data/photos.js';
+import { safeImage } from './images.js';
+import { variantWidths } from '../../data/photos.js';
 
 export const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const signed = n => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0');
@@ -25,6 +25,7 @@ export function listHtml({ totals, counts, eras, opts, owner }) {
   return `
     <div class="inv__top">
       <input type="search" name="q" value="${esc(opts.q)}" placeholder="Search products, SKU…" aria-label="Search products by name or SKU" autocomplete="off">
+      <a class="btn btn--line" href="#inventory/eras">Eras</a>
       ${owner ? '<a class="btn" href="#inventory/new">+ Product</a>' : ''}
     </div>
     <div class="chips" role="group" aria-label="Show">
@@ -95,13 +96,6 @@ export function marginText(p) {
 }
 
 const field = (label, id, input) => `<div class="field"><label for="${id}">${label}</label>${input}</div>`;
-
-export function photosHtml(p) {
-  const groups = [...(p.images?.length ? [{ name: 'All colours', images: p.images }] : []), ...p.colors];
-  return groups.map(c => `
-    <h3 class="group">${c.hex ? swatch(c) : ''}${esc(c.name)}</h3>
-    <div class="photos">${(c.images ?? []).map((r, i) => `<img ${imageAttrs(photoPath(r), '(min-width: 1024px) 110px, 22vw')} alt="${esc(`${c.name} photo ${i + 1}`)}" loading="lazy">`).join('') || '<p class="note">No photos yet.</p>'}</div>`).join('');
-}
 
 function optionsHtml(pg, off) {
   const { edited: e } = pg;
@@ -182,7 +176,7 @@ export function historyItems(items, productId) {
   }).join('');
 }
 
-export function pageHtml(pg, { conflict, eraName }) {
+export function pageHtml(pg, { conflict, eraName, photos }) {
   const { edited: e, original: o, owner } = pg;
   const off = owner ? '' : ' disabled';
   const available = Object.values(pg.stock).reduce((n, r) => n + r.onHand - r.committed, 0);
@@ -202,7 +196,7 @@ export function pageHtml(pg, { conflict, eraName }) {
     <p class="pp__sub">${pg.isNew ? 'Shoppers can’t see it until it’s Active and its era is live.' : `${esc(eraName)} era · ${plural(Object.keys(pg.stock).length, 'variant')} · ${available} available${o.status === 'active' ? ` · <a href="/products/${encodeURIComponent(o.id)}" target="_blank" rel="noopener">View on store ↗</a>` : ''}`}</p>
     <div class="pp__cols">
       <div class="pp__col">
-        <section class="card" aria-labelledby="h-photos"><h2 class="card__title" id="h-photos">Photos <small>per colour · first is the cover</small></h2><div class="card__body" id="photos-body">${photosHtml(e)}</div></section>
+        <section class="card" aria-labelledby="h-photos"><h2 class="card__title" id="h-photos">Photos <small>per colour · first is the cover</small></h2><div class="card__body" id="photos-body">${photos}</div></section>
         <section class="card" aria-labelledby="h-details"><h2 class="card__title" id="h-details">Details</h2>
           ${text('Name', 'f-name', 'name', 120)}
           ${pg.isNew ? field('ID <small>in the web address; fixed once saved</small>', 'f-id',

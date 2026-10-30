@@ -18,13 +18,14 @@ export const newOpId = () => crypto.randomUUID();
 // Writes always carry an opId; pass one to reuse it across retries. `timeout` is in ms (uploads may need longer).
 export async function api(method, path, body, { opId, timeout = 30000 } = {}) {
   const write = method !== 'GET';
+  const form = body instanceof FormData; // an upload: the browser sets the multipart Content-Type; the media route is idempotent by content
   let res;
   try {
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
-      headers: body !== undefined || write ? { 'Content-Type': 'application/json' } : {},
-      body: write ? JSON.stringify({ ...body, opId: opId ?? newOpId() }) : undefined,
+      headers: !form && (body !== undefined || write) ? { 'Content-Type': 'application/json' } : {},
+      body: form ? body : write ? JSON.stringify({ ...body, opId: opId ?? newOpId() }) : undefined,
       signal: AbortSignal.timeout(timeout), // a hung request ends as a network error (status 0), never a spinner forever
     });
   } catch {

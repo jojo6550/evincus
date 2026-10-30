@@ -80,3 +80,12 @@ test('a request that outlasts its timeout ends as a network error; the default i
   api('GET', '/x').catch(() => {}); // never settles in this test; only its signal is inspected
   assert.equal(signals[1].aborted, false);
 });
+
+test('api sends FormData as-is: no JSON, no Content-Type, no opId', async () => {
+  const calls = stub(200, { id: 'x' });
+  const fd = new FormData();
+  fd.append('file', new Blob(['a']), 'a.webp');
+  await api('PUT', '/api/inventory/media', fd, { timeout: 120000 });
+  assert.equal(calls[0].init.body, fd);
+  assert.deepEqual(calls[0].init.headers, {});
+});
