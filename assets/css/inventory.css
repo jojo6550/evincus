@@ -300,3 +300,55 @@ main:focus { outline: 0; }
 @media (min-width: 1024px) {
   .pp__cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
 }
+
+/* Stats tab. The one data colour is --series; status colours always sit beside an icon and a word. */
+.stx { --series: #3987e5; --grid: #2a2730; display: grid; gap: 12px; align-content: start; min-width: 0; max-width: 1100px; }
+.stx__body { display: grid; gap: 12px; min-width: 0; }
+.stx__range { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.stx__range label { display: grid; gap: 4px; flex: 1 1 140px; color: var(--smoke); font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.stx input { width: 100%; min-height: 44px; padding: 0 12px; background: var(--ink); color: var(--bone); border: 1px solid var(--line); border-radius: 0; font: 400 16px var(--mono); }
+.stx__tiles { grid-template-columns: 1fr 1fr; }
+.stx .tile b { margin: 2px 0; }
+.delta { color: var(--smoke); font: 400 11px var(--mono); }
+.delta i { font-style: normal; font-weight: 700; }
+.delta--up i { color: var(--ok); }
+.delta--down i { color: var(--hazard); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.stx__tip { min-height: 2.8em; color: var(--ink); font: 400 12px/1.4 var(--mono); visibility: hidden; padding: 4px 8px; background: var(--bone); }
+.stx__tip--on { visibility: visible; }
+.stx svg { display: block; width: 100%; height: auto; }
+.stx svg .gl { stroke: var(--grid); stroke-width: 1; }
+.stx svg .base { stroke: var(--smoke); stroke-width: 1; }
+.stx svg text { fill: var(--smoke); font: 10px var(--mono); }
+.stx svg .bar { fill: var(--series); }
+.stx svg .hit { fill: transparent; }
+.stx svg .slot { cursor: pointer; outline: 0; }
+.stx svg .slot.hot .bar { stroke: var(--bone); stroke-width: 2; }
+.stx svg .slot:focus-visible .hit { stroke: var(--hazard); stroke-width: 2; }
+.stx__link { justify-self: end; min-height: 44px; padding: 0 4px; background: none; border: 0; color: var(--smoke); font: 400 12px var(--mono); text-decoration: underline; cursor: pointer; }
+.stx table { width: 100%; border-collapse: collapse; font: 400 12px var(--mono); font-variant-numeric: tabular-nums; }
+.stx th { padding: 5px 3px; text-align: right; color: var(--smoke); font-weight: 500; font-size: 10px; text-transform: uppercase; }
+.stx td { padding: 6px 3px; text-align: right; border-top: 1px solid var(--line); }
+.stx th:first-child, .stx td:first-child { text-align: left; }
+.rank { list-style: none; margin: 0; padding: 0; font: 400 12px var(--mono); }
+.rank li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 5px 0; }
+.rank span { overflow-wrap: anywhere; }
+.rank em { font-style: normal; color: var(--smoke); font-variant-numeric: tabular-nums; }
+.rank progress { grid-column: 1 / -1; width: 100%; height: 8px; appearance: none; border: 0; background: transparent; accent-color: var(--series); }
+.rank progress::-webkit-progress-bar { background: transparent; }
+.rank progress::-webkit-progress-value { background: var(--series); border-radius: 0 4px 4px 0; }
+.rank progress::-moz-progress-bar { background: var(--series); border-radius: 0 4px 4px 0; }
+.stx__mini { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; font: 400 14px var(--mono); }
+.stx__mini div { padding: 7px; background: var(--ink); border: 1px solid var(--line); }
+.stx__mini small { display: block; color: var(--smoke); font-size: 10px; }
+.stx__low { list-style: none; margin: 0; padding: 0; font: 400 12px var(--mono); }
+.stx__low li { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.stx__low span { min-width: 0; overflow-wrap: anywhere; }
+.stx__low b { flex: none; }
+.stx__out { color: var(--hazard); }
+.stx__few { color: var(--warn); }
+.stx__low i { font-style: normal; }
+@media (min-width: 768px) {
+  .stx__tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .stx__mini { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}

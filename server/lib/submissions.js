@@ -1,4 +1,4 @@
-import { ORDER_TTL, orderPuts, retryKey } from './orders.js';
+import { ORDER_TTL, orderPuts, retryKey, bumpOrders } from './orders.js';
 import { stockKey, checkoutStock } from './stock.js';
 import { HttpError } from './http.js';
 
@@ -38,7 +38,7 @@ export async function submitOrder(env, id, fingerprint, record, { products = [] 
         ...stock.puts,
       ],
     });
-    if (saved) return { record };
+    if (saved) { bumpOrders(); return { record }; }
   }
   // Handled, not unhandled: the shopper retries with the same token, and the owner gets no alert.
   throw new HttpError('busy', 503);

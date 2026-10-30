@@ -7,6 +7,7 @@ import { lineKey, imagesFor } from '../../data/catalog.js';
 import { uploadPhoto } from '../lib/media.js';
 import { orderAction, orderKey, findOrder, listOrders, jamaicaDay, VIEWS } from '../lib/orders.js';
 import { PERSONAL_FIELDS } from '../lib/retention.js';
+import { loadStats } from '../lib/stats.js';
 import { photoPath, manifestEntry } from '../../data/photos.js';
 
 const noStore = { 'Cache-Control': 'no-store' };
@@ -231,6 +232,16 @@ export async function orderActionRoute(req, c) {
   const { order, version, replayed } = out;
   c.log.info(ACTION_EVENTS[b.action?.type] ?? 'order.action', { orderId: c.params[0], account: email, replayed });
   return json({ order, version }, 200, noStore);
+}
+
+// GET /api/inventory/stats?period=today|7d|30d|custom&from=&to= → tiles, perDay, best, sizes, pickup, low. Viewers and
+// owners alike: aggregates only, no customers, cost or profit.
+export async function statsRoute(req, c) {
+  await requireStaff(req, c);
+  const p = new URL(req.url).searchParams;
+  const { rev } = await loadCatalog(c.env);
+  const out = await loadStats(c.env, { period: p.get('period') || '30d', from: p.get('from'), to: p.get('to'), now: c.now, catalog: c.data, stock: c.stock, rev });
+  return json(out, 200, noStore);
 }
 
 // GET /api/inventory/me → { email, role, local }.

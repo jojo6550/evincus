@@ -9,6 +9,11 @@ export const ORDER_TTL = 63072000; // 2 years
 export const orderKey = id => `order:${id}`;
 export const retryKey = id => `email-retry:${id}`;
 
+// Bumped by every order write, so cached stats know to recompute (in-process, like the cache).
+let rev = 0;
+export const ordersRev = () => rev;
+export const bumpOrders = () => { rev++; };
+
 export const findOrder = (env, id) => env.ORDERS.get(orderKey(id), 'json');
 
 // The Jamaica day (UTC-5, no DST) of a time in ms, and the one an order was placed.
@@ -34,7 +39,7 @@ export async function changeOrder(env, id, change) {
     if (!value) throw new HttpError('unknown-order', 404);
     const out = change(JSON.parse(value));
     const { record, extraPuts = [] } = out.record ? out : { record: out };
-    if (await env.ORDERS.commit({ checks: [{ key: orderKey(id), version }], puts: [...orderPuts(record), ...extraPuts] })) return record;
+    if (await env.ORDERS.commit({ checks: [{ key: orderKey(id), version }], puts: [...orderPuts(record), ...extraPuts] })) { bumpOrders(); return record; }
   }
   throw new HttpError('order-busy', 409);
 }
@@ -82,6 +87,7 @@ export async function orderAction(env, id, { opId, version, action }, { by, now 
         puts: [...orderPuts(record), ...[...docs].map(([pid, doc]) => ({ key: stockKey(pid), value: stockDoc(doc) })), ...adjs, opPut(opId, 'order-action', { id })],
       });
       if (!ok) continue;
+      bumpOrders();
     }
     // The commit can't know its own version, so the result is read back, like a product save's.
     const e = await env.ORDERS.getEntry(orderKey(op.result?.id ?? id));
