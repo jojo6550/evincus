@@ -78,3 +78,13 @@ test('discount checks era names against the server list', async () => {
   assert.ok(calls.some(c => c.url === 'http://localhost:8000/api/admin/eras'));
   assert.ok(calls.some(c => c.method === 'PUT'));
 });
+
+test('knownEras explains a malformed reply', async () => {
+  const { knownEras } = await import('../scripts/discount.mjs');
+  await assert.rejects(knownEras(PROD_URL, TOKEN, async () => new Response('{}', { status: 200 })), /eras that are not a list/);
+});
+
+test('knownEras explains a malformed reply', async () => {
+  const { knownEras } = await import('../scripts/discount.mjs');
+  await assert.rejects(knownEras(PROD_URL, TOKEN, async () => new Response('{}', { status: 200 })), /eras that are not a list/);
+});

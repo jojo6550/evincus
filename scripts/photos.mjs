@@ -1,5 +1,5 @@
-// Uploads photos to the store: `npm run photos <era> <product-id> [--color "<Colour name>"] <photo...> [local] [url=<base>]`
-// or `npm run photos <era> hero <photo>`. Each photo becomes upright WebP copies at the standard widths (EXIF/GPS
+// Uploads photos to the store: `npm run photos -- <era> <product-id> [--color "<Colour name>"] <photo...> [local] [url=<base>]`
+// or `npm run photos -- <era> hero <photo>`. Each photo becomes upright WebP copies at the standard widths (EXIF/GPS
 // stripped), each under 250 KiB, uploaded to the server and attached to the product, colour or era hero.
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -9,8 +9,9 @@ import { variantWidths, MAX_VARIANT_BYTES } from '../data/photos.js';
 import { parseOptions, apiBase, adminToken, adminFetch, problem } from './lib/admin-cli.mjs';
 
 export const USAGE = `Usage:
-  npm run photos <era> <product-id> [--color "<Colour name>"] <photo...> [local] [url=<base>]
-  npm run photos <era> hero <photo> [local] [url=<base>]`;
+  npm run photos -- <era> <product-id> [--color "<Colour name>"] <photo...> [local] [url=<base>]
+  npm run photos -- <era> hero <photo> [local] [url=<base>]
+  PowerShell drops the --, so write color="<Colour name>" instead of --color.`;
 
 // One WebP per standard width of the upright photo. sharp drops metadata unless asked to keep it.
 export async function photoVariants(path) {
@@ -31,7 +32,7 @@ export async function photoVariants(path) {
 const REASONS = {
   'unknown-era': ({ era }) => `The store has no era "${era}".`,
   'unknown-product': ({ era, target }) => `${era} has no product "${target}".`,
-  'invalid-photo': () => "The server refused those photos or the era/colour combination (hero takes one photo and no --color; a product with per-colour photos needs --color with an exact colour name).",
+  'invalid-photo': ({ file }) => file ? `${file} was rejected by the server as an image.` : "The server refused those photos or the era/colour combination (hero takes one photo and no --color; a product with per-colour photos needs --color with an exact colour name).",
 };
 
 async function fail(res, ctx) {
@@ -47,12 +48,14 @@ export async function addPhotos({ base, token, era, target, color, photos, fetch
   if (target === 'hero' && (photos.length !== 1 || color)) throw new Error('hero takes exactly one photo and no --color.');
   for (const p of photos) if (!existsSync(p)) throw new Error(`${p} doesn't exist.`);
 
+  const converted = [];
+  for (const p of photos) converted.push(await photoVariants(p)); // convert everything first: a bad photo must not orphan uploads
   const refs = [];
-  for (const p of photos) {
+  for (const [i, bufs] of converted.entries()) {
     const form = new FormData();
-    for (const buf of await photoVariants(p)) form.append('file', new Blob([buf], { type: 'image/webp' }), 'photo.webp');
+    for (const buf of bufs) form.append('file', new Blob([buf], { type: 'image/webp' }), 'photo.webp');
     const res = await adminFetch(base, token, '/api/admin/media', { method: 'PUT', body: form }, fetchFn);
-    if (!res.ok) await fail(res, { era, target });
+    if (!res.ok) await fail(res, { era, target, file: basename(photos[i]) });
     refs.push(await res.json());
   }
   const res = await adminFetch(base, token, '/api/admin/photos', {

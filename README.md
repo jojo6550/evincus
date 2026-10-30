@@ -45,7 +45,7 @@ lowercase-kebab (`core-tee-black-1.jpg`), max 500 KB each.
 | Schedule a drop | Set `dropsAt` (ISO with offset, e.g. `2026-11-20T18:00:00-05:00`). Until then the API shows only a teaser |
 | Retire an era | Set `endsAt`. Its products stay visible but can't be bought, and old links keep working |
 | Delete an era | Delete its folder and its two lines in `data/eras/index.js` |
-| Add photos | `npm run photos <era> <product-id> [--color "<Colour>"] <photo...> [local] [url=<base>]`, or `npm run photos <era> hero <photo>`. Photos are turned upright, stripped of EXIF/GPS, made into webp copies under 250 KB, uploaded to the server and attached. Needs `ADMIN_TOKEN` |
+| Add photos | `npm run photos -- <era> <product-id> [--color "<Colour>"] <photo...> [local] [url=<base>]`, or `npm run photos -- <era> hero <photo>`. In PowerShell, which drops the `--`, write `color="<Colour>"` instead of `--color`. Photos are turned upright, stripped of EXIF/GPS, made into webp copies under 250 KB, uploaded to the server and attached. Needs `ADMIN_TOKEN` |
 | Add, edit or remove a product | Edit that era's `products` array and add or remove its photos |
 | Move a product to another era | Move its object and its photos to the other folder |
 | Sold out | `soldOut: true` for a whole product, or `soldOutVariants: ['Black\|XL']` for one colour and size |

@@ -122,7 +122,9 @@ export async function writeSales(base, token, sales, version, fetchFn = fetch) {
 export async function knownEras(base, token, fetchFn = fetch) {
   const res = await adminFetch(base, token, '/api/admin/eras', { method: 'GET' }, fetchFn);
   if (!res.ok) throw new Error(await problem(res));
-  return (await res.json()).eras.map(e => e.slug);
+  const { eras } = await res.json();
+  if (!Array.isArray(eras)) throw new Error('The API returned eras that are not a list.');
+  return eras.map(e => e.slug);
 }
 
 export async function main(argv, { fetchFn = fetch, env = process.env, log = console.log } = {}) {

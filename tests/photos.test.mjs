@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { parseOptions } from '../scripts/lib/admin-cli.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -56,4 +57,47 @@ test('addPhotos reports the server\'s reason when attaching fails', async () => 
   const path = await exifJpeg();
   const replies = [json(200, ref('a')), json(404, { error: { code: 'unknown-product', message: 'x' } })];
   await assert.rejects(addPhotos({ base: 'http://x', token: 't', era: 'core', target: 'nope', photos: [path], fetchFn: async () => replies.shift(), log() {} }), /core has no product "nope"/);
+});
+
+test('photoVariants names the file when it will not fit under 250 KiB', async () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'photos-')), 'noise.jpg');
+  const raw = Buffer.alloc(1600 * 1600 * 3);
+  for (let i = 0; i < raw.length; i++) raw[i] = (i * 2654435761 >>> 13) & 255;
+  await sharp(raw, { raw: { width: 1600, height: 1600, channels: 3 } }).jpeg({ quality: 100 }).toFile(path);
+  await assert.rejects(photoVariants(path), /noise\.jpg won't fit under 250 KiB/);
+});
+
+test('addPhotos sets a hero with one photo and no colour', async () => {
+  const path = await exifJpeg();
+  const calls = [];
+  const replies = [json(200, ref('a')), json(200, { era: {}, version: 'v' })];
+  const out = [];
+  await addPhotos({ base: 'http://x', token: 't', era: 'core', target: 'hero', photos: [path], fetchFn: async (u, i) => { calls.push({ u, i }); return replies.shift(); }, log: l => out.push(l) });
+  const body = JSON.parse(calls[1].i.body);
+  assert.deepEqual([body.target, body.color, body.refs.length], ['hero', undefined, 1]);
+  assert.match(out[0], /hero of core.*#inventory\/eras\/core/);
+  await assert.rejects(addPhotos({ base: 'http://x', token: 't', era: 'core', target: 'hero', color: 'Black', photos: [path], fetchFn: async () => {}, log() {} }), /hero takes/);
+});
+
+test('a rejected upload names the file and nothing is attached', async () => {
+  const path = await exifJpeg();
+  const calls = [];
+  const fetchFn = async u => { calls.push(u); return json(400, { error: { code: 'invalid-photo', message: 'x' } }); };
+  await assert.rejects(addPhotos({ base: 'http://x', token: 't', era: 'core', target: 'tee', photos: [path], fetchFn, log() {} }), /a\.jpg was rejected by the server as an image/);
+  assert.equal(calls.length, 1);
+});
+
+test('a photo that cannot convert stops everything before any upload', async () => {
+  const path = await exifJpeg();
+  const bad = join(mkdtempSync(join(tmpdir(), 'photos-')), 'bad.jpg');
+  writeFileSync(bad, 'not an image');
+  const calls = [];
+  await assert.rejects(addPhotos({ base: 'http://x', token: 't', era: 'core', target: 'tee', photos: [path, bad], fetchFn: async u => { calls.push(u); }, log() {} }));
+  assert.equal(calls.length, 0);
+});
+
+test('color= works as a plain word for npm on PowerShell', () => {
+  const { flags, rest } = parseOptions(['core', 'tee', 'color=Black, red', 'a.jpg', 'local'], { values: ['color'] });
+  assert.equal(flags.color, 'Black, red');
+  assert.deepEqual(rest, ['core', 'tee', 'a.jpg']);
 });
