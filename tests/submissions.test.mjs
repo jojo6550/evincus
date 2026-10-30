@@ -17,7 +17,8 @@ test('the first submit writes the submission, order, day index and retry job tog
   assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', record()), { record: record() });
   assert.deepEqual([...e.ORDERS.store.keys()].sort(), ['day:2026-10-03:EV-1', 'email-retry:EV-1', 'order:EV-1', 'submission:EV-1']);
   assert.deepEqual(JSON.parse(e.ORDERS.store.get('email-retry:EV-1').value), { retries: 0, nextAt: Date.parse('2026-10-03T12:00:00.000Z') });
-  assert.equal(e.ORDERS.store.get('order:EV-1').opts.expirationTtl, 63072000);
+  assert.equal(e.ORDERS.store.get('order:EV-1').opts.expirationTtl, undefined); // orders are kept; only the submission expires
+  assert.equal(e.ORDERS.store.get('submission:EV-1').opts.expirationTtl, 63072000);
 });
 
 test('a replay returns the saved record and a different fingerprint conflicts', async () => {

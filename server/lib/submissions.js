@@ -1,7 +1,6 @@
-import { ORDER_TTL, orderKey, retryKey, dayKey } from './orders.js';
+import { ORDER_TTL, orderPuts, retryKey } from './orders.js';
 import { stockKey, checkoutStock } from './stock.js';
 import { HttpError } from './http.js';
-import { orderSummary } from './order-flow.js';
 
 export const submissionKey = id => `submission:${id}`;
 // Every checkout of a product races on its one stock document. A lost round always means another order landed, so
@@ -34,8 +33,7 @@ export async function submitOrder(env, id, fingerprint, record, { products = [] 
       checks: [{ key: submissionKey(id), version }, ...stock.checks],
       puts: [
         { key: submissionKey(id), value: JSON.stringify({ fingerprint, record }), opts: ttl },
-        { key: orderKey(record.id), value: JSON.stringify(record), opts: ttl },
-        { key: dayKey(record), value: '', opts: { ...ttl, metadata: orderSummary(record) } },
+        ...orderPuts(record),
         { key: retryKey(record.id), value: JSON.stringify({ retries: 0, nextAt: Date.parse(record.placedAt) }) },
         ...stock.puts,
       ],

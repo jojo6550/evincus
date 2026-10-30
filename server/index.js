@@ -7,6 +7,7 @@ import { HttpError, corsHeaders, fail, enforceLimit, siteStatus } from './lib/ht
 import { secureResponse } from './lib/security.js';
 import { cleanMedia } from './lib/media.js';
 import { alert } from './lib/alerts.js';
+import { runRetention } from './lib/retention.js';
 import { retryEmails } from './lib/delivery.js';
 import { health } from './routes/health.js';
 import { listEras, getEra, getCatalog } from './routes/eras.js';
@@ -133,6 +134,11 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
         if (await env.ORDERS.get(marker)) return;
         await cleanMedia(env, c.now, log);
         await env.ORDERS.put(marker, '1', { expirationTtl: 172800 });
+      })().catch(logFailure));
+      ctx.waitUntil((async () => {
+        const marker = `retention:${new Date(now - 5 * 3600000).toISOString().slice(0, 10)}`; // Jamaica day, UTC-5
+        if (await env.ORDERS.get(marker)) return;
+        if (await runRetention(env, c)) await env.ORDERS.put(marker, '1', { expirationTtl: 172800 });
       })().catch(logFailure));
     },
   };

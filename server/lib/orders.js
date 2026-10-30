@@ -17,10 +17,11 @@ export function dayKey(record) {
   return `day:${day}:${record.id}`;
 }
 
-// The order and its day: entry, whose metadata lets the order list skip reading each record.
-const orderPuts = record => [
-  { key: orderKey(record.id), value: JSON.stringify(record), opts: { expirationTtl: ORDER_TTL } },
-  { key: dayKey(record), value: '', opts: { expirationTtl: ORDER_TTL, metadata: orderSummary(record) } },
+// The order and its day: entry, whose metadata lets the order list skip reading each record. No TTL: amounts are kept
+// forever (retention.js scrubs the personal fields after 2 years).
+export const orderPuts = record => [
+  { key: orderKey(record.id), value: JSON.stringify(record) },
+  { key: dayKey(record), value: '', opts: { metadata: orderSummary(record) } },
 ];
 const ROUNDS = 5;
 const pause = () => new Promise(r => setTimeout(r, 5 + Math.random() * 20));

@@ -26,6 +26,7 @@ const adjs = (env, opId) => [...env.ORDERS.store].filter(([k]) => k.startsWith('
 const snapshot = env => JSON.stringify([...env.ORDERS.store].filter(([k]) => !k.startsWith('session:')));
 
 async function cron(env, at) {
+  await env.ORDERS.put('retention:ttl-done', '1'); // the one-time TTL rewrite would bump order versions under these tests
   const app = createApp({ data: FIXTURE, clock: () => at });
   const ctx = makeCtx();
   await app.scheduled({ cron: '*/15 * * * *', scheduledTime: at }, env, ctx);
