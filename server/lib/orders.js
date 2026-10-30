@@ -3,6 +3,7 @@ import { HttpError } from './http.js';
 import { applyAction, orderSummary } from './order-flow.js';
 import { stockKey, stockDoc, adjKey } from './stock.js';
 import { isOpId, readOpEntry, opPut } from './ops.js';
+import { MAX_PRODUCTS } from './pricing.js';
 
 export const ORDER_TTL = 63072000; // 2 years
 export const orderKey = id => `order:${id}`;
@@ -52,6 +53,7 @@ export async function orderAction(env, id, { opId, version, action }, { by, now 
   for (let round = 0; round < ROUNDS; round++) {
     if (round) await pause();
     const op = await readOpEntry(env, opId, 'order-action'); // first, so a retry replays whatever changed since
+    if (op.result && op.result.id !== id) throw new HttpError('op-reused', 409);
     if (!op.result) {
       const cur = await env.ORDERS.getEntry(key);
       if (!cur.value) throw new HttpError('unknown-order', 404);
@@ -59,16 +61,20 @@ export async function orderAction(env, id, { opId, version, action }, { by, now 
       if (cur.version !== version) throw new HttpError('order-changed', 409, { current, version: cur.version });
       const { record, movements } = applyAction(current, action, { by, now });
       const ids = [...new Set(movements.map(m => splitLine(m.key)[0]))];
+      // One check per moved stock doc plus the order and the op must fit @deno/kv's 10 checks; checkout caps an order at MAX_PRODUCTS.
+      if (ids.length > MAX_PRODUCTS) throw new Error(`Order ${id} moves stock of ${ids.length} products; one commit fits ${MAX_PRODUCTS}`);
       const entries = new Map(await Promise.all(ids.map(async pid => [pid, await env.ORDERS.getEntry(stockKey(pid))])));
       const docs = new Map([...entries].map(([pid, e]) => [pid, JSON.parse(e.value ?? '{}')]));
       const at = now.toISOString();
       const adjs = movements.map((m, i) => {
         const [pid, variant] = splitLine(m.key);
         const doc = docs.get(pid);
-        // The stock document lists every variant; a missing row or a count below zero is raced or corrupt data.
-        if (!Object.hasOwn(doc, variant)) throw new HttpError('order-changed', 409, { current, version: cur.version });
+        // The stock document lists every variant, so a missing row was renamed or removed since the order.
+        if (!Object.hasOwn(doc, variant)) throw new HttpError('variant-gone', 409, { key: m.key });
         const onHand = (doc[variant].onHand ?? 0) + m.onHand, committed = (doc[variant].committed ?? 0) + m.committed;
-        if (onHand < 0 || committed < 0) throw new HttpError('order-changed', 409, { current, version: cur.version });
+        // Committed counts open orders' units, so it can't go below zero unless the data is wrong.
+        if (committed < 0) throw new HttpError('stock-mismatch', 409, { key: m.key });
+        if (onHand < 0) throw new HttpError('stock-short', 409, { key: m.key }); // e.g. an oversold continueSelling product
         doc[variant] = { ...doc[variant], onHand, committed };
         return { key: adjKey(pid, at, opId, i), value: JSON.stringify({ key: m.key, onHand: m.onHand, committed: m.committed, reason: m.reason, note: '', by, at, orderId: id }) };
       });

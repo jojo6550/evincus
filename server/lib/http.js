@@ -53,6 +53,9 @@ export const MESSAGES = {
   'invalid-action': "That can't be done to this order.",
   'unknown-order': "There's no order with that reference.",
   'order-changed': 'This order changed since you opened it. Check it again, then retry.',
+  'stock-short': "There isn't enough stock on hand for this. Record the stock you received, then try again.",
+  'variant-gone': 'That colour or size no longer exists. Refund it without putting it back in stock.',
+  'stock-mismatch': "This order's stock numbers don't add up. Check the stock for this product before trying again.",
   'order-busy': 'Someone else changed this order at the same time. Reload and try again.',
   'op-reused': 'That request ID was already used for something else. Reload and try again.',
 };

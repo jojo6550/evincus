@@ -164,7 +164,12 @@ const ACTION_EVENTS = { ready: 'order.ready', fulfilled: 'order.fulfilled', canc
 export async function orderActionRoute(req, c) {
   const { email } = await requireStaff(req, c, { role: 'owner', write: true });
   const b = await objectBody(req, 16384, 'invalid-action');
-  const { order, version, replayed } = await orderAction(c.env, c.params[0], b, { by: email, now: c.now });
+  let out;
+  try { out = await orderAction(c.env, c.params[0], b, { by: email, now: c.now }); } catch (err) {
+    if (err.code === 'stock-mismatch') c.log.error('order.stock_mismatch', { orderId: c.params[0], account: email, key: err.extra.key });
+    throw err;
+  }
+  const { order, version, replayed } = out;
   c.log.info(ACTION_EVENTS[b.action?.type] ?? 'order.action', { orderId: c.params[0], account: email, replayed });
   return json({ order, version }, 200, noStore);
 }

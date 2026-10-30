@@ -175,21 +175,69 @@ test('a lost round against a changed order is order-changed, not a re-apply', as
   assert.equal(env.ORDERS.store.has(`op:${opId}`), false);
 });
 
-test('a movement that would take stock below zero, or a missing variant row, is refused with nothing written', async () => {
+// Each refusal leaves the store exactly as it was.
+async function refused(env, cookie, id, action, code) {
+  const before = snapshot(env);
+  const r = await act(env, cookie, id, action);
+  assert.equal(r.status, 409);
+  assert.equal(r.json.error.code, code);
+  assert.equal(snapshot(env), before);
+  return r;
+}
+
+test('fulfilling more than is on hand is stock-short with the key, and nothing is written', async () => {
   const { env, cookie, id } = await setup();
-  await putStock(env, KEY, 10, 0); // committed lost: corrupt or raced data
-  let before = snapshot(env);
-  let r = await act(env, cookie, id, { type: 'fulfilled' });
-  assert.equal(r.status, 409);
-  assert.equal(r.json.error.code, 'order-changed');
-  assert.equal(snapshot(env), before);
+  await putStock(env, KEY, 1, 2); // an oversold continueSelling variant
+  const r = await refused(env, cookie, id, { type: 'fulfilled' }, 'stock-short');
+  assert.equal(r.json.error.key, KEY);
+  assert.match(r.json.error.message, /Record the stock you received/);
+});
+
+test('a movement for a variant missing from the stock doc is variant-gone with the key', async () => {
+  const { env, cookie, id } = await setup();
   await env.ORDERS.put('stock:alpha-tee', JSON.stringify({ 'White|S': { onHand: 1, committed: 0 } }));
-  before = snapshot(env);
-  r = await act(env, cookie, id, { type: 'cancel', restock: false });
-  assert.equal(r.status, 409);
-  assert.equal(r.json.error.code, 'order-changed');
-  assert.equal(snapshot(env), before);
+  const r = await refused(env, cookie, id, { type: 'cancel', restock: false }, 'variant-gone');
+  assert.equal(r.json.error.key, KEY);
   assert.deepEqual(JSON.parse(env.ORDERS.store.get('stock:alpha-tee').value), { 'White|S': { onHand: 1, committed: 0 } });
+});
+
+test('a movement taking Committed below zero is stock-mismatch, logged at error level', async () => {
+  const { env, cookie, id } = await setup();
+  await putStock(env, KEY, 10, 0); // committed lost: corrupt data
+  const logs = captureLogs();
+  let r;
+  try { r = await refused(env, cookie, id, { type: 'fulfilled' }, 'stock-mismatch'); } finally { logs.restore(); }
+  assert.equal(r.json.error.key, KEY);
+  const line = logs.lines.find(l => l.event === 'order.stock_mismatch');
+  assert.equal(line.level, 'error');
+  assert.equal(line.orderId, id);
+  assert.equal(line.key, KEY);
+});
+
+test('an order moving more products than one commit can check is refused before any write', async () => {
+  const { env, cookie } = await setup();
+  const id = 'EV-wide';
+  const lines = Array.from({ length: 9 }, (_, i) => ({ key: `p${i}|Black|M`, id: `p${i}`, name: 'P', color: 'Black', size: 'M', qty: 1, unitCents: 100 }));
+  await env.ORDERS.put(`order:${id}`, JSON.stringify({ id, status: 'PLACED', paymentStatus: 'NOT_COLLECTED', placedAt: new Date(NOW).toISOString(), stockCommitted: true, lines, subtotalCents: 900, totalCents: 900, fulfillment: { type: 'pickup', location: { id: 'trendy-hats' } } }));
+  const before = snapshot(env);
+  const logs = captureLogs();
+  let r;
+  try { r = await act(env, cookie, id, { type: 'fulfilled' }); } finally { logs.restore(); }
+  assert.equal(r.status, 500);
+  assert.ok(logs.lines.some(l => l.event === 'unhandled' && /one commit fits 8/.test(l.message)));
+  env.ORDERS.store.delete('alert:unhandled'); // the 500's alert throttle, not an order write
+  assert.equal(snapshot(env), before);
+});
+
+test('replaying an opId against another order is op-reused', async () => {
+  const { env, cookie, id } = await setup();
+  const other = (await call('POST', '/api/orders', { body: order(), env })).json.id;
+  const opId = crypto.randomUUID();
+  assert.equal((await act(env, cookie, id, { type: 'ready' }, { opId })).status, 200);
+  const r = await act(env, cookie, other, { type: 'ready' }, { opId });
+  assert.equal(r.status, 409);
+  assert.equal(r.json.error.code, 'op-reused');
+  assert.equal((await entry(env, other)).order.fulfilmentStatus, 'UNFULFILLED');
 });
 
 test('a refund moves stock, writes adj records and updates the order end to end', async () => {
