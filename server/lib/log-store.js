@@ -7,8 +7,13 @@ const TTL = 2592000;
 const PAGE = 100;
 const DAY = 86400000;
 
-// level and event ride in the key's metadata, so filtering needs no value reads.
+// level and event ride in the key's metadata, so filtering reads no values.
+const lastDiskLow = new WeakMap();
 export const logSink = (env, waitUntil) => line => {
+  if (line.event === 'operations.disk_low') { // checked every minute while low: one saved row an hour
+    if (Date.now() - (lastDiskLow.get(env) ?? 0) < 3600000) return;
+    lastDiskLow.set(env, Date.now());
+  }
   const key = `log:${line.ts}:${crypto.randomUUID().slice(0, 8)}`;
   waitUntil(Promise.resolve().then(() => env.ORDERS.put(key, JSON.stringify(line), { expirationTtl: TTL, metadata: { l: line.level, e: String(line.event).slice(0, 64) } })).catch(() => {}));
 };
@@ -19,6 +24,7 @@ export async function readLogs(env, { level, kind, before, now }) {
   if (level && !['error', 'warn', 'info'].includes(level)) throw new HttpError('invalid-query', 400);
   if (kind && !/^[a-z_]{1,32}$/.test(kind)) throw new HttpError('invalid-query', 400);
   if (before && !/^log:\d{4}-\d{2}-\d{2}T\S{1,64}$/.test(before)) throw new HttpError('invalid-query', 400);
+  if (before && Number.isNaN(Date.parse(before.slice(4, 14)))) throw new HttpError('invalid-query', 400);
   const start = before ? Date.parse(before.slice(4, 14)) : Math.floor(now.getTime() / DAY) * DAY;
   const picked = [];
   for (let d = 0; d <= 31 && picked.length <= PAGE; d++) {

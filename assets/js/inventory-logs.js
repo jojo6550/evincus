@@ -3,7 +3,7 @@ import { api } from './inventory-api.js';
 import { esc } from './inventory-products-view.js';
 
 const LEVELS = [['', 'All levels'], ['error', 'Errors'], ['warn', 'Warnings'], ['info', 'Info']];
-const KINDS = [['', 'All kinds'], ['login', 'Sign-ins'], ['account', 'Accounts'], ['order', 'Orders'], ['stock', 'Stock'], ['product', 'Products'], ['era', 'Eras'], ['sales', 'Sales'], ['media', 'Media'], ['unhandled', 'Errors']];
+const KINDS = [['', 'All kinds'], ['login', 'Sign-ins'], ['account', 'Accounts'], ['order', 'Orders'], ['stock', 'Stock'], ['product', 'Products'], ['era', 'Eras'], ['sales', 'Sales'], ['media', 'Media'], ['inventory', 'Pulls'], ['operations', 'Operations'], ['retention', 'Retention'], ['unhandled', 'Crashes']];
 
 const mb = n => (typeof n === 'number' ? `${(n / 1048576).toFixed(1)} MB` : 'unknown');
 const when = s => (s === 'unknown' || !s ? 'unknown' : esc(String(s).replace('T', ' ').slice(0, 19)) + ' UTC');
@@ -43,6 +43,7 @@ function render(el) {
 
   async function load(append) {
     const mine = ++seq;
+    if (!append) { next = null; more.hidden = true; }
     const q = new URLSearchParams({ level: form.elements.level.value, kind: form.elements.kind.value, ...(append && next && { before: next }) });
     msg.textContent = 'Loading…';
     try {

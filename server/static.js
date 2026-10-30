@@ -1,4 +1,5 @@
 import { createLogger } from './lib/log.js';
+import { logSink } from './lib/log-store.js';
 import { secureResponse } from './lib/security.js';
 import { liveCatalog } from './lib/catalog.js';
 import { loadSales } from './lib/sales.js';
@@ -123,7 +124,7 @@ async function staticResponse(req, { env = {}, readFile, statFile, data, now = n
     }
     return await errorPage(404);
   } catch (err) {
-    createLogger({ route: `${req.method} static` }).error('static.failed', { message: String(err?.message ?? err) });
+    createLogger({ route: `${req.method} static` }, { sink: logSink(env, p => { void p; }) }).error('static.failed', { message: String(err?.message ?? err) });
     try { return await errorPage(500); } catch { return new Response('Server error', { status: 500 }); }
   }
 }

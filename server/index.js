@@ -80,7 +80,8 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
       const started = Date.now();
       const url = new URL(req.url);
       const reqId = crypto.randomUUID();
-      const log = createLogger({ reqId, route: routeName(req, url.pathname) }, { sink: logSink(env, p => ctx.waitUntil(p)) });
+      const route = routeName(req, url.pathname);
+      const log = createLogger({ reqId, route }, { sink: logSink(env, p => ctx.waitUntil(p)) });
       const c = { env, data, now: new Date(clock()), reqId, log, ip: ctx.ip ?? 'unknown', waitUntil: p => ctx.waitUntil(p), params: [] };
 
       let res;
@@ -115,7 +116,7 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
         if (err instanceof HttpError) res = fail(c, err.code, err.status, err.extra);
         else {
           log.error('unhandled', { message: String(err?.message ?? err), stack: String(err?.stack ?? '') });
-          c.waitUntil(alert(c, 'unhandled', { subject: 'Unhandled error', rows: [['Route', `${req.method} ${url.pathname}`], ['Message', String(err?.message ?? err)]] }));
+          c.waitUntil(alert(c, 'unhandled', { subject: 'Unhandled error', rows: [['Route', route], ['Message', String(err?.message ?? err)]] }));
           res = fail(c, 'server-error', 500);
         }
       }

@@ -52,7 +52,13 @@ export async function loginRoute(req, c) {
   const who = known ? email : null;
   // Limits first: every attempt past them would cost a 600k-round PBKDF2.
   if (!(await allowed(c, c.env.LOGIN_IP_LIMIT, c.ip)) || !(await allowed(c, c.env.LOGIN_EMAIL_LIMIT, email))) {
-    c.log.warn('login.blocked', { account: who });
+    // Anonymous blocks are saved once per IP per limiter window (15 min), so a flood writes one row, not one per attempt.
+    let firstBlock = false;
+    if (!who) try {
+      const marker = `loginblock:${c.ip}`;
+      if (!(await c.env.ORDERS.get(marker))) { await c.env.ORDERS.put(marker, '1', { expirationTtl: 900 }); firstBlock = true; }
+    } catch { /* not saved */ }
+    c.log.warn('login.blocked', { account: who, firstBlock });
     return fail(c, 'rate-limited', 429);
   }
   const found = await verifyLogin(c.env, email, password);

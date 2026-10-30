@@ -19,6 +19,8 @@ const SAVED = new Set(['login.ok', 'login.failed', 'login.blocked', 'account.add
 
 // Which lines the Logs tab keeps: errors, 5xx requests, non-request warnings (so not bot 404s or 429s) and staff events.
 export function shouldSave(line) {
+  if (line.event === 'client.error') return false; // anonymous beacons would flood the store
+  if (line.event === 'login.blocked') return line.account != null || line.firstBlock === true;
   if (line.level === 'error') return true;
   if (line.event === 'request') return line.status >= 500;
   return line.level === 'warn' || SAVED.has(line.event);

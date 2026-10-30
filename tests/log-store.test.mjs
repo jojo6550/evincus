@@ -34,13 +34,16 @@ test('only the listed lines are saved, after redaction, with a 30-day TTL', quie
 
 test('a failing sink never fails or delays the request', quiet(async () => {
   const env = env0();
-  env.ORDERS.put = () => new Promise(() => {}); // a store that never answers
+  const put = env.ORDERS.put.bind(env.ORDERS);
+  let hung = 0;
+  env.ORDERS.put = (k, ...a) => k.startsWith('log:') ? (hung++, new Promise(() => {})) : put(k, ...a); // the log store never answers
   const ctx = { ...makeCtx(), waitUntil: () => {} };
   const res = await Promise.race([
-    createApp().fetch(new Request('https://api.test/api/inventory/me'), env, ctx),
+    createApp().fetch(new Request('https://api.test/api/inventory/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'nobody@evincus.shop', password: 'x'.repeat(12) }) }), env, ctx),
     new Promise((_, no) => setTimeout(() => no(new Error('request waited for the sink')), 1000)),
   ]);
   assert.equal(res.status, 401);
+  assert.ok(hung > 0, 'the sink ran');
   const broken = env0();
   broken.ORDERS.failPuts = k => k.startsWith('log:');
   const r = await call('POST', '/api/inventory/login', { env: broken, ip: '8.8.8.8', body: { email: 'nobody@evincus.shop', password: 'x'.repeat(12) } });
@@ -95,6 +98,7 @@ test('logs list newest first, 100 a page, filtered by level and kind', quiet(asy
 test('health reports each piece, and unknown for one that fails', quiet(async () => {
   const env = env0();
   env.DISK_FREE = () => 12345;
+  await env.ORDERS.put('catalog:rev', JSON.stringify({ rev: 'rev-123' }));
   env.MEDIA.files.set('a'.repeat(24) + '-480.webp', new Uint8Array(10));
   await env.ORDERS.put('cron:lastRun', '2026-10-03T10:00:00.000Z');
   await env.ORDERS.put('email-retry:EV-1', '1');
@@ -109,10 +113,43 @@ test('health reports each piece, and unknown for one that fails', quiet(async ()
   assert.equal(full.emailRetryCount, 1);
   assert.equal(full.lastDigestDay, '2026-10-02');
   assert.equal(typeof full.commit, 'string');
+  assert.equal(full.rev, 'rev-123');
   env.ORDERS.failGets = k => k === 'cron:lastRun';
   env.DISK_FREE = () => { throw new Error('statfs'); };
   const part = await h();
   assert.equal(part.lastCronAt, 'unknown');
   assert.equal(part.diskFreeBytes, 'unknown');
   assert.equal(part.emailRetryCount, 1);
+}));
+
+test('flood-prone events: anonymous login.blocked once per IP window, no client.error, disk_low hourly', quiet(async () => {
+  assert.ok(!shouldSave({ level: 'warn', event: 'client.error' }));
+  assert.ok(!shouldSave({ level: 'warn', event: 'login.blocked', account: null, firstBlock: false }));
+  assert.ok(shouldSave({ level: 'warn', event: 'login.blocked', account: null, firstBlock: true }));
+  assert.ok(shouldSave({ level: 'warn', event: 'login.blocked', account: 'boss@evincus.shop', firstBlock: false }));
+  const env = env0();
+  await signIn(env, 'owner');
+  env.LOGIN_IP_LIMIT = fakeLimiter(0);
+  const attempt = email => call('POST', '/api/inventory/login', { env, ip: '9.9.9.9', body: { email, password: 'x'.repeat(12) } });
+  for (let i = 0; i < 5; i++) assert.equal((await attempt('nobody@evincus.shop')).status, 429);
+  const blocked = () => logKeys(env).map(k => JSON.parse(env.ORDERS.store.get(k).value)).filter(l => l.event === 'login.blocked');
+  assert.equal(blocked().length, 1);
+  for (let i = 0; i < 3; i++) await attempt('owner@evincus.shop');
+  assert.equal(blocked().length, 4);
+  const pending = [], log = createLogger({}, { sink: logSink(env, p => pending.push(p)) });
+  for (let i = 0; i < 4; i++) log.error('operations.disk_low');
+  await Promise.all(pending);
+  assert.equal(logKeys(env).filter(k => JSON.parse(env.ORDERS.store.get(k).value).event === 'operations.disk_low').length, 1);
+}));
+
+test('paging crosses a day boundary newest first; a bad before date is 400', quiet(async () => {
+  const env = env0();
+  const owner = await signIn(env, 'owner');
+  const put = (day, n) => env.ORDERS.put(`log:${day}T10:00:${String(n % 60).padStart(2, '0')}.${String(Math.floor(n / 60)).padStart(3, '0')}Z:aaaa`, JSON.stringify({ level: 'info', event: 'login.ok', day, n }), { metadata: { l: 'info', e: 'login.ok' } });
+  for (let i = 0; i < 60; i++) { await put('2026-10-02', i); await put('2026-10-03', i); }
+  const get = q => call('GET', `/api/inventory/logs${q}`, { env, headers: { cookie: owner } });
+  const p1 = (await get('')).json, p2 = (await get(`?before=${encodeURIComponent(p1.next)}`)).json;
+  assert.deepEqual([p1.logs.length, p2.logs.length, p2.next], [100, 20, null]);
+  assert.deepEqual([...p1.logs, ...p2.logs].map(l => l.day), [...Array(60).fill('2026-10-03'), ...Array(60).fill('2026-10-02')]);
+  assert.equal((await get('?before=log:2026-13-45T00:00:00.000Z:x')).status, 400);
 }));
