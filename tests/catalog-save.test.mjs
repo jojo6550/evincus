@@ -231,7 +231,7 @@ test('an active product without a photo is refused; a draft one saves', async ()
 
 test('product ids are kebab slugs fixed at creation; a new product goes last in its era', async () => {
   const { env, cookie } = await setup();
-  for (const id of ['a--b', 'x'.repeat(61), '-a', 'new']) { // 'new' is the inventory page's address for creating one
+  for (const id of ['a--b', 'x'.repeat(61), '-a', 'new', 'eras']) { // 'new' and 'eras' are inventory page addresses
     const r = await req(env, cookie, 'PUT', `/api/inventory/products/${id}`, { opId: crypto.randomUUID(), product: draft({ id }), version: null });
     assert.ok(r.json.error.errors.includes('id-invalid'), id);
   }
@@ -428,4 +428,11 @@ test('data seeded before catalog:era-order keeps its catalog:rev order through s
   assert.deepEqual(await env.ORDERS.get(ERA_ORDER_KEY, 'json'), ['beta', 'alpha', 'old', 'future']);
   assert.equal((await edit(env, cookie, p => { p.name = 'Y'; })).status, 200);
   assert.deepEqual(Object.keys(await env.ORDERS.get(REV_KEY, 'json')), ['rev']);
+});
+
+test('an era cannot take the slug new, the address of the create page', async () => {
+  const { env, cookie } = await setup();
+  const era = { slug: 'new', name: 'New', tagline: '', story: '', hero: null, dropsAt: null, endsAt: null, state: 'draft' };
+  const r = await req(env, cookie, 'PUT', '/api/inventory/eras/new', { opId: crypto.randomUUID(), era, version: null });
+  assert.deepEqual(errorsOf(r), [400, 'invalid-era', ['slug-invalid']]);
 });

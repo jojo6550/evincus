@@ -39,7 +39,7 @@ export function validateProduct(p, { eras = [], products = [], stock = {}, curre
   const check = (bad, code) => { if (bad) errors.push(code); };
   const sizes = arr(p.sizes), colors = arr(p.colors).map(c => (isObject(c) ? c : {})), names = colors.map(c => c.name);
   const photos = [p.images, ...colors.map(c => c.images)].filter(v => v !== undefined);
-  check(!isSlug(p.id) || p.id === 'new', 'id-invalid'); // #inventory/new is the page for creating a product
+  check(!isSlug(p.id) || ['new', 'eras'].includes(p.id), 'id-invalid'); // #inventory/new and #inventory/eras are other pages
   check(id !== undefined && p.id !== id, 'id-changed');
   check(!eras.some(e => e.slug === p.era), 'era-unknown');
   check(!['active', 'draft', 'archived'].includes(p.status), 'status-invalid');
@@ -197,7 +197,7 @@ export function validateEra(e) {
   if (!isObject(e)) return ['era-invalid'];
   const errors = [];
   const check = (bad, code) => { if (bad) errors.push(code); };
-  check(!isSlug(e.slug), 'slug-invalid');
+  check(!isSlug(e.slug) || e.slug === 'new', 'slug-invalid'); // #inventory/eras/new is the page for creating one
   check(!(isText(e.name, 100) && e.name && e.name === e.name.trim()), 'name-invalid');
   check(!isText(e.tagline ?? '', 200), 'tagline-invalid');
   check(!isText(e.story ?? '', 5000), 'story-invalid');

@@ -3,7 +3,7 @@
 import { api, newOpId, ApiError } from './inventory-api.js';
 import { registerImages } from './images.js';
 import * as view from './inventory-products-view.js';
-import { photosHtml, wirePhotos } from './inventory-photos.js';
+import { photosHtml, wirePhotos, rowKey, uploadBlock } from './inventory-photos.js';
 import * as eras from './inventory-eras.js';
 
 // Product fields the page edits, in save-bar order, with their save-bar names.
@@ -29,7 +29,7 @@ export function editable(p) {
   for (const c of e.colors) c.from = c.name;
   return e;
 }
-export const rowKey = c => c.from ?? c.tmp;
+export { rowKey };
 
 // The empty product a new one starts from: a Draft in `era`, with the fields the server requires.
 export const blankProduct = era => ({
@@ -42,7 +42,7 @@ export const slugify = name => name.normalize('NFKD').replace(/[̀-ͯ]/g, '').to
 // A colour as stored: no row tracking, and its name trimmed as the server trims it.
 const bare = ({ from, tmp, ...c }) => ({ ...c, name: c.name.trim() });
 // Photos are compared on their own (so the save bar says "photos"), not as part of the colours.
-const photoIds = p => [p.images, ...p.colors.map(c => c.images)].map((l, i) => [i, l?.map(r => r.id) ?? []]).filter(([, ids]) => ids.length);
+const photoIds = p => [['all', p.images], ...p.colors.map(c => [c.from ?? c.name, c.images])].map(([k, l]) => [k, l?.map(r => r.id) ?? []]).filter(([, ids]) => ids.length);
 const value = (p, f) => (f === 'colors' ? p.colors.map(({ images, ...c }) => bare(c)) : f === 'images' ? photoIds(p) : f === 'description' ? p.description ?? '' : p[f] ?? null);
 export const changedFields = (a, b) => Object.keys(LABELS).filter(f => JSON.stringify(value(a, f)) !== JSON.stringify(value(b, f)));
 
@@ -435,17 +435,27 @@ async function more(button) {
   if (page === pg) drawPage();
 }
 
-// Rebases the edits on the version someone else saved: fields this owner didn't touch take theirs, then saves.
+// Rebases the edits on the version someone else saved: fields this owner didn't touch take theirs. Photos merge per
+// list, found by colour row (its loaded name), never by position: a list this owner changed stays, the rest are theirs.
+export function mergeMine(original, edited, current) {
+  const fresh = editable(current), mine = changedFields(original, edited);
+  const ids = l => JSON.stringify((l ?? []).map(r => r.id));
+  const byRow = p => Object.fromEntries(p.colors.map(c => [c.from ?? c.name, c.images]));
+  const was = byRow(original), own = byRow(edited), theirs = byRow(fresh);
+  const keep = Object.keys(own).filter(k => ids(own[k]) !== ids(was[k]));
+  const keepTop = ids(edited.images) !== ids(original.images), top = edited.images;
+  for (const f of Object.keys(LABELS)) if (!mine.includes(f)) edited[f] = fresh[f];
+  edited.images = keepTop ? top : fresh.images;
+  for (const c of edited.colors) {
+    if (keep.includes(c.from)) c.images = own[c.from];
+    else if (c.from in theirs) c.images = theirs[c.from];
+  }
+}
+
 function useMine() {
   const pg = page, { current, version } = pg.conflict;
-  const fresh = editable(current), mine = changedFields(pg.original, pg.edited);
-  const mineP = mine.includes('images');
-  const own = { top: pg.edited.images, by: Object.fromEntries(pg.edited.colors.filter(c => c.from).map(c => [c.from, c.images])) };
-  for (const f of Object.keys(LABELS)) if (!mine.includes(f)) pg.edited[f] = fresh[f];
-  // Photos are per colour row, whichever side the rows came from: mine stay if I changed them, else theirs.
-  const theirs = Object.fromEntries(fresh.colors.map(c => [c.name, c.images]));
-  if (mineP) pg.edited.images = own.top; else pg.edited.images = fresh.images;
-  for (const c of pg.edited.colors) if (c.from) c.images = mineP ? own.by[c.from] ?? c.images : theirs[c.from];
+  if (uploadBlock(pg)) { pg.msg = uploadBlock(pg); return refreshBar(); }
+  mergeMine(pg.original, pg.edited, current);
   pg.original = current;
   pg.version = version;
   pg.conflict = null;
@@ -457,6 +467,7 @@ function useMine() {
 async function locked(work) {
   const pg = page;
   if (pg.saving) return;
+  if (uploadBlock(pg)) { pg.msg = uploadBlock(pg); return refreshBar(); }
   Object.assign(pg, { saving: true, msg: '' }); // the last save's message would describe the wrong press
   refreshBar();
   lockAll(pg.el);

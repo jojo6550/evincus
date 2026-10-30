@@ -4,7 +4,7 @@ import { api, newOpId, ApiError } from './inventory-api.js';
 import { registerImages, imageAttrs } from './images.js';
 import { photoPath } from '../../data/photos.js';
 import { esc } from './inventory-products-view.js';
-import { uploadPhoto } from './inventory-photos.js';
+import { uploadPhoto, uploadBlock, reorderFocus } from './inventory-photos.js';
 import { slugify } from './inventory-products.js';
 
 const DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'America/Jamaica' });
@@ -44,9 +44,11 @@ const errorText = err => (err.code === 'invalid-era' ? (err.details?.errors ?? [
 
 let staff = () => null;
 let state = null; // the open era's page; null elsewhere
-const dirty = () => !!state && changedEraFields(state.original, state.edited).length > 0;
+const dirty = st => !!st && changedEraFields(st.original, st.edited).length > 0;
+// Back from the sign-in screen, the same account's unsaved edits to the same era are kept (as for products).
+export const resumes = (st, slug, email) => !!st && st.slug === slug && st.email === email && dirty(st);
 export function canLeave() {
-  if (dirty() && !confirm('Leave this era? Your unsaved changes will be lost.')) return false;
+  if (dirty(state) && !confirm('Leave this era? Your unsaved changes will be lost.')) return false;
   state = null;
   return true;
 }
@@ -72,8 +74,8 @@ function listHtml(d, owner) {
       <span class="era__name"><a href="#inventory/eras/${encodeURIComponent(e.slug)}"><b>${esc(e.name)}</b></a>
         <small><span class="tag">${esc(eraStatus(e))}</span> ${productCount} product${productCount === 1 ? '' : 's'}</small></span>
       ${owner ? `<span class="era__move">
-        <button type="button" class="btn btn--line" id="er-up-${i}" data-move="${esc(e.slug)}" data-d="-1" aria-label="Move ${esc(e.name)} up"${i === 0 ? ' disabled' : ''}>↑</button>
-        <button type="button" class="btn btn--line" id="er-dn-${i}" data-move="${esc(e.slug)}" data-d="1" aria-label="Move ${esc(e.name)} down"${i === d.eras.length - 1 ? ' disabled' : ''}>↓</button>
+        <button type="button" class="btn btn--line" id="er-up-${i}" data-move="${esc(e.slug)}" data-d="-1" aria-label="Move ${esc(e.name)} up, position ${i + 1} of ${d.eras.length}"${i === 0 || d.busy ? ' disabled' : ''}>↑</button>
+        <button type="button" class="btn btn--line" id="er-dn-${i}" data-move="${esc(e.slug)}" data-d="1" aria-label="Move ${esc(e.name)} down, position ${i + 1} of ${d.eras.length}"${i === d.eras.length - 1 || d.busy ? ' disabled' : ''}>↓</button>
       </span>` : ''}
     </li>`).join('');
   return `<a class="pp__back" href="#inventory">‹ Inventory</a>
@@ -96,30 +98,30 @@ async function renderList(el, msg = '') {
   if (!root.isConnected) return;
   registerImages(d.media);
   const owner = staff()?.role === 'owner';
-  let busy = false;
   const draw = () => { root.innerHTML = listHtml(d, owner); };
-  // Saves the new order at once, under its own opId. A conflict reloads the list.
-  const reorder = async order => {
-    if (busy || order === d.order) return;
-    busy = true;
+  // Saves the new order at once, under its own opId; the buttons are off meanwhile. A conflict reloads the list.
+  const reorder = async (order, focusId) => {
+    if (d.busy || order === d.order) return;
+    d.busy = true;
+    draw();
     try {
       const r = await api('PUT', '/api/inventory/era-order', { order, version: d.version }, { opId: newOpId() });
       Object.assign(d, { order: r.order, version: r.version, eras: [...d.eras].sort((a, b) => r.order.indexOf(a.era.slug) - r.order.indexOf(b.era.slug)), msg: 'Order saved.' });
     } catch (err) {
-      busy = false;
-      if (err instanceof ApiError && err.status === 409) return renderList(el, 'The order was changed by someone else. The list is reloaded.');
-      d.msg = `Order not saved: ${err.message}`;
+      if (err instanceof ApiError && err.code === 'era-order-changed') return renderList(el, 'The order was changed by someone else. The list is reloaded.');
+      d.msg = err.code === 'catalog-busy' ? 'Busy, try again.' : `Order not saved: ${err.message}`;
     }
-    busy = false;
+    d.busy = false;
     draw();
+    if (focusId) document.getElementById(focusId)?.focus();
   };
   d.msg = msg;
   draw();
   root.addEventListener('click', e => {
     const b = e.target.closest('[data-move]');
     if (!b) return;
-    const id = b.id;
-    reorder(moveSlug(d.order, b.dataset.move, Number(b.dataset.d))).then(() => document.getElementById(id)?.focus());
+    const i = d.eras.findIndex(x => x.era.slug === b.dataset.move), dir = Number(b.dataset.d);
+    reorder(moveSlug(d.order, b.dataset.move, dir), reorderFocus('er', i, dir, d.eras.length));
   });
   let from = null;
   root.addEventListener('dragstart', e => { from = e.target.closest?.('.era')?.dataset.slug ?? null; if (from) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', from); } });
@@ -217,11 +219,14 @@ async function onChange(st, e) {
   if (t.id !== 'e-hero' || !t.files[0]) return;
   const file = t.files[0];
   t.value = '';
+  if (st.saving || st.uploading) return;
   st.uploading = 1;
+  t.disabled = true; // one upload at a time
   st.msg = 'Uploading the hero photo…';
   refreshBar(st);
   try {
-    st.edited.hero = await uploadPhoto(file);
+    const ref = await uploadPhoto(file);
+    st.edited.hero = ref; // set once it lands, on the era as it is by then
     st.msg = '';
   } catch (err) {
     st.msg = `${file.name}: ${err.status === 413 ? 'This photo is too large to upload.' : err.message}`;
@@ -232,7 +237,8 @@ async function onChange(st, e) {
 
 function onClick(st, e) {
   const t = e.target.closest('button');
-  if (!t) return;
+  if (!t || st.saving) return;
+  if (st.uploading && t.dataset.act !== 'discard') { st.msg = uploadBlock(st); return refreshBar(st); }
   if (t.id === 'save') save(st);
   else if (t.id === 'e-hero-del') { st.edited.hero = null; st.msg = ''; draw(st); } else if (t.dataset.act === 'discard') { state = null; load(st.el, st.slug); } else if (t.dataset.act === 'mine') {
     // Fields this owner didn't touch take the other version; then it saves on top of it.
@@ -244,8 +250,8 @@ function onClick(st, e) {
 }
 
 async function save(st) {
-  if (st.saving) return;
-  if (st.isNew && !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(st.edited.slug)) {
+  if (st.saving || st.uploading) return;
+  if (st.isNew && (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(st.edited.slug) || st.edited.slug === 'new')) { // 'new' is the create page's address
     Object.assign(st, { fieldErrors: ['slug-invalid'], msg: `Not saved: ${ERRORS['slug-invalid']}` });
     return draw(st);
   }
@@ -286,7 +292,7 @@ async function load(el, slug) {
     const found = d.eras.find(x => x.era.slug === slug);
     if (!isNew && !found) return setMessage(root, 'No era with that address.');
     const era = found?.era ?? blank();
-    state = { el, slug, isNew, owner, original: era, edited: structuredClone(era), version: isNew ? null : found.version, conflict: null, msg: '', fieldErrors: [], saving: false, uploading: 0, slugTouched: false, op: null };
+    state = { el, slug, isNew, owner, email: staff()?.email, original: era, edited: structuredClone(era), version: isNew ? null : found.version, conflict: null, msg: '', fieldErrors: [], saving: false, uploading: 0, slugTouched: false, op: null };
     draw(state);
   } catch (err) {
     if (root.isConnected) setMessage(root, err.message, () => load(el, slug));
@@ -296,6 +302,7 @@ async function load(el, slug) {
 // `params` follows 'eras' in the address: [] for the list, [slug] for one era.
 export function render(el, params, who) {
   staff = () => who;
+  if (resumes(state, params[0], who?.email)) { state.el = el; return draw(state); } // back from the sign-in screen
   state = null;
   return params[0] ? load(el, params[0]) : renderList(el);
 }

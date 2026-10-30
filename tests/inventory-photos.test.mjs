@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeVariants, photoList, setPhotos, moveTo, removeAt } from '../assets/js/inventory-photos.js';
-import { moveSlug, eraStatus } from '../assets/js/inventory-eras.js';
+import { encodeVariants, uploadPhoto, addFile, uploadBlock, reorderFocus, photoList, setPhotos, moveTo, removeAt } from '../assets/js/inventory-photos.js';
+import { moveSlug, eraStatus, resumes } from '../assets/js/inventory-eras.js';
 import { MAX_VARIANT_BYTES } from '../data/photos.js';
 
 // A fake canvas whose blob size is width x quality x k; `webp: false` mimics Safari answering with PNG.
-const fakes = ({ width = 3000, height = 2000, k = 0.1, webp = true, decode = true } = {}) => {
+const fakes = ({ width = 3000, height = 2000, k = 0.1, webp = true, decode = true, none = false } = {}) => {
   const log = [];
   return {
     log,
@@ -15,9 +15,10 @@ const fakes = ({ width = 3000, height = 2000, k = 0.1, webp = true, decode = tru
       return { width, height, close() { log.push(['close']); } };
     },
     makeCanvas: (w, h) => ({
-      draw() {},
+      draw(b, fill) { log.push(['draw', w, fill]); },
       async blob(type, quality) {
         log.push(['blob', w, h, type, quality]);
+        if (none) return null;
         const t = type === 'image/webp' && !webp ? 'image/png' : type;
         return { type: t, size: Math.round(w * quality * k * 1024 * 0.3) };
       },
@@ -45,8 +46,8 @@ test('encodeVariants falls back to JPEG for every variant when WebP encoding is 
 test('encodeVariants steps quality down and gives up with photo-too-large', async () => {
   const f = fakes({ k: 3 }); // 1440 wide: ~1.2 MB at 0.82, still over at 0.5
   await assert.rejects(encodeVariants({}, f), e => e.code === 'photo-too-large' && /too large/i.test(e.message));
-  const qs = [...new Set(f.log.filter(l => l[0] === 'blob' && l[1] === 480).map(l => l[4]))];
-  assert.deepEqual(qs, [0.82, 0.76, 0.7, 0.64, 0.58, 0.52]);
+  const qs = [...new Set(f.log.filter(l => l[0] === 'blob' && l[1] === 960).map(l => l[4]))];
+  assert.deepEqual(qs, [0.82, 0.76, 0.7, 0.64, 0.58, 0.52, 0.5]);
   const ok = await encodeVariants({}, fakes({ k: 0.9 }));
   assert.ok(ok.every(b => b.size <= MAX_VARIANT_BYTES));
 });
@@ -57,10 +58,13 @@ test('encodeVariants says so when the photo cannot be decoded, and uses the phot
 });
 
 test('photo list helpers edit a colour, or the all-colours list, without touching others', () => {
-  const p = { images: [{ id: 'a' }], colors: [{ name: 'Red' }, { name: 'Blue', images: [{ id: 'b' }] }] };
+  const p = { images: [{ id: 'a' }], colors: [{ name: 'Red', from: 'Red' }, { name: 'Blue', from: 'Blue', images: [{ id: 'b' }] }, { name: 'Pink', from: null, tmp: '|1' }] };
   assert.deepEqual(photoList(p, 'all'), [{ id: 'a' }]);
-  assert.deepEqual(photoList(p, '0'), []);
-  setPhotos(p, '0', [{ id: 'c' }]);
+  assert.deepEqual(photoList(p, 'Red'), []);
+  assert.equal(photoList(p, 'Gone'), null);
+  assert.equal(setPhotos(p, 'Gone', []), false);
+  assert.equal(setPhotos(p, '|1', [{ id: 'n' }]), true);
+  setPhotos(p, 'Red', [{ id: 'c' }]);
   assert.deepEqual(p.colors[0].images, [{ id: 'c' }]);
   assert.deepEqual(p.colors[1].images, [{ id: 'b' }]);
   assert.deepEqual(moveTo(['a', 'b', 'c'], 0, 2), ['b', 'c', 'a']);
@@ -86,7 +90,7 @@ test('a photo change is an unsaved edit that the save bar calls photos, and goes
   const o = { id: 'p', era: 'e', status: 'draft', name: 'P', sizes: ['M'], colors: [{ name: 'Red', hex: '#ff0000' }], skus: {} };
   const e = editable(o);
   assert.equal(pendingSummary(o, e, {}).text, '');
-  setPhotos(e, '0', [{ id: 'a'.repeat(24), width: 900, height: 900, widths: [480, 900], ext: 'webp' }]);
+  setPhotos(e, 'Red', [{ id: 'a'.repeat(24), width: 900, height: 900, widths: [480, 900], ext: 'webp' }]);
   assert.equal(pendingSummary(o, e, {}).text, 'Unsaved: photos');
   assert.equal(productBody(o, e).product.colors[0].images.length, 1);
 });
