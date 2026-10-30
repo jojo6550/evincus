@@ -31,7 +31,18 @@ function pickLines(r, lines) {
 
 const itemsOf = picked => picked.reduce((s, p) => s + p.line.unitCents * p.qty, 0);
 
-const maxRefund = (r, picked) => { const i = itemsOf(picked); return i + taxShare(r, i); };
+// Largest refund for these lines. A pick that completes the order gets the exact tax left,
+// so per-line rounding can't strand a cent; never above what the cumulative cap still allows.
+function plan(r, picked) {
+  const items = itemsOf(picked);
+  const share = taxShare(r, items);
+  const taxLeft = (r.taxCents || 0) - (r.refundedTaxCents || 0);
+  const lastOf = picked.every(p => p.qty === remaining(r, p.line)) && r.lines.every(l => picked.some(p => p.line === l) || remaining(r, l) === 0);
+  const room = r.totalCents - (r.feeCents || 0) - (r.refundedCents || 0); // the processing fee is never refunded
+  const full = items + share;
+  return { share, taxLeft, lastOf, full, cap: Math.min(lastOf ? items + taxLeft : full, room) };
+}
+const maxRefund = (r, picked) => plan(r, picked).cap;
 
 export function defaultRefundCents(record, lines) {
   return maxRefund(record, pickLines(record, lines));
@@ -71,12 +82,10 @@ export function applyAction(record, action, { by = null, now } = {}) {
         || !posInt(amountCents) || typeof reason !== 'string' || !reason.trim() || reason.trim().length > 500) throw invalid();
       const picked = pickLines(rec, lines);
       const doneCents = rec.refundedCents || 0;
-      const refundable = rec.totalCents - (rec.feeCents || 0); // the processing fee is never refunded
-      const cap = maxRefund(rec, picked);
+      const refundable = rec.totalCents - (rec.feeCents || 0);
+      const { cap, taxLeft, lastOf, share, full } = plan(rec, picked);
       if (amountCents > cap || doneCents + amountCents > refundable) throw invalid();
-      const taxLeft = (rec.taxCents || 0) - (rec.refundedTaxCents || 0);
-      const lastOf = picked.every(p => p.qty === remaining(rec, p.line)) && rec.lines.every(l => picked.some(p => p.line === l) || remaining(rec, l) === 0);
-      const scaled = cap > 0 ? Math.round(taxShare(rec, itemsOf(picked)) * amountCents / cap) : 0;
+      const scaled = full > 0 ? Math.round(share * amountCents / full) : 0;
       const tax = Math.max(0, Math.min(lastOf ? taxLeft : scaled, taxLeft, amountCents));
       for (const { line, qty } of picked) {
         rec.refundedQty = { ...rec.refundedQty, [line.key]: refundedQty(rec, line.key) + qty };

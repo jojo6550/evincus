@@ -131,6 +131,32 @@ test('final refund takes the last cent of tax', () => {
   assert.equal(rec.paymentStatus, 'REFUNDED');
 });
 
+test('refunding every line at its default always works and ends REFUNDED with exact tax', () => {
+  const cases = [
+    mk({ subtotalCents: 3003, taxCents: 452, feeCents: 150, totalCents: 3605,
+      lines: ['a', 'b', 'c'].map(k => ({ key: k, qty: 1, unitCents: 1001 })) }),
+    mk({ subtotalCents: 2, taxCents: 1, feeCents: 0, totalCents: 3, lines: ['a', 'b'].map(k => ({ key: k, qty: 1, unitCents: 1 })) }),
+  ];
+  for (const c of cases) {
+    let rec = c;
+    for (const l of c.lines) {
+      const lines = [{ key: l.key, qty: 1 }];
+      rec = run(rec, { type: 'refund', lines, amountCents: defaultRefundCents(rec, lines), restock: true, reason: 'x' }).record;
+    }
+    assert.equal(rec.paymentStatus, 'REFUNDED');
+    assert.equal(rec.refundedTaxCents, c.taxCents);
+    assert.ok(rec.refundedCents <= c.totalCents - c.feeCents);
+  }
+});
+
+test('cumulative amount cap triggers on its own', () => {
+  // two lines; first refund takes its default, second asks for a cent more than room (prior refund was overpaid-free, so shrink room via fee)
+  const r = mk({ subtotalCents: 200, taxCents: 0, feeCents: 0, totalCents: 250, lines: [{ key: A, qty: 1, unitCents: 100 }, { key: B, qty: 1, unitCents: 100 }] });
+  const half = run(r, R(A, 1, 100)).record;
+  bad({ ...half, totalCents: 150 }, R(B, 1, 100)); // within line cap (100) but 100 + 100 > 150
+  assert.equal(run({ ...half, totalCents: 250 }, R(B, 1, 100)).record.paymentStatus, 'REFUNDED');
+});
+
 test('bad input and edge cases', () => {
   const x = mk();
   assert.throws(() => applyAction(x, { type: 'note', text: 'a' }, { by: null }), { code: 'invalid-action' });
