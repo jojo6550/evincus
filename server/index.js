@@ -138,7 +138,12 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
       ctx.waitUntil((async () => {
         const marker = `retention:${new Date(now - 5 * 3600000).toISOString().slice(0, 10)}`; // Jamaica day, UTC-5
         if (await env.ORDERS.get(marker)) return;
-        if (await runRetention(env, c)) await env.ORDERS.put(marker, '1', { expirationTtl: 172800 });
+        const attemptKey = marker.replace('retention:', 'retention:attempt:');
+        const attempts = Number((await env.ORDERS.get(attemptKey)) ?? 0);
+        if (attempts >= 2) return; // a job that throws gets one retry a day, not one every 15 minutes
+        const { done, failed } = await runRetention(env, c);
+        if (done) await env.ORDERS.put(marker, '1', { expirationTtl: 172800 });
+        else if (failed) await env.ORDERS.put(attemptKey, String(attempts + 1), { expirationTtl: 172800 });
       })().catch(logFailure));
     },
   };

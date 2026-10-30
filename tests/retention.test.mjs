@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeEnv, makeCtx, fakeUpstreams, call, captureLogs } from './helpers/fake-env.mjs';
 import { FIXTURE } from './helpers/fixture.mjs';
 import { createApp } from '../server/index.js';
-import { scrubOrders, dropOrderTtls } from '../server/lib/retention.js';
+import { scrubOrders, dropOrderTtls, runRetention } from '../server/lib/retention.js';
 import { dayKey, orderKey, changeOrder } from '../server/lib/orders.js';
 import { orderSummary } from '../server/lib/order-flow.js';
 
@@ -119,4 +119,59 @@ test('new orders are stored without a TTL; submissions keep theirs', async () =>
   assert.deepEqual(ttl('order:'), [undefined]);
   assert.deepEqual(ttl('day:'), [undefined]);
   assert.deepEqual(ttl('submission:'), [63072000]);
+});
+
+const spy = () => { const errors = []; return { errors, error: (e, f) => errors.push([e, f]) }; };
+
+test('an orphan day key is skipped and later orders are still scrubbed', async () => {
+  const env = makeEnv();
+  seed(env, base('EV-A', iso(NOW - 900 * DAY)));
+  env.ORDERS.store.delete(orderKey('EV-A'));
+  seed(env, base('EV-B', iso(NOW - 800 * DAY)));
+  const log = spy();
+  assert.equal(await scrubOrders(env, new Date(NOW), { log }), 1);
+  assert.ok(read(env, 'EV-B').scrubbedAt);
+  assert.deepEqual(log.errors, []);
+});
+
+test('a corrupt order is logged by id and later orders are still scrubbed', async () => {
+  const env = makeEnv();
+  seed(env, base('EV-A', iso(NOW - 900 * DAY)));
+  env.ORDERS.store.get(orderKey('EV-A')).value = '{not json';
+  seed(env, base('EV-B', iso(NOW - 800 * DAY)));
+  const log = spy();
+  assert.equal(await scrubOrders(env, new Date(NOW), { log }), 1);
+  assert.ok(read(env, 'EV-B').scrubbedAt);
+  assert.equal(log.errors.length, 1);
+  assert.equal(log.errors[0][0], 'retention.order_failed');
+  assert.deepEqual(Object.keys(log.errors[0][1]).sort(), ['message', 'orderId']);
+  assert.equal(log.errors[0][1].orderId, 'EV-A');
+});
+
+test('a day key without metadata does not stop the walk', async () => {
+  const env = makeEnv();
+  seed(env, base('EV-A', iso(NOW - 900 * DAY)));
+  delete env.ORDERS.store.get(dayKey(base('EV-A', iso(NOW - 900 * DAY)))).opts.metadata;
+  seed(env, base('EV-B', iso(NOW - 800 * DAY)));
+  assert.equal(await scrubOrders(env, new Date(NOW)), 2);
+  assert.ok(read(env, 'EV-A').scrubbedAt && read(env, 'EV-B').scrubbedAt);
+});
+
+test('one job failing does not stop the other', async () => {
+  const env = makeEnv();
+  seed(env, base('EV-OLD', iso(NOW - 800 * DAY)));
+  env.ORDERS.failGets = k => k === 'retention:ttl-cursor';
+  const errors = [];
+  const { done, failed } = await runRetention(env, { now: new Date(NOW), deadline: Infinity, log: { error: e => errors.push(e) } });
+  assert.deepEqual([done, failed, errors], [false, true, ['retention.failed']]);
+  assert.ok(read(env, 'EV-OLD').scrubbedAt);
+});
+
+test('the 730-day boundary is exact', async () => {
+  const env = makeEnv();
+  seed(env, base('EV-EDGE', iso(NOW - 730 * DAY)));
+  seed(env, base('EV-PAST', iso(NOW - 730 * DAY - 1)));
+  assert.equal(await scrubOrders(env, new Date(NOW)), 1);
+  assert.ok(read(env, 'EV-PAST').scrubbedAt);
+  assert.ok(!read(env, 'EV-EDGE').scrubbedAt);
 });
