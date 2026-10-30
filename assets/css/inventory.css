@@ -314,8 +314,8 @@ main:focus { outline: 0; }
 .delta--up i { color: var(--ok); }
 .delta--down i { color: var(--hazard); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.stx__tip { min-height: 2.8em; color: var(--ink); font: 400 12px/1.4 var(--mono); visibility: hidden; padding: 4px 8px; background: var(--bone); }
-.stx__tip--on { visibility: visible; }
+.stx__tip { min-height: 2.8em; color: var(--ink); font: 400 12px/1.4 var(--mono); padding: 4px 8px; background: var(--bone); }
+.stx__tip:empty { background: transparent; }
 .stx svg { display: block; width: 100%; height: auto; }
 .stx svg .gl { stroke: var(--grid); stroke-width: 1; }
 .stx svg .base { stroke: var(--smoke); stroke-width: 1; }

@@ -239,8 +239,7 @@ export async function orderActionRoute(req, c) {
 export async function statsRoute(req, c) {
   await requireStaff(req, c);
   const p = new URL(req.url).searchParams;
-  const { rev } = await loadCatalog(c.env);
-  const out = await loadStats(c.env, { period: p.get('period') || '30d', from: p.get('from'), to: p.get('to'), now: c.now, catalog: c.data, stock: c.stock, rev });
+  const out = await loadStats(c.env, { period: p.get('period') || '30d', from: p.get('from'), to: p.get('to'), now: c.now, catalog: c.data, stock: c.stock, rev: c.data.rev });
   return json(out, 200, noStore);
 }
 

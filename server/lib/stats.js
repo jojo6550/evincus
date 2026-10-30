@@ -102,6 +102,7 @@ async function dayRows(env, from, to) {
 }
 
 const CACHE_MAX = 20;
+const CACHE_TTL = 60000;
 const caches = new WeakMap(); // per ORDERS store, so tests with separate stores do not share
 
 // The order-derived part is cached per (period, range, ordersRev, catalog rev); `low` always reads the current stock.
@@ -110,17 +111,21 @@ export async function loadStats(env, { period, now, from, to, catalog, stock, re
   const b = periodBounds(period, now, { from, to });
   const cache = caches.get(env.ORDERS) ?? caches.set(env.ORDERS, new Map()).get(env.ORDERS);
   const key = JSON.stringify([period, b.from, b.to, ordersRev(), rev]);
-  let hit = cache.get(key);
+  const cached = cache.get(key);
+  let hit = cached && Date.now() - cached.at < CACHE_TTL ? cached.value : null;
   if (!hit) {
     const rows = await dayRows(env, b.prevFrom, b.to);
-    for (const m of rows) {
-      if (!counts(m) || !within(m, b.from, b.to)) continue;
-      const o = await findOrder(env, m.id);
-      m.lines = (o?.lines ?? []).map(l => ({ id: l.id, name: l.name, color: l.color, size: l.size, unitCents: l.unitCents, qty: remaining(o, l) }));
+    const counted = rows.filter(m => counts(m) && within(m, b.from, b.to));
+    for (let i = 0; i < counted.length; i += 10) {
+      await Promise.all(counted.slice(i, i + 10).map(async m => {
+        const o = await findOrder(env, m.id);
+        m.lines = (o?.lines ?? []).map(l => ({ id: l.id, name: l.name, color: l.color, size: l.size, unitCents: l.unitCents, qty: remaining(o, l) }));
+      }));
     }
     hit = computeStats(rows, catalog, new Map(), b);
+    cache.delete(key); // re-inserted last, so eviction drops the oldest
     if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
-    cache.set(key, hit);
+    cache.set(key, { at: Date.now(), value: hit });
   }
   return { ...hit, low: lowStock(catalog, stock), period, from: b.from, to: b.to };
 }

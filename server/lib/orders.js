@@ -9,7 +9,7 @@ export const ORDER_TTL = 63072000; // 2 years
 export const orderKey = id => `order:${id}`;
 export const retryKey = id => `email-retry:${id}`;
 
-// Bumped by every order write, so cached stats know to recompute (in-process, like the cache).
+// Bumped by every order write, so cached stats know to recompute. ordersRev is per process (single instance by design).
 let rev = 0;
 export const ordersRev = () => rev;
 export const bumpOrders = () => { rev++; };

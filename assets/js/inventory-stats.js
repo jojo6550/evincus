@@ -1,7 +1,7 @@
 // Stats tab: how the store is moving. Numbers come from GET /api/inventory/stats; every server string goes through esc().
 import { api } from './inventory-api.js';
 import { esc } from './inventory-products-view.js';
-import { barChart, dollars, fmtDay, describe } from './inventory-chart.js';
+import { barChart, bucketed, dollars, describe } from './inventory-chart.js';
 import { PICKUP_LOCATIONS } from '../../data/fulfillment.js';
 
 const PERIODS = [['today', 'Today'], ['7d', '7 days'], ['30d', '30 days'], ['custom', 'Custom']];
@@ -11,8 +11,8 @@ const plural = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
 
 // "▲ 18%" and the words "up"/"down" for assistive tech; "new" when there was nothing before.
 export function delta(cur, prev, { absolute = false } = {}) {
-  if (cur === prev) return { cls: 'flat', text: 'no change', icon: '–' };
-  if (!prev && !absolute) return { cls: 'up', text: 'new', icon: '▲' };
+  if (cur === prev) return { cls: 'flat', text: 'no change', icon: '–', short: 'same' };
+  if (!prev && !absolute) return { cls: 'up', text: 'up from nothing', icon: '▲', short: 'new' };
   const up = cur > prev, diff = absolute ? Math.abs(cur - prev) : `${Math.round(Math.abs(cur - prev) / prev * 100)}%`;
   return { cls: up ? 'up' : 'down', text: `${up ? 'up' : 'down'} ${diff}`, icon: up ? '▲' : '▼', short: diff };
 }
@@ -31,7 +31,7 @@ const locationName = id => PICKUP_LOCATIONS.find(l => l.id === id)?.name ?? 'Oth
 
 export function statsHtml(d, { list = 'product', table = false, vs = 'prev period' } = {}) {
   const t = d.tiles, p = t.prev;
-  const rows = d.perDay.map(r => `<tr><td>${esc(fmtDay(r.day))}</td><td>${dollars(r.cents)}</td><td>${r.orders}</td></tr>`).join('');
+  const rows = bucketed(d.perDay).map(r => `<tr><td>${esc(r.label)}</td><td>${dollars(r.cents)}</td><td>${r.orders}</td></tr>`).join('');
   const orders = t.orders;
   return `
 <div class="tiles stx__tiles">
@@ -43,8 +43,8 @@ export function statsHtml(d, { list = 'product', table = false, vs = 'prev perio
 <section class="card"><h3 class="card__title">Sales per day <small>USD, order value</small></h3>
   <div class="stx__tip" aria-live="polite" role="status"></div>
   <div class="stx__chart"${table ? ' hidden' : ''}>${barChart(d.perDay)}</div>
-  <div class="stx__table"${table ? '' : ' hidden'}><table><thead><tr><th>Day</th><th>Sales</th><th>Orders</th></tr></thead><tbody>${rows}</tbody></table></div>
-  <button type="button" class="stx__link" data-act="table" aria-pressed="${table}">${table ? 'Show as chart' : 'Show as table'}</button>
+  <div class="stx__table"${table ? '' : ' hidden'}><table><thead><tr><th>Period</th><th>Sales</th><th>Orders</th></tr></thead><tbody>${rows}</tbody></table></div>
+  <button type="button" class="stx__link" data-act="table" aria-pressed="${table}">Table</button>
 </section>
 <section class="card"><h3 class="card__title">Best sellers <small>units</small></h3>
   <div class="chips">${LISTS.map(([k, label]) => `<button type="button" class="chip" data-list="${k}" aria-pressed="${list === k}">${label}</button>`).join('')}</div>
@@ -116,14 +116,16 @@ function render(el) {
     if (!slot || !st.data) return;
     body.querySelector('.slot.hot')?.classList.remove('hot');
     slot.classList.add('hot');
-    const tip = body.querySelector('.stx__tip');
-    tip.textContent = describe(st.data.perDay[+slot.dataset.i]);
-    tip.classList.add('stx__tip--on');
+    body.querySelector('.stx__tip').textContent = describe(bucketed(st.data.perDay)[+slot.dataset.i]);
+  };
+  const hide = slot => {
+    slot.classList.remove('hot');
+    body.querySelector('.stx__tip').textContent = '';
   };
   body.addEventListener('pointerover', show);
   body.addEventListener('focusin', show);
-  body.addEventListener('focusout', e => { if (e.target.closest?.('.slot')) { e.target.classList.remove('hot'); body.querySelector('.stx__tip')?.classList.remove('stx__tip--on'); } });
-  body.addEventListener('pointerout', e => { if (e.target.closest?.('.slot') && document.activeElement !== e.target.closest('.slot')) { e.target.closest('.slot').classList.remove('hot'); body.querySelector('.stx__tip')?.classList.remove('stx__tip--on'); } });
+  body.addEventListener('focusout', e => { const slot = e.target.closest?.('.slot'); if (slot) hide(slot); });
+  body.addEventListener('pointerout', e => { const slot = e.target.closest?.('.slot'); if (slot && document.activeElement !== slot) hide(slot); });
 
   drawSeg();
   return load();

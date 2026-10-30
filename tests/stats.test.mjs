@@ -7,7 +7,7 @@ import { orderPuts, changeOrder } from '../server/lib/orders.js';
 import { orderSummary } from '../server/lib/order-flow.js';
 import { periodBounds, computeStats } from '../server/lib/stats.js';
 import { remaining } from '../data/refunds.js';
-import { barChart } from '../assets/js/inventory-chart.js';
+import { barChart, bucketed } from '../assets/js/inventory-chart.js';
 
 const HOUR = 3600000, DAY = 24 * HOUR;
 let seq = 0;
@@ -90,9 +90,40 @@ test('a viewer gets no customer, cost or profit fields', async () => {
     const r = await get(env, cookie, '/api/inventory/stats?period=7d');
     assert.equal(r.status, 200);
     assert.equal(r.json.tiles.orders, 1);
-    const text = JSON.stringify(r.json).toLowerCase();
-    for (const bad of ['ann', 'example.com', '555', 'secret', 'cost', 'profit', 'customer', 'payer']) assert.ok(!text.includes(bad), bad);
+    // An allowlist of keys at every level: a new field must be added here on purpose.
+    const keys = o => Object.keys(o).sort();
+    const j = r.json;
+    assert.deepEqual(keys(j), ['best', 'from', 'low', 'perDay', 'period', 'pickup', 'sizes', 'tiles', 'to']);
+    assert.deepEqual(keys(j.tiles), ['average', 'orders', 'prev', 'sales', 'units']);
+    assert.deepEqual(keys(j.tiles.prev), ['average', 'orders', 'sales', 'units']);
+    assert.deepEqual(keys(j.best), ['colour', 'era', 'product', 'size']);
+    for (const list of [...Object.values(j.best), j.sizes]) for (const e of list) assert.deepEqual(keys(e), ['cents', 'key', 'name', 'units']);
+    for (const e of j.perDay) assert.deepEqual(keys(e), ['cents', 'day', 'orders']);
+    for (const e of j.pickup) assert.deepEqual(keys(e), ['cents', 'locationId', 'orders']);
+    for (const e of j.low) assert.deepEqual(keys(e), ['available', 'color', 'id', 'name', 'out', 'size']);
   }
+});
+
+test('a refunded order lowers units and the product count through the route', async () => {
+  const { env, viewer } = await setup();
+  const key = 'alpha-tee|Black, white print|S';
+  await env.ORDERS.commit({ puts: [...orderPuts(mk({ lines: [line({ qty: 3 })], refundedQty: { [key]: 1 }, paymentStatus: 'PARTIALLY_REFUNDED' })), ...orderPuts(mk({ lines: [line({ qty: 1 })] }))] });
+  const { json } = await get(env, viewer, '/api/inventory/stats?period=7d');
+  assert.equal(json.tiles.orders, 2);
+  assert.equal(json.tiles.units, 3);
+  assert.equal(json.best.product[0].units, 3);
+  assert.equal(json.sizes[0].units, 3);
+});
+
+test('a day with more than 50 orders is counted whole across list pages', async () => {
+  const { env, viewer } = await setup();
+  const many = Array.from({ length: 55 }, (_, i) => mk({ at: NOW - HOUR - i * 1000 }));
+  await env.ORDERS.commit({ puts: many.flatMap(orderPuts) });
+  const { json } = await get(env, viewer, '/api/inventory/stats?period=today');
+  assert.equal(json.tiles.orders, 55);
+  assert.equal(json.tiles.units, 110);
+  assert.equal(json.best.product[0].units, 110);
+  assert.equal(json.perDay[0].orders, 55);
 });
 
 test('the stats cache invalidates when an order is written', async () => {
@@ -125,7 +156,8 @@ const bars = svg => [...svg.matchAll(BAR)].map(m => m.slice(1).map(Number)); // 
 test('the bar chart draws one rounded bar per day, proportional, on a baseline, with accessible labels', () => {
   const data = [{ day: '2026-10-01', cents: 10000, orders: 2 }, { day: '2026-10-02', cents: 5000, orders: 1 }, { day: '2026-10-03', cents: 0, orders: 0 }];
   const svg = barChart(data);
-  assert.match(svg, /^<svg [^>]*role="img"[^>]*aria-label="[^"]*Sales per day[^"]*"/);
+  assert.match(svg, /^<svg [^>]*role="group"><title>[^<]*Sales per day[^<]*<\/title>/);
+  assert.equal((svg.match(/<g class="slot" role="img" tabindex="0"/g) ?? []).length, 3);
   const b = bars(svg);
   assert.equal(b.length, 2, 'a zero day draws no bar');
   const h = ([, base, , , y]) => base - y;
@@ -144,6 +176,19 @@ test('bars have 4px rounded tops and 2px gaps', () => {
   for (const m of b) assert.ok(Math.abs(m[2] - m[4] - 4) < 1e-6 || m[2] - m[4] < 4, 'radius at most 4');
   assert.ok(Math.abs(b[9][2] - b[9][4] - 4) < 1e-6, 'a tall bar has the full 4px');
   for (let i = 1; i < b.length; i++) assert.ok(Math.abs(b[i][0] - b[i - 1][10] - 2) < 0.01, 'next bar starts 2px after the last ends');
+});
+
+test('a 366-day range is drawn a week to a bar, with positive widths and a bounded tab-stop count', () => {
+  const data = Array.from({ length: 366 }, (_, i) => ({ day: new Date(Date.parse('2025-10-03T00:00:00Z') + i * DAY).toISOString().slice(0, 10), cents: 1000 + i, orders: 1 }));
+  const svg = barChart(data);
+  const b = bars(svg);
+  const slots = [...svg.matchAll(/<g class="slot"[^>]*aria-label="([^"]+)"/g)].map(m => m[1]);
+  assert.ok(slots.length <= 60 && slots.length >= 52, `${slots.length} slots`);
+  assert.equal(b.length, slots.length);
+  for (const m of b) assert.ok(m[10] - m[0] > 1, 'bar has width');
+  assert.match(slots[0], /^Week of 29 Sep: /); // 3 Oct 2025 is a Friday: its week starts Mon 29 Sep
+  assert.equal(slots.reduce((s, l) => s + Number(l.match(/, (\d+) orders?$/)[1]), 0), 366, 'no day lost');
+  assert.equal(bucketed(data.slice(0, 62)).length, 62, 'up to 62 days stay daily');
 });
 
 test('an empty or all-zero chart still renders', () => {
