@@ -50,7 +50,7 @@ export function parseArgs(argv) {
   return { cmd: 'start', target: cmd, days: args[0], percent: args[1], flags };
 }
 
-// Builds a validated sale. `known` is the list of era slugs in data/eras.
+// Builds a validated sale. `known` is the list of era slugs on the server.
 export function makeSale({ target, days, percent, label = null, starts = null }, known, now, id = randomId()) {
   const eras = String(target).toLowerCase() === 'all' ? null : [...new Set(String(target).split(',').map(s => s.trim()).filter(Boolean))];
   if (eras && !eras.length) throw new Error('Name at least one era, or use all.');
@@ -119,19 +119,25 @@ export async function writeSales(base, token, sales, version, fetchFn = fetch) {
   if (!res.ok) throw new Error(await problem(res));
 }
 
-async function main(argv) {
+export async function knownEras(base, token, fetchFn = fetch) {
+  const res = await adminFetch(base, token, '/api/admin/eras', { method: 'GET' }, fetchFn);
+  if (!res.ok) throw new Error(await problem(res));
+  return (await res.json()).eras.map(e => e.slug);
+}
+
+export async function main(argv, { fetchFn = fetch, env = process.env, log = console.log } = {}) {
   const opts = parseArgs(argv);
-  if (opts.cmd === 'help') return console.log(USAGE);
+  if (opts.cmd === 'help') return log(USAGE);
   const { flags } = opts;
   const base = apiBase(flags);
   const where = flags.local ? 'local' : flags.url ? base : 'PRODUCTION';
-  const token = adminToken();
+  const token = adminToken(env);
   const now = new Date();
-  const { sales: list, version } = await readSales(base, token);
+  const { sales: list, version } = await readSales(base, token, fetchFn);
 
   if (opts.cmd === 'list') {
     const pending = pendingSales(list, now);
-    return console.log(pending.length ? `Sales on ${where}:\n${pending.map(s => describe(s, now)).join('\n')}` : `No running or scheduled sales on ${where}.`);
+    return log(pending.length ? `Sales on ${where}:\n${pending.map(s => describe(s, now)).join('\n')}` : `No running or scheduled sales on ${where}.`);
   }
 
   let next, done;
@@ -139,15 +145,14 @@ async function main(argv) {
     next = endSale(list, opts.id, now);
     done = opts.id === 'all' ? `Ended every sale on ${where}.` : `Ended sale ${opts.id} on ${where}.`;
   } else {
-    const { FOLDERS } = await import('../data/eras/index.js');
-    const sale = makeSale({ ...opts, label: flags.label, starts: flags.starts }, FOLDERS, now);
+    const sale = makeSale({ ...opts, label: flags.label, starts: flags.starts }, await knownEras(base, token, fetchFn), now);
     next = addSale(list, sale, now);
     done = `Sale saved on ${where}:\n${describe(sale, now)}`;
   }
 
-  if (flags.dryRun) return console.log(`Dry run, nothing saved. ${where} would have:\n${JSON.stringify(next, null, 2)}`);
-  await writeSales(base, token, next, version);
-  console.log(`${done}\nShoppers see the change on their next page load.`);
+  if (flags.dryRun) return log(`Dry run, nothing saved. ${where} would have:\n${JSON.stringify(next, null, 2)}`);
+  await writeSales(base, token, next, version, fetchFn);
+  log(`${done}\nShoppers see the change on their next page load.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
