@@ -31,34 +31,70 @@ const get = (env, cookie, path) => call('GET', path, { env, headers: { cookie } 
 const ids = r => r.json.orders.map(o => o.id);
 
 test('the open view lists paid and not-collected unfulfilled or ready orders from metadata only', async () => {
-  const { env, owner } = await setup();
-  const paid = mk({ ago: 5 * HOUR }), ready = mk({ ago: 2 * HOUR, payment: 'NOT_COLLECTED', fulfilment: 'READY', loc: 'evincus-store' });
+  const { env, owner, viewer } = await setup();
+  const paid =mk({ ago: 5 * HOUR }), ready = mk({ ago: 2 * HOUR, payment: 'NOT_COLLECTED', fulfilment: 'READY', loc: 'evincus-store' });
   const old = mk({ ago: 40 * DAY }), yesterday = mk({ ago: DAY });
   const out = [mk({ fulfilment: 'FULFILLED' }), mk({ payment: 'UNPAID' }), mk({ fulfilment: 'CANCELLED' }), mk({ payment: 'PARTIALLY_REFUNDED' })];
   await seed(env, paid, ready, old, yesterday, ...out);
-  const reads = [];
+  let reads = [];
   for (const fn of ['get', 'getEntry']) {
     const real = env.ORDERS[fn].bind(env.ORDERS);
     env.ORDERS[fn] = (key, ...a) => { if (key.startsWith('order:')) reads.push(key); return real(key, ...a); };
   }
-  const r = await get(env, owner, '/api/inventory/orders');
-  assert.equal(r.status, 200);
+  // Views and metadata filters read no order; an owner's page then reads only its own rows, for the names.
+  const list = async (path, cookie = owner) => {
+    reads = [];
+    const r = await get(env, cookie, path);
+    assert.equal(r.status, 200, path);
+    assert.deepEqual(reads.sort(), cookie === owner ? ids(r).map(id => `order:${id}`).sort() : [], path);
+    return r;
+  };
+  const r = await list('/api/inventory/orders');
   assert.deepEqual(ids(r), [ready.id, paid.id, yesterday.id], 'newest first, last 30 days, the open view by default');
   assert.equal(r.json.cursor, null);
-  const row = r.json.orders[0];
-  assert.deepEqual(row, { id: ready.id, totalCents: 6998, payment: 'NOT_COLLECTED', fulfilment: 'READY', type: 'pickup', locationId: 'evincus-store', units: 2, placedAt: ready.placedAt });
-  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?view=open&location=trendy-hats')), [paid.id, yesterday.id]);
-  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?view=all&payment=UNPAID')), [out[1].id]);
-  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?view=ready')), [ready.id]);
-  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?view=awaiting')), [out[1].id]);
-  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?view=fulfilled')), [out[0].id]);
-  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?view=cancelled')), [out[2].id]);
-  assert.equal(ids(await get(env, owner, '/api/inventory/orders?view=all')).length, 7);
+  const summary = { id: ready.id, totalCents: 6998, payment: 'NOT_COLLECTED', fulfilment: 'READY', type: 'pickup', locationId: 'evincus-store', units: 2, placedAt: ready.placedAt };
+  assert.deepEqual(r.json.orders[0], { ...summary, name: 'Ann L.' });
+  assert.deepEqual((await list('/api/inventory/orders', viewer)).json.orders[0], summary, 'viewers get no name');
+  assert.deepEqual(ids(await list('/api/inventory/orders?view=open&location=trendy-hats')), [paid.id, yesterday.id]);
+  assert.deepEqual(ids(await list('/api/inventory/orders?view=all&payment=UNPAID')), [out[1].id]);
+  assert.deepEqual(ids(await list('/api/inventory/orders?view=ready')), [ready.id]);
+  assert.deepEqual(ids(await list('/api/inventory/orders?view=awaiting')), [out[1].id]);
+  assert.deepEqual(ids(await list('/api/inventory/orders?view=fulfilled', viewer)), [out[0].id]);
+  assert.deepEqual(ids(await list('/api/inventory/orders?view=cancelled')), [out[2].id]);
+  assert.equal(ids(await list('/api/inventory/orders?view=all', viewer)).length, 7);
   const day = d => new Date(NOW - d * DAY - 5 * HOUR).toISOString().slice(0, 10);
-  assert.deepEqual(ids(await get(env, owner, `/api/inventory/orders?from=${day(41)}&to=${day(39)}`)), [old.id]);
-  assert.deepEqual(reads, [], 'no order: reads for views and metadata filters');
+  assert.deepEqual(ids(await list(`/api/inventory/orders?from=${day(41)}&to=${day(39)}`)), [old.id]);
   for (const q of ['view=nope', 'from=2026-13-01', 'to=yesterday', 'cursor=x', 'from=2026-10-03&to=2026-10-01', 'from=2020-01-01'])
     assert.equal((await get(env, owner, `/api/inventory/orders?${q}`)).json.error.code, 'invalid-query', q);
+});
+
+test('a list cursor must name a time inside the range, and the walk never starts after `to`', async () => {
+  const { env, owner } = await setup();
+  const a = mk({ ago: 2 * DAY }), b = mk({ ago: 3 * DAY });
+  await seed(env, a, b);
+  const at = (from, to, cursor) => get(env, owner, `/api/inventory/orders?view=all&from=${from}&to=${to}&cursor=${encodeURIComponent(cursor)}`);
+  for (const cursor of ['9999-12-31T00:00:00Z|x', '2026-13-01T00:00:00Z|x', '2026-09-01T00:00:00.000Z|x']) {
+    const r = await at('2026-09-20', '2026-10-03', cursor);
+    assert.equal(r.status, 400, cursor);
+    assert.equal(r.json.error.code, 'invalid-query', cursor);
+  }
+  // A cursor at 22:00 Jamaica on `to` is already the next day in UTC: still inside the range, judged by Jamaica day.
+  const to = new Date(Date.parse(a.placedAt) - 5 * HOUR).toISOString().slice(0, 10);
+  const r = await at('2026-09-20', to, `${new Date(Date.parse(`${to}T00:00:00Z`) + DAY + 3 * HOUR).toISOString()}|EV-z`);
+  assert.equal(r.status, 200);
+  assert.deepEqual(ids(r), [a.id, b.id]);
+});
+
+test('owners see a short customer name on list rows; scrubbed orders show a dash', async () => {
+  const { env, owner, viewer } = await setup();
+  const one = mk({ customer: { name: 'Tanya Marie Brown', email: 't@x.co', phone: '876 555 0142' } });
+  const mono = mk({ ago: 2 * HOUR, customer: { name: 'Prince', email: 'p@x.co', phone: '876 555 0143' } });
+  const { customer, payer, notes, ...rest } = mk({ ago: 3 * HOUR });
+  await seed(env, one, mono, { ...rest, scrubbedAt: new Date(NOW).toISOString() });
+  const rows = (await get(env, owner, '/api/inventory/orders')).json.orders;
+  assert.deepEqual(rows.map(o => o.name), ['Tanya B.', 'Prince', '—']);
+  const text = JSON.stringify((await get(env, viewer, '/api/inventory/orders')).json);
+  assert.ok(!text.includes('"name"') && !text.includes('Tanya'), 'viewers get no name field');
 });
 
 test('order lists past 1000 day keys page with cursor', async () => {
@@ -85,16 +121,18 @@ test('order lists past 1000 day keys page with cursor', async () => {
 
 test('viewers get no personal data, cost or notes, and 403 on name search', async () => {
   const { env, owner, viewer } = await setup();
-  const o = mk({ shipto: { line1: '1 Main' }, personal: { x: 1 } }), other = mk({ customer: { name: 'Bo Kim', email: 'b@x.co', phone: '876 555 0199' }, lineId: 'old-cap' });
+  const o0 = mk({ shipto: { line1: '1 Main' }, personal: { x: 1 } });
+  const o = { ...o0, events: [...o0.events, { at: new Date(NOW).toISOString(), type: 'refund', by: 'owner@evincus.shop', amountCents: 100, reason: 'Ann at 12 Hope Rd' }] }, other = mk({ customer: { name: 'Bo Kim', email: 'b@x.co', phone: '876 555 0199' }, lineId: 'old-cap' });
   await seed(env, o, other);
   const v = await get(env, viewer, `/api/inventory/orders/${o.id}`);
   assert.equal(v.status, 200);
   for (const f of PERSONAL_FIELDS) assert.equal(f in v.json.order, false, f);
   assert.equal(v.json.order.events.some(e => e.type === 'note'), false);
+  assert.deepEqual(v.json.order.events.find(e => e.type === 'refund'), { at: new Date(NOW).toISOString(), type: 'refund', by: 'owner@evincus.shop', amountCents: 100 }, 'no refund reason');
   assert.equal(v.json.order.lines.some(l => 'costCents' in l), false);
   assert.equal(v.json.order.lines[0].sku, 'A-1');
   const text = JSON.stringify(v.json);
-  for (const pii of ['Ann Lee', 'ann@example.com', '555 123', 'after 5pm', 'called her', '1 Main']) assert.ok(!text.includes(pii), pii);
+  for (const pii of ['Ann Lee', 'ann@example.com', '555 123', 'after 5pm', 'called her', '1 Main', 'Hope Rd'])assert.ok(!text.includes(pii), pii);
   const w = await get(env, owner, `/api/inventory/orders/${o.id}`);
   const e = await env.ORDERS.getEntry(`order:${o.id}`);
   assert.deepEqual(w.json.order, JSON.parse(e.value));
@@ -111,6 +149,9 @@ test('viewers get no personal data, cost or notes, and 403 on name search', asyn
   assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?q=8765550199')), [other.id], 'phone digits, any spacing');
   assert.deepEqual(ids(await get(env, owner, `/api/inventory/orders?q=${o.id.toLowerCase()}`)), [o.id], 'order number');
   assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?q=bo&product=alpha-tee')), []);
+  // An order number is never read as phone digits: 00000777 is inside the second phone's digits.
+  await seed(env, mk({ id: 'EV-00000777', customer: { name: 'Dee', email: 'd@x.co', phone: '876 555 0100' } }), mk({ customer: { name: 'Cy', email: 'c@x.co', phone: '+1 000 007 7700' } }));
+  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?q=EV-00000777')), ['EV-00000777']);
 
   const { customer, payer, notes, ...rest } = o;
   const scrubbed = { ...rest, id: 'EV-scrubbed', scrubbedAt: new Date(NOW).toISOString() };

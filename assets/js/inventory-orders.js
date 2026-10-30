@@ -32,9 +32,10 @@ export function refundLeft(paidAt, now = Date.now()) {
   return left >= HOUR ? `${Math.floor(left / HOUR)}h left` : `${Math.ceil(left / 60000)}m left`;
 }
 
-export function listPath(opts, cursor) {
+// Search is owners only (the server refuses it to viewers), so a viewer never sends `q`.
+export function listPath(opts, cursor, owner) {
   const p = new URLSearchParams();
-  for (const k of ['view', 'q', 'from', 'to', 'location', 'payment', 'product']) if (opts[k]?.trim()) p.set(k, opts[k].trim());
+  for (const k of ['view', 'q', 'from', 'to', 'location', 'payment', 'product']) if (opts[k]?.trim() && (owner || k !== 'q')) p.set(k, opts[k].trim());
   if (cursor) p.set('cursor', cursor);
   return `/api/inventory/orders?${p}`;
 }
@@ -117,8 +118,14 @@ const refundPick = pg => {
 // ---- UI ----
 
 let staff = () => null; // the shell's signed-in account, set at registration
-const listOpts = { view: 'open', q: '', from: '', to: '', location: '', payment: '', product: '' };
-let products = null; // for the product filter, loaded once
+// The list's filters and product names belong to one account: another sign-in (email or role) starts fresh, so an
+// owner's search never lingers for the next person. -> { opts, products }.
+let listState = null;
+export function listStateFor(who) {
+  const id = `${who?.email}|${who?.role}`;
+  if (listState?.id !== id) listState = { id, opts: { view: 'open', q: '', from: '', to: '', location: '', payment: '', product: '' }, products: null };
+  return listState;
+}
 let page = null; // the open order page
 let listSeq = 0; // only the newest list request draws
 
@@ -137,11 +144,11 @@ function failed(root, err, retry) {
 }
 
 async function renderList(el) {
-  const owner = staff()?.role === 'owner';
+  const who = staff(), owner = who?.role === 'owner', state = listStateFor(who), listOpts = state.opts;
   const root = container(el, 'ord', 'Loading…');
-  if (!products) products = await api('GET', '/api/inventory/products').then(d => d.products, () => null); // retried next visit
+  state.products ??= await api('GET', '/api/inventory/products').then(d => d.products, () => null); // null: retried next visit
   if (!root.isConnected) return;
-  root.innerHTML = view.listHtml({ opts: listOpts, owner, products });
+  root.innerHTML = view.listHtml({ opts: listOpts, owner, products: state.products });
   const rows = root.querySelector('.olist'), more = root.querySelector('.ord__more'), status = root.querySelector('.ord__status');
   let cursor = null;
   const load = async append => {
@@ -149,7 +156,7 @@ async function renderList(el) {
     status.textContent = 'Loading…';
     more.disabled = true;
     try {
-      const d = await api('GET', listPath(listOpts, append ? cursor : null));
+      const d = await api('GET', listPath(listOpts, append ? cursor : null, owner));
       if (seq !== listSeq || !root.isConnected) return;
       const html = view.rowsHtml(d.orders, { head: !append, left: refundLeft });
       if (append) rows.insertAdjacentHTML('beforeend', html); else rows.innerHTML = html;

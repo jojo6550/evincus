@@ -36,7 +36,7 @@ export const badges = (payment, fulfilment, type) => badge(PAY[payment] ?? [paym
 
 // ---- List ----
 
-export const VIEW_LABELS = { open: 'Open', ready: 'Ready', awaiting: 'Awaiting payment', fulfilled: 'Picked up', cancelled: 'Cancelled', all: 'All' };
+export const VIEW_LABELS = { open: 'Open', ready: 'Ready', awaiting: 'Awaiting payment', fulfilled: 'Done', cancelled: 'Cancelled', all: 'All' }; // Done: picked up or shipped
 const PAYMENT_LABELS = { PAID: 'Paid', NOT_COLLECTED: 'Not collected', UNPAID: 'Awaiting payment', PARTIALLY_REFUNDED: 'Partly refunded', REFUNDED: 'Refunded' };
 const options = (map, cur, all) => `<option value="">${all}</option>${Object.entries(map).map(([v, t]) => `<option value="${esc(v)}"${attr(cur === v, 'selected')}>${esc(t)}</option>`).join('')}`;
 
@@ -73,7 +73,7 @@ export function rowsHtml(orders, { now = Date.now(), head = true, left }) {
   return (head ? HEAD : '') + orders.map(o => {
     const timer = left(o.paidAt, now);
     return `<li><a class="orow" href="#orders/${encodeURIComponent(o.id)}">
-      <b class="orow__id">${esc(o.id)}</b>
+      <b class="orow__id">${esc(o.id)}${o.name ? ` · ${esc(o.name)}` : ''}</b>
       <span class="orow__total">${money(o.totalCents)}</span>
       <span class="orow__meta"><span>${whenText(o.placedAt, now)}</span><span>${esc(placeOf(o.type, o.locationId))}</span><span>${plural(o.units, 'item')}</span></span>
       <span class="orow__tags">${badges(o.payment, o.fulfilment, o.type)}${timer ? `<small class="ord__timer">refund window ${timer}</small>` : ''}</span>

@@ -122,7 +122,8 @@ const newer = (a, b) => (a.placedAt === b.placedAt ? (a.id > b.id ? -1 : a.id < 
 // sent; the walk resumes after it. -> { orders: [{ id, ...summary }], cursor: '<placedAt>|<id>' | null }.
 export async function listOrders(env, { from, to, keep, match, cursor }) {
   const orders = [];
-  for (let day = cursor ? jamaicaDay(Date.parse(cursor.placedAt)) : to; day >= from; day = dayBefore(day)) {
+  const start = cursor ? jamaicaDay(Date.parse(cursor.placedAt)) : to;
+  for (let day = start < to ? start : to; day >= from; day = dayBefore(day)) {
     const prefix = `day:${day}:`;
     const rows = [];
     for (const { name, metadata } of await listAll(env.ORDERS, prefix)) {

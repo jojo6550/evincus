@@ -5,7 +5,7 @@ import { productKey, loadCatalog } from '../lib/catalog-store.js';
 import { saveProduct, saveEra, setEraOrder, readEraOrder, productHistory } from '../lib/catalog-save.js';
 import { lineKey, imagesFor } from '../../data/catalog.js';
 import { uploadPhoto } from '../lib/media.js';
-import { orderAction, orderKey, listOrders, jamaicaDay, VIEWS } from '../lib/orders.js';
+import { orderAction, orderKey, findOrder, listOrders, jamaicaDay, VIEWS } from '../lib/orders.js';
 import { PERSONAL_FIELDS } from '../lib/retention.js';
 import { photoPath, manifestEntry } from '../../data/photos.js';
 
@@ -164,6 +164,11 @@ const isDay = d => DATE.test(d) && new Date(Date.parse(`${d}T00:00:00Z`) || 0).t
 const CURSOR = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\|([A-Za-z0-9-]+)$/;
 const MAX_DAYS = 366; // each day is one KV walk
 const digits = s => String(s ?? '').replace(/\D/g, '');
+// "Tanya Marie Brown" → "Tanya B."; no name (scrubbed) → "—".
+const shortName = name => {
+  const parts = String(name ?? '').trim().split(/\s+/).filter(Boolean);
+  return !parts.length ? '—' : parts.length === 1 ? parts[0] : `${parts[0]} ${[...parts.at(-1)][0]}.`;
+};
 
 // GET /api/inventory/orders?view=&from=&to=&location=&payment=&product=&q=&cursor= → { orders, cursor }, 50 a page.
 // Dates are Jamaica days, by default the last 30. `q` (order id, customer name or phone) is owners only.
@@ -175,15 +180,20 @@ export async function listOrdersRoute(req, c) {
   const [location, payment, product, q, rawCursor] = ['location', 'payment', 'product', 'q', 'cursor'].map(k => p.get(k)?.trim() || '');
   const cursor = rawCursor.match(CURSOR);
   const span = (Date.parse(to) - Date.parse(from)) / 86400000;
-  if (!Object.hasOwn(VIEWS, view) || !isDay(from) || !isDay(to) || !(span >= 0 && span < MAX_DAYS) || (rawCursor && !cursor) || q.length > 100) throw new HttpError('invalid-query', 400);
+  // A cursor names a row inside the range: one from elsewhere would walk days the range never covers.
+  const cursorDay = cursor && !Number.isNaN(Date.parse(cursor[1])) ? jamaicaDay(Date.parse(cursor[1])) : null;
+  if (!Object.hasOwn(VIEWS, view) || !isDay(from) || !isDay(to) || !(span >= 0 && span < MAX_DAYS) || q.length > 100
+    || (rawCursor && !(cursorDay >= from && cursorDay <= to))) throw new HttpError('invalid-query', 400);
   if (q && !owner) throw new HttpError('forbidden', 403);
-  const needle = q.toLowerCase(), phone = digits(q);
+  const needle = q.toLowerCase(), phone = /^ev-/i.test(q) ? '' : digits(q); // an order number is never phone digits
   const found = o => [o.id, o.customer?.name].some(s => s?.toLowerCase().includes(needle)) || (phone.length >= 3 && digits(o.customer?.phone).includes(phone));
   const out = await listOrders(c.env, {
     from, to, cursor: cursor && { placedAt: cursor[1], id: cursor[2] },
     keep: m => VIEWS[view](m) && (!location || m.locationId === location) && (!payment || m.payment === payment),
     match: (product || q) && (o => (!product || o.lines.some(l => l.id === product)) && (!q || found(o))),
   });
+  // Owners see who ordered: read only for the rows sent, after the metadata filters.
+  if (owner) await Promise.all(out.orders.map(async row => { row.name = shortName((await findOrder(c.env, row.id))?.customer?.name); }));
   return json(out, 200, noStore);
 }
 
@@ -196,7 +206,8 @@ export async function getOrderRoute(req, c) {
   const order = JSON.parse(e.value);
   if (!owner) {
     for (const f of PERSONAL_FIELDS) delete order[f];
-    order.events = (order.events ?? []).filter(ev => ev.type !== 'note');
+    // Owners may write customer details into notes and refund reasons.
+    order.events = (order.events ?? []).filter(ev => ev.type !== 'note').map(({ reason, ...ev }) => ev);
     order.lines = order.lines.map(({ costCents, ...l }) => l);
   }
   const covers = Object.fromEntries(order.lines.map(l => {

@@ -1,7 +1,7 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { actionsFor, actionLabel, refundLeft, newOrderPage, runAction, reloadOrder, locked, listPath } from '../assets/js/inventory-orders.js';
+import { actionsFor, actionLabel, refundLeft, newOrderPage, runAction, reloadOrder, locked, listPath, listStateFor } from '../assets/js/inventory-orders.js';
 import * as refunds from '../data/refunds.js';
 import { applyAction, defaultRefundCents } from '../server/lib/order-flow.js';
 
@@ -90,9 +90,24 @@ test('the refund window shows only for orders with paidAt and runs 24 hours', ()
   assert.equal(refundLeft('2026-10-01T14:00:00Z', now), null, 'window over');
 });
 
-test('listPath sends only the filters set', () => {
-  assert.equal(listPath({ view: 'open', q: ' ', from: '', to: '', location: '', payment: '', product: '' }), '/api/inventory/orders?view=open');
-  assert.equal(listPath({ view: 'all', q: 'ann lee', location: 'trendy-hats' }, '2026|EV-1'), '/api/inventory/orders?view=all&q=ann+lee&location=trendy-hats&cursor=2026%7CEV-1');
+test('listPath sends only the filters set, and never a search for a viewer', () => {
+  assert.equal(listPath({ view: 'open', q: ' ', from: '', to: '', location: '', payment: '', product: '' }, null, true), '/api/inventory/orders?view=open');
+  assert.equal(listPath({ view: 'all', q: 'ann lee', location: 'trendy-hats' }, '2026|EV-1', true), '/api/inventory/orders?view=all&q=ann+lee&location=trendy-hats&cursor=2026%7CEV-1');
+  assert.equal(listPath({ view: 'all', q: 'ann lee' }, null, false), '/api/inventory/orders?view=all');
+});
+
+test('list filters, search and the product cache start fresh for another account', () => {
+  const a = { email: 'o@x', role: 'owner' };
+  const s = listStateFor(a);
+  Object.assign(s.opts, { q: 'ann', view: 'all', product: 'alpha-tee' });
+  s.products = [{ id: 'alpha-tee' }];
+  assert.equal(listStateFor({ ...a }), s, 'the same account keeps its filters');
+  for (const who of [{ email: 'v@x', role: 'viewer' }, { email: 'o@x', role: 'viewer' }, { email: 'p@x', role: 'owner' }, null]) {
+    const t = listStateFor(who);
+    assert.deepEqual(t.opts, { view: 'open', q: '', from: '', to: '', location: '', payment: '', product: '' }, JSON.stringify(who));
+    assert.equal(t.products, null);
+  }
+  assert.equal(listStateFor(a).opts.q, '', 'switching back starts fresh too');
 });
 
 const page = (over = {}) => newOrderPage({ id: 'EV-1', d: { order: mk(), version: 'v1', covers: {} }, who: { email: 'o@x', role: 'owner' }, ...over });
@@ -182,5 +197,7 @@ test('the order page escapes customer text, hides customer details from viewers 
   const rows = view.rowsHtml([row], { left: refundLeft });
   assert.doesNotMatch(rows, /refund window/, 'no countdown without paidAt');
   assert.match(rows, /NOT COLLECTED/);
+  assert.match(view.rowsHtml([{ ...row, name: '<b>Ann</b> L.' }], { left: refundLeft }), /EV-1 · &lt;b&gt;Ann&lt;\/b&gt; L\./);
+  assert.equal(view.VIEW_LABELS.fulfilled, 'Done');
   assert.match(view.rowsHtml([{ ...row, payment: 'PAID', paidAt: new Date(Date.now() - 3600000).toISOString() }], { left: refundLeft }), /refund window 23h left/);
 });
