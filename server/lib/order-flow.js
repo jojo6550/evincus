@@ -122,5 +122,6 @@ export function orderSummary(r) {
     locationId: loc?.id ?? null,
     units: r.lines.reduce((s, l) => s + remaining(r, l), 0),
     placedAt: r.placedAt,
+    ...(r.scrubbedAt && { scrubbed: true }), // lets the retention walk skip scrubbed orders without reading them
   };
 }

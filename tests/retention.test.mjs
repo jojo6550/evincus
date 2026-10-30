@@ -167,6 +167,26 @@ test('one job failing does not stop the other', async () => {
   assert.ok(read(env, 'EV-OLD').scrubbedAt);
 });
 
+test('an order that fails once is scrubbed on the next run; scrubbed orders cost no order reads', async () => {
+  const env = makeEnv();
+  seed(env, base('EV-A', iso(NOW - 900 * DAY)));
+  seed(env, base('EV-B', iso(NOW - 800 * DAY)));
+  env.ORDERS.failPuts = k => k === orderKey('EV-A');
+  const log = spy();
+  assert.equal(await scrubOrders(env, new Date(NOW), { log }), 1);
+  assert.deepEqual(log.errors.map(e => [e[0], e[1].orderId]), [['retention.order_failed', 'EV-A']]);
+  assert.ok(read(env, 'EV-A').customer);
+  env.ORDERS.failPuts = null;
+  const reads = [];
+  for (const m of ['get', 'getEntry']) { const f = env.ORDERS[m].bind(env.ORDERS); env.ORDERS[m] = k => { reads.push(k); return f(k); }; }
+  assert.equal(await scrubOrders(env, new Date(NOW + DAY), { log }), 1);
+  assert.ok(read(env, 'EV-A').scrubbedAt);
+  assert.ok(!reads.includes(orderKey('EV-B')));
+  reads.length = 0;
+  assert.equal(await scrubOrders(env, new Date(NOW + 2 * DAY)), 0);
+  assert.ok(!reads.some(k => k.startsWith('order:')));
+});
+
 test('the 730-day boundary is exact', async () => {
   const env = makeEnv();
   seed(env, base('EV-EDGE', iso(NOW - 730 * DAY)));

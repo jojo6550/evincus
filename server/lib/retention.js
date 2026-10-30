@@ -16,7 +16,7 @@ async function walkDays(env, cursorKey, deadline, each) {
     const page = await env.ORDERS.list({ prefix: 'day:', cursor, limit: PAGE });
     let stop = false;
     for (const key of page.keys) stop = (await each(key)) || stop;
-    if (stop || page.list_complete) return true;
+    if (stop || page.list_complete) { await env.ORDERS.delete(cursorKey); return true; } // next day starts from the oldest again
     cursor = page.cursor;
     await env.ORDERS.put(cursorKey, cursor);
     if (Date.now() >= deadline) return false;
@@ -37,6 +37,8 @@ export async function scrubOrders(env, now, { deadline = Infinity, log = quiet }
   // Keys sort by Jamaica day then id, not by time, so a newer order ends the walk only after its page; boundary-day stragglers wait for the next run.
   await walkDays(env, SCRUB_CURSOR, deadline, async ({ name, metadata }) => {
     const id = idOf(name);
+    if (metadata?.scrubbed) return false;
+    if (metadata?.placedAt >= cutoff) return true;
     return perOrder(log, id, async () => {
       const order = await findOrder(env, id);
       if (!order) return false;
