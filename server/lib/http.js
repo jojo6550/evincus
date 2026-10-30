@@ -50,6 +50,7 @@ export const MESSAGES = {
   'invalid-era-order': "That era order can't be saved. Reload and try again.",
   'era-order-changed': 'Someone else moved the eras while you were editing. Reload and try again.',
   'catalog-busy': 'Someone else saved at the same time. Try again.',
+  'invalid-action': "That can't be done to this order.",
   'op-reused': 'That request ID was already used for something else. Reload and try again.',
 };
 

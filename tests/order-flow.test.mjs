@@ -1,0 +1,106 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { applyAction, defaultRefundCents, orderSummary, fulfilmentOf, FULFILMENT } from '../server/lib/order-flow.js';
+
+const NOW = new Date('2026-10-01T12:00:00Z');
+const o = { by: 'a@evincus.shop', now: NOW };
+const A = 'a|White|S', B = 'b|Black|M';
+const mk = (over = {}) => ({
+  id: 'o1', status: 'PLACED', paymentStatus: 'PAID', placedAt: 'x', subtotalCents: 10000, taxCents: 1000, feeCents: 300,
+  totalCents: 11300, customer: { name: 'Ann', phone: '1' }, email: 'ann@x.com', stockCommitted: true,
+  fulfillment: { type: 'pickup', location: { id: 'loc1' } },
+  lines: [{ key: A, qty: 2, unitCents: 3000 }, { key: B, qty: 1, unitCents: 4000 }], ...over,
+});
+const run = (r, a) => applyAction(r, a, o);
+const bad = (r, a) => assert.throws(() => run(r, a), { code: 'invalid-action', status: 400 });
+
+test('pickup goes UNFULFILLED → READY → FULFILLED; nothing leaves FULFILLED or CANCELLED', () => {
+  assert.deepEqual(FULFILMENT, ['UNFULFILLED', 'READY', 'FULFILLED', 'CANCELLED']);
+  const r0 = mk();
+  assert.equal(fulfilmentOf(r0), 'UNFULFILLED');
+  const r1 = run(r0, { type: 'ready' }).record;
+  assert.equal(fulfilmentOf(r1), 'READY');
+  assert.equal(fulfilmentOf(r0), 'UNFULFILLED'); // input untouched
+  bad(r1, { type: 'ready' });
+  const r2 = run(r1, { type: 'fulfilled' }).record;
+  for (const a of [{ type: 'ready' }, { type: 'fulfilled' }, { type: 'cancel', restock: true }]) bad(r2, a);
+  const c = run(r0, { type: 'cancel', restock: true }).record;
+  for (const a of [{ type: 'ready' }, { type: 'fulfilled' }, { type: 'cancel', restock: true }]) bad(c, a);
+  assert.deepEqual(r2.events.at(-1), { at: NOW.toISOString(), type: 'fulfilled', by: 'a@evincus.shop' });
+  assert.equal(run(r0, { type: 'note', text: 'hi' }).record.events.at(-1).text, 'hi');
+});
+
+test('shipping skips READY', () => {
+  const s = mk({ fulfillment: { type: 'shipping' } });
+  bad(s, { type: 'ready' });
+  assert.equal(fulfilmentOf(run(s, { type: 'fulfilled' }).record), 'FULFILLED');
+});
+
+test('fulfilled moves on hand and committed down; cancel releases committed; no-restock cancel also lowers on hand', () => {
+  assert.deepEqual(run(mk(), { type: 'fulfilled' }).movements, [
+    { key: A, onHand: -2, committed: -2, reason: 'sold' }, { key: B, onHand: -1, committed: -1, reason: 'sold' }]);
+  assert.deepEqual(run(mk(), { type: 'cancel', restock: true }).movements, [
+    { key: A, onHand: 0, committed: -2, reason: 'cancelled' }, { key: B, onHand: 0, committed: -1, reason: 'cancelled' }]);
+  assert.deepEqual(run(mk(), { type: 'cancel', restock: false }).movements[0], { key: A, onHand: -2, committed: -2, reason: 'cancelled' });
+  bad(mk(), { type: 'cancel' });
+});
+
+test('refunds: only on paid orders, never above the total, fee never refunded, status becomes PARTIALLY_REFUNDED then REFUNDED', () => {
+  const L = [{ key: A, qty: 2 }];
+  bad(mk({ paymentStatus: 'NOT_COLLECTED' }), { type: 'refund', lines: L, amountCents: 100, restock: true, reason: 'x' });
+  assert.equal(defaultRefundCents(mk(), L), 6600); // 6000 + 10% tax share 600, no fee
+  bad(mk(), { type: 'refund', lines: L, amountCents: 11301, restock: true, reason: 'x' });
+  const p = run(mk(), { type: 'refund', lines: L, amountCents: 6600, restock: true, reason: 'x' }).record;
+  assert.equal(p.paymentStatus, 'PARTIALLY_REFUNDED');
+  assert.equal(p.refundedTaxCents, 600);
+  const f = run(p, { type: 'refund', lines: [{ key: B, qty: 1 }], amountCents: 4700, restock: true, reason: 'y' }).record;
+  assert.equal(f.paymentStatus, 'REFUNDED');
+  assert.equal(f.refundedTaxCents, 1000);
+});
+
+test('orders without stockCommitted never produce movements', () => {
+  const r = mk({ stockCommitted: undefined });
+  assert.deepEqual(run(r, { type: 'fulfilled' }).movements, []);
+  assert.deepEqual(run(r, { type: 'cancel', restock: false }).movements, []);
+  assert.deepEqual(run(r, { type: 'refund', lines: [{ key: A, qty: 1 }], amountCents: 1, restock: false, reason: 'x' }).movements, []);
+});
+
+test('orderSummary has no personal fields and fits in 1 KiB', () => {
+  const s = orderSummary(mk());
+  assert.deepEqual(Object.keys(s).sort(), ['fulfilment', 'locationId', 'payment', 'placedAt', 'totalCents', 'type', 'units']);
+  assert.equal(s.units, 3);
+  assert.equal(s.locationId, 'loc1');
+  assert.ok(JSON.stringify(s).length < 1024);
+  assert.ok(!JSON.stringify(s).includes('ann'));
+});
+
+test('partial refund then fulfil moves only the unrefunded qty; unfulfilled refund releases committed', () => {
+  const a = { type: 'refund', lines: [{ key: A, qty: 1 }], amountCents: 3300, restock: false, reason: 'x' };
+  const r = run(mk(), a);
+  assert.deepEqual(r.movements, [{ key: A, onHand: -1, committed: -1, reason: 'refunded' }]);
+  assert.deepEqual(run(mk(), { ...a, restock: true }).movements, [{ key: A, onHand: 0, committed: -1, reason: 'refunded' }]);
+  assert.deepEqual(run(r.record, { type: 'fulfilled' }).movements, [
+    { key: A, onHand: -1, committed: -1, reason: 'sold' }, { key: B, onHand: -1, committed: -1, reason: 'sold' }]);
+  const ful = run(mk(), { type: 'fulfilled' }).record;
+  assert.deepEqual(run(ful, { ...a, restock: true }).movements, [{ key: A, onHand: 1, committed: 0, reason: 'refunded' }]);
+  assert.deepEqual(run(ful, a).movements, []);
+});
+
+test('cumulative caps: tax, amount and per-line qty', () => {
+  const mkR = (key, qty, amountCents) => ({ type: 'refund', lines: [{ key, qty }], amountCents, restock: true, reason: 'x' });
+  const r1 = run(mk(), mkR(A, 2, 6600)).record;
+  bad(r1, mkR(A, 1, 100)); // line already fully refunded
+  bad(r1, mkR(B, 1, 4701)); // amount beyond total
+  // rounding: three 1-cent refunds on 1 cent of tax must not exceed taxCents
+  const t = mk({ subtotalCents: 3, taxCents: 1, totalCents: 4, lines: [{ key: A, qty: 3, unitCents: 1 }] });
+  let rec = t;
+  for (let i = 0; i < 3; i++) rec = run(rec, { type: 'refund', lines: [{ key: A, qty: 1 }], amountCents: 1, restock: true, reason: 'x' }).record;
+  assert.ok(rec.refundedTaxCents <= 1);
+  assert.ok(rec.refundedCents <= 4);
+  bad(mk(), { type: 'refund', lines: [], amountCents: 1, restock: true, reason: 'x' });
+});
+
+test('cancel after a partial refund releases only the remaining committed units', () => {
+  const r = run(mk(), { type: 'refund', lines: [{ key: A, qty: 1 }, { key: B, qty: 1 }], amountCents: 100, restock: false, reason: 'x' }).record;
+  assert.deepEqual(run(r, { type: 'cancel', restock: true }).movements, [{ key: A, onHand: 0, committed: -1, reason: 'cancelled' }]);
+});
