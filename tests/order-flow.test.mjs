@@ -53,7 +53,7 @@ test('refunds: only on paid orders, never above the total, fee never refunded, s
   const p = run(mk(), { type: 'refund', lines: L, amountCents: 6600, restock: true, reason: 'x' }).record;
   assert.equal(p.paymentStatus, 'PARTIALLY_REFUNDED');
   assert.equal(p.refundedTaxCents, 600);
-  const f = run(p, { type: 'refund', lines: [{ key: B, qty: 1 }], amountCents: 4700, restock: true, reason: 'y' }).record;
+  const f = run(p, { type: 'refund', lines: [{ key: B, qty: 1 }], amountCents: 4400, restock: true, reason: 'y' }).record;
   assert.equal(f.paymentStatus, 'REFUNDED');
   assert.equal(f.refundedTaxCents, 1000);
 });
@@ -90,9 +90,9 @@ test('cumulative caps: tax, amount and per-line qty', () => {
   const mkR = (key, qty, amountCents) => ({ type: 'refund', lines: [{ key, qty }], amountCents, restock: true, reason: 'x' });
   const r1 = run(mk(), mkR(A, 2, 6600)).record;
   bad(r1, mkR(A, 1, 100)); // line already fully refunded
-  bad(r1, mkR(B, 1, 4701)); // amount beyond total
+  bad(r1, mkR(B, 1, 4401)); // amount beyond the line's items + tax
   // rounding: three 1-cent refunds on 1 cent of tax must not exceed taxCents
-  const t = mk({ subtotalCents: 3, taxCents: 1, totalCents: 4, lines: [{ key: A, qty: 3, unitCents: 1 }] });
+  const t = mk({ subtotalCents: 3, taxCents: 1, totalCents: 4, feeCents: 0, lines: [{ key: A, qty: 3, unitCents: 1 }] });
   let rec = t;
   for (let i = 0; i < 3; i++) rec = run(rec, { type: 'refund', lines: [{ key: A, qty: 1 }], amountCents: 1, restock: true, reason: 'x' }).record;
   assert.ok(rec.refundedTaxCents <= 1);
@@ -103,4 +103,54 @@ test('cumulative caps: tax, amount and per-line qty', () => {
 test('cancel after a partial refund releases only the remaining committed units', () => {
   const r = run(mk(), { type: 'refund', lines: [{ key: A, qty: 1 }, { key: B, qty: 1 }], amountCents: 100, restock: false, reason: 'x' }).record;
   assert.deepEqual(run(r, { type: 'cancel', restock: true }).movements, [{ key: A, onHand: 0, committed: -1, reason: 'cancelled' }]);
+});
+
+const R = (key, qty, amountCents, over = {}) => ({ type: 'refund', lines: [{ key, qty }], amountCents, restock: true, reason: 'x', ...over });
+
+test('fee is never refunded; refunding items + tax of a one-line order ends REFUNDED', () => {
+  const one = mk({ subtotalCents: 10000, lines: [{ key: A, qty: 1, unitCents: 10000 }] });
+  bad(one, R(A, 1, 11001)); // above items + tax
+  const r = run(one, R(A, 1, 11000)).record;
+  assert.equal(r.paymentStatus, 'REFUNDED');
+  assert.equal(r.refundedTaxCents, 1000);
+  const two = run(mk(), R(A, 2, 6600)).record;
+  bad(two, R(B, 1, 4401));
+});
+
+test('recorded tax scales with the amount actually refunded and never exceeds it', () => {
+  const r = run(mk(), R(A, 1, 1)).record;
+  assert.ok(r.refundedTaxCents <= 1);
+  assert.equal(r.events.at(-1).taxCents, r.refundedTaxCents);
+});
+
+test('final refund takes the last cent of tax', () => {
+  const t = mk({ subtotalCents: 3, taxCents: 1, totalCents: 4, feeCents: 0, lines: [{ key: A, qty: 3, unitCents: 1 }] });
+  let rec = t;
+  for (let i = 0; i < 3; i++) rec = run(rec, R(A, 1, 1)).record;
+  assert.equal(rec.refundedTaxCents, 1);
+  assert.equal(rec.paymentStatus, 'REFUNDED');
+});
+
+test('bad input and edge cases', () => {
+  const x = mk();
+  assert.throws(() => applyAction(x, { type: 'note', text: 'a' }, { by: null }), { code: 'invalid-action' });
+  assert.throws(() => applyAction(x, { type: 'note', text: 'a' }, { now: new Date('x') }), { code: 'invalid-action' });
+  bad(x, R('zzz|x|y', 1, 1));
+  bad(x, R(A, 1.5, 1));
+  bad(x, R(A, 1, 1, { restock: 'yes' }));
+  bad(x, R(A, 1, 1, { reason: ' ' }));
+  bad(x, { type: 'note', text: 'a'.repeat(501) });
+  bad(x, { type: 'nope' });
+  const d = run(x, { ...R(A, 1, 6600), lines: [{ key: A, qty: 1 }, { key: A, qty: 1 }] });
+  assert.deepEqual(d.record.refundedQty, { [A]: 2 });
+  bad(x, { ...R(A, 1, 1), lines: [{ key: A, qty: 2 }, { key: A, qty: 1 }] });
+  const nt = mk({ taxCents: undefined });
+  assert.equal(defaultRefundCents(nt, [{ key: A, qty: 2 }]), 6000);
+  assert.equal(run(nt, R(A, 2, 6000)).record.refundedTaxCents, 0);
+  const z = mk({ subtotalCents: 0 });
+  assert.equal(defaultRefundCents(z, [{ key: A, qty: 1 }]), 3000);
+  const rd = run(mk(), { type: 'ready' }).record;
+  assert.deepEqual(run(rd, R(A, 1, 3300, { restock: false })).movements, [{ key: A, onHand: -1, committed: -1, reason: 'refunded' }]);
+  const c = run(mk(), { type: 'cancel', restock: true }).record;
+  assert.deepEqual(run(c, R(A, 1, 3300)).movements, []);
 });

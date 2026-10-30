@@ -31,12 +31,14 @@ function pickLines(r, lines) {
 
 const itemsOf = picked => picked.reduce((s, p) => s + p.line.unitCents * p.qty, 0);
 
+const maxRefund = (r, picked) => { const i = itemsOf(picked); return i + taxShare(r, i); };
+
 export function defaultRefundCents(record, lines) {
-  const items = itemsOf(pickLines(record, lines));
-  return items + taxShare(record, items);
+  return maxRefund(record, pickLines(record, lines));
 }
 
 export function applyAction(record, action, { by = null, now } = {}) {
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) throw invalid();
   const rec = structuredClone(record);
   const state = fulfilmentOf(rec);
   const event = { at: now.toISOString(), type: action?.type, by: by ?? null };
@@ -66,11 +68,16 @@ export function applyAction(record, action, { by = null, now } = {}) {
     case 'refund': {
       const { lines, amountCents, restock, reason } = action;
       if (!['PAID', 'PARTIALLY_REFUNDED'].includes(rec.paymentStatus) || typeof restock !== 'boolean'
-        || !posInt(amountCents) || typeof reason !== 'string' || !reason.trim() || reason.length > 500) throw invalid();
+        || !posInt(amountCents) || typeof reason !== 'string' || !reason.trim() || reason.trim().length > 500) throw invalid();
       const picked = pickLines(rec, lines);
       const doneCents = rec.refundedCents || 0;
-      if (doneCents + amountCents > rec.totalCents) throw invalid();
-      const tax = Math.min(taxShare(rec, itemsOf(picked)), (rec.taxCents || 0) - (rec.refundedTaxCents || 0));
+      const refundable = rec.totalCents - (rec.feeCents || 0); // the processing fee is never refunded
+      const cap = maxRefund(rec, picked);
+      if (amountCents > cap || doneCents + amountCents > refundable) throw invalid();
+      const taxLeft = (rec.taxCents || 0) - (rec.refundedTaxCents || 0);
+      const lastOf = picked.every(p => p.qty === remaining(rec, p.line)) && rec.lines.every(l => picked.some(p => p.line === l) || remaining(rec, l) === 0);
+      const scaled = cap > 0 ? Math.round(taxShare(rec, itemsOf(picked)) * amountCents / cap) : 0;
+      const tax = Math.max(0, Math.min(lastOf ? taxLeft : scaled, taxLeft, amountCents));
       for (const { line, qty } of picked) {
         rec.refundedQty = { ...rec.refundedQty, [line.key]: refundedQty(rec, line.key) + qty };
         if (state === 'FULFILLED') { if (restock) move(line, qty, 0, 'refunded'); }
@@ -79,7 +86,7 @@ export function applyAction(record, action, { by = null, now } = {}) {
       rec.refundedCents = doneCents + amountCents;
       rec.refundedTaxCents = (rec.refundedTaxCents || 0) + tax;
       const all = rec.lines.every(l => remaining(rec, l) === 0);
-      rec.paymentStatus = all || rec.refundedCents >= rec.totalCents ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+      rec.paymentStatus = all || rec.refundedCents >= refundable ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
       Object.assign(event, { restock, lines: picked.map(p => ({ key: p.line.key, qty: p.qty })), amountCents, taxCents: tax, reason: reason.trim() });
       break;
     }
@@ -103,7 +110,7 @@ export function orderSummary(r) {
     payment: r.paymentStatus,
     fulfilment: fulfilmentOf(r),
     type: typeOf(r),
-    locationId: loc?.id ?? loc ?? null,
+    locationId: loc?.id ?? null,
     units: r.lines.reduce((s, l) => s + remaining(r, l), 0),
     placedAt: r.placedAt,
   };
