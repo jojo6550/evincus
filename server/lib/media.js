@@ -61,7 +61,7 @@ export function mediaStore(dir) {
       let names;
       try { names = await readdir(dir); } catch (e) { missing(e); return []; }
       const out = [];
-      for (const name of names.filter(n => MEDIA_NAME.test(n))) out.push({ name, mtimeMs: (await stat(join(dir, name))).mtimeMs });
+      for (const name of names.filter(n => MEDIA_NAME.test(n))) { const st = await stat(join(dir, name)); out.push({ name, mtimeMs: st.mtimeMs, size: st.size }); }
       return out;
     },
     async remove(name) { await rm(path(name), { force: true }); },

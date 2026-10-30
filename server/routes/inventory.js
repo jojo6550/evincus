@@ -8,6 +8,8 @@ import { uploadPhoto } from '../lib/media.js';
 import { orderAction, orderKey, findOrder, listOrders, jamaicaDay, VIEWS } from '../lib/orders.js';
 import { PERSONAL_FIELDS } from '../lib/retention.js';
 import { loadStats } from '../lib/stats.js';
+import { readLogs, healthExtras } from '../lib/log-store.js';
+import { health } from './health.js';
 import { photoPath, manifestEntry } from '../../data/photos.js';
 
 const noStore = { 'Cache-Control': 'no-store' };
@@ -241,6 +243,20 @@ export async function statsRoute(req, c) {
   const p = new URL(req.url).searchParams;
   const out = await loadStats(c.env, { period: p.get('period') || '30d', from: p.get('from'), to: p.get('to'), now: c.now, catalog: c.data, stock: c.stock, rev: c.data.rev });
   return json(out, 200, noStore);
+}
+
+// GET /api/inventory/logs?level=&kind=&before= (owner) → { logs, next }, newest first, 100 a page. `before` is the last page's `next`.
+export async function logsRoute(req, c) {
+  await requireStaff(req, c, { role: 'owner' });
+  const p = new URL(req.url).searchParams;
+  return json(await readLogs(c.env, { level: p.get('level'), kind: p.get('kind'), before: p.get('before'), now: c.now }), 200, noStore);
+}
+
+// GET /api/inventory/health (owner) → the public health data plus disk, media, cron, email retries, digest day and catalog rev.
+export async function healthDetailRoute(req, c) {
+  await requireStaff(req, c, { role: 'owner' });
+  const base = await (await health(req, c)).json();
+  return json({ ...base, ...await healthExtras(c.env, c.now) }, 200, noStore);
 }
 
 // GET /api/inventory/me → { email, role, local }.

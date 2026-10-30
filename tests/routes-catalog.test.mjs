@@ -129,7 +129,7 @@ test('every request logs one request line with route, status and ms', async () =
   try { await call('GET', '/api/eras/nope'); } finally { logs.restore(); }
   const req = logs.lines.filter(l => l.event === 'request');
   assert.equal(req.length, 1);
-  assert.equal(req[0].route, 'GET /api/eras/nope');
+  assert.equal(req[0].route, 'GET /api/eras/:param');
   assert.equal(req[0].status, 404);
   assert.equal(req[0].level, 'warn');
   assert.equal(typeof req[0].ms, 'number');

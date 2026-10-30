@@ -77,7 +77,7 @@ export function fakeMedia() {
     async read(name) { return files.get(check(name)) ?? null; },
     async write(name, bytes) { if (files.has(check(name))) touched.set(name, Date.now()); else files.set(name, new Uint8Array(bytes)); },
     async has(name) { return files.has(check(name)); },
-    async list() { return [...files.keys()].sort().map(name => ({ name, mtimeMs: touched.get(name) ?? 0 })); },
+    async list() { return [...files.keys()].sort().map(name => ({ name, mtimeMs: touched.get(name) ?? 0, size: files.get(name).length })); },
     async remove(name) { files.delete(check(name)); },
   };
 }

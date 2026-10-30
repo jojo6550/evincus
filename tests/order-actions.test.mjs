@@ -23,7 +23,7 @@ const act = async (env, cookie, id, action, { opId = crypto.randomUUID(), versio
   post(env, cookie, `/api/inventory/orders/${id}/actions`, { opId, version: version === undefined ? (await entry(env, id)).version : version, action }, headers);
 const dayMeta = async (env, id) => (await env.ORDERS.list({ prefix: 'day:' })).keys.find(k => k.name.endsWith(id)).metadata;
 const adjs = (env, opId) => [...env.ORDERS.store].filter(([k]) => k.startsWith('adj:') && k.includes(opId)).map(([, v]) => JSON.parse(v.value));
-const snapshot = env => JSON.stringify([...env.ORDERS.store].filter(([k]) => !k.startsWith('session:')));
+const snapshot = env => JSON.stringify([...env.ORDERS.store].filter(([k]) => !k.startsWith('session:') && !k.startsWith('log:')));
 
 async function cron(env, at) {
   await env.ORDERS.put('retention:ttl-done', '1'); // the one-time TTL rewrite would bump order versions under these tests

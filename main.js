@@ -14,6 +14,7 @@ import { seedCatalog } from './server/lib/catalog-store.js';
 import { ERAS } from './data/eras/index.js';
 import manifest from './assets/js/image-manifest.js';
 import { kvLimiter } from './server/lib/limiter.js';
+import { logSink } from './server/lib/log-store.js';
 import { createLogger } from './server/lib/log.js';
 import { fileAccess } from './server/lib/files.js';
 import { clientIp } from './server/lib/client-ip.js';
@@ -45,7 +46,8 @@ const env = {
 // MEDIA_PATH puts catalog photos next to KV on the persistent disk. Unset (dev), .media/ in the working directory.
 env.MEDIA = mediaStore(process.env.MEDIA_PATH ?? '.media');
 const app = createApp();
-const log = createLogger({ route: 'background' });
+const pendingWork = new Set();
+const log = createLogger({ route: 'background' }, { sink: logSink(env, p => context().waitUntil(p)) });
 const root = fileURLToPath(new URL('.', import.meta.url));
 
 // An empty KV gets the era files once, before the first request; serving an empty store silently is worse than not starting.
@@ -55,11 +57,12 @@ try {
   log.error('catalog.seed_failed', { message: String(err?.message ?? err) });
   process.exit(1);
 }
-const pendingWork = new Set();
 const eventLoop = monitorEventLoopDelay({ resolution: 20 }); eventLoop.enable();
 let stopping = false;
 let lastCron = Date.now();
 let diskHealthy = true;
+let freeBytes;
+env.DISK_FREE = () => freeBytes;
 env.OPERATIONS = () => ({ disk: diskHealthy ? 'ok' : 'low', scheduler: Date.now() - lastCron < 2 * QUARTER ? 'ok' : 'overdue' });
 
 // Background work runs past the response in this long-lived process. Failures are logged, and anything that must
@@ -105,6 +108,7 @@ async function checkDisk() {
   try {
     const disk = await statfs(dirname(env.KV_PATH ?? '.kv.sqlite3'));
     const free = disk.bavail * disk.bsize;
+    freeBytes = free;
     diskHealthy = free > Math.max(20 * 1024 * 1024, Math.min(256 * 1024 * 1024, disk.blocks * disk.bsize * 0.15));
     if (!diskHealthy) log.error('operations.disk_low');
   } catch { diskHealthy = false; log.error('operations.disk_check_failed'); }

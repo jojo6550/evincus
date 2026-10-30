@@ -3,6 +3,7 @@ import { applySales, applyStock } from '../data/catalog.js';
 import { loadSales } from './lib/sales.js';
 import { loadStock } from './lib/stock.js';
 import { createLogger } from './lib/log.js';
+import { logSink } from './lib/log-store.js';
 import { HttpError, corsHeaders, fail, enforceLimit, siteStatus } from './lib/http.js';
 import { secureResponse } from './lib/security.js';
 import { cleanMedia } from './lib/media.js';
@@ -19,7 +20,7 @@ import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
 import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute, listErasAdminRoute, newEraRoute, uploadMediaAdminRoute, attachPhotosRoute } from './routes/admin.js';
-import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute, uploadMediaRoute, orderActionRoute, listOrdersRoute, getOrderRoute, statsRoute } from './routes/inventory.js';
+import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute, uploadMediaRoute, orderActionRoute, listOrdersRoute, getOrderRoute, statsRoute, logsRoute, healthDetailRoute } from './routes/inventory.js';
 
 // The fourth field marks routes that read the catalog: only they load it, with running sales and stock applied.
 // Health loads its own, so a KV failure still answers 503 with kv: 'error'.
@@ -61,7 +62,16 @@ const ROUTES = [
   ['GET', /^\/api\/inventory\/stats$/, statsRoute, true],
   ['GET', /^\/api\/inventory\/orders\/([A-Za-z0-9-]+)$/, getOrderRoute, true],
   ['POST', /^\/api\/inventory\/orders\/([A-Za-z0-9-]+)\/actions$/, orderActionRoute],
+  ['GET', /^\/api\/inventory\/logs$/, logsRoute],
+  ['GET', /^\/api\/inventory\/health$/, healthDetailRoute],
 ];
+
+// Routes with path parameters log their pattern, never the raw path (it can hold a staff email, even %40-encoded).
+function routeName(req, pathname) {
+  const hit = ROUTES.find(([method, re]) => method === req.method && re.test(pathname));
+  if (hit) return `${req.method} ${hit[1].source.replaceAll('\\/', '/').replace(/\(.*?\)/g, ':param').replace(/^\^|\$$/g, '')}`;
+  try { return `${req.method} ${decodeURIComponent(pathname)}`; } catch { return `${req.method} ${pathname}`; }
+}
 
 // `data` replaces the KV catalog (tests); stock still comes from env.ORDERS.
 export function createApp({ data, clock = () => Date.now() } = {}) {
@@ -70,7 +80,7 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
       const started = Date.now();
       const url = new URL(req.url);
       const reqId = crypto.randomUUID();
-      const log = createLogger({ reqId, route: `${req.method} ${url.pathname}` });
+      const log = createLogger({ reqId, route: routeName(req, url.pathname) }, { sink: logSink(env, p => ctx.waitUntil(p)) });
       const c = { env, data, now: new Date(clock()), reqId, log, ip: ctx.ip ?? 'unknown', waitUntil: p => ctx.waitUntil(p), params: [] };
 
       let res;
@@ -119,26 +129,28 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
       return res;
     },
     async scheduled(event, env, ctx) {
-      const log = createLogger({ route: 'cron' });
+      const log = createLogger({ route: 'cron' }, { sink: logSink(env, p => ctx.waitUntil(p)) });
       const now = clock();
       const c = { env, data, now: new Date(now), deadline: Date.now() + 45000, reqId: `cron-${now}`, log, waitUntil: p => ctx.waitUntil(p), params: [] };
       const logFailure = err => log.error('unhandled', { message: String(err?.message ?? err) });
-      ctx.waitUntil((async () => {
+      const runs = [];
+      const run = p => { const w = p.catch(logFailure); runs.push(w); ctx.waitUntil(w); };
+      run((async () => {
         await retryEmails(c);
         await dailyOrderSummary(c);
-      })().catch(logFailure));
-      ctx.waitUntil((async () => {
+      })());
+      run((async () => {
         // Drop emails list only buyable products, so they need stock too.
         if (data === undefined) c.data = applyStock(await liveCatalog(env), await loadStock(env));
         await newsletter(c);
-      })().catch(logFailure));
-      ctx.waitUntil((async () => {
+      })());
+      run((async () => {
         const marker = `media-gc:${new Date(now - 5 * 3600000).toISOString().slice(0, 10)}`; // Jamaica day, UTC-5
         if (await env.ORDERS.get(marker)) return;
         await cleanMedia(env, c.now, log);
         await env.ORDERS.put(marker, '1', { expirationTtl: 172800 });
-      })().catch(logFailure));
-      ctx.waitUntil((async () => {
+      })());
+      run((async () => {
         const marker = `retention:${new Date(now - 5 * 3600000).toISOString().slice(0, 10)}`; // Jamaica day, UTC-5
         if (await env.ORDERS.get(marker)) return;
         const attemptKey = marker.replace('retention:', 'retention:attempt:');
@@ -147,7 +159,9 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
         const { done, failed } = await runRetention(env, c);
         if (done) await env.ORDERS.put(marker, '1', { expirationTtl: 172800 });
         else if (failed) await env.ORDERS.put(attemptKey, String(attempts + 1), { expirationTtl: 172800 });
-      })().catch(logFailure));
+      })());
+      // After every job above has settled, so the health panel's "last run" means the run finished.
+      ctx.waitUntil(Promise.all(runs).then(() => env.ORDERS.put('cron:lastRun', c.now.toISOString())).catch(logFailure));
     },
   };
 }
