@@ -57,6 +57,7 @@ export const MESSAGES = {
   'variant-gone': 'That colour or size no longer exists. Refund it without putting it back in stock.',
   'stock-mismatch': "This order's stock numbers don't add up. Check the stock for this product before trying again.",
   'order-busy': 'Someone else changed this order at the same time. Reload and try again.',
+  'invalid-query': 'Those filters can’t be used. Pick dates up to a year apart and try again.',
   'op-reused': 'That request ID was already used for something else. Reload and try again.',
 };
 

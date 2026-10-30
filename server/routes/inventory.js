@@ -5,7 +5,8 @@ import { productKey, loadCatalog } from '../lib/catalog-store.js';
 import { saveProduct, saveEra, setEraOrder, readEraOrder, productHistory } from '../lib/catalog-save.js';
 import { lineKey, imagesFor } from '../../data/catalog.js';
 import { uploadPhoto } from '../lib/media.js';
-import { orderAction } from '../lib/orders.js';
+import { orderAction, orderKey, listOrders, jamaicaDay, VIEWS } from '../lib/orders.js';
+import { PERSONAL_FIELDS } from '../lib/retention.js';
 import { photoPath, manifestEntry } from '../../data/photos.js';
 
 const noStore = { 'Cache-Control': 'no-store' };
@@ -156,6 +157,53 @@ export async function eraOrderRoute(req, c) {
   const { order, version, replayed } = await setEraOrder(c.env, { opId: b.opId, order: b.order, version: b.version });
   c.log.info('era.order_saved', { account: email, replayed });
   return json({ order, version }, 200, noStore);
+}
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const isDay = d => DATE.test(d) && new Date(Date.parse(`${d}T00:00:00Z`) || 0).toISOString().startsWith(d);
+const CURSOR = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\|([A-Za-z0-9-]+)$/;
+const MAX_DAYS = 366; // each day is one KV walk
+const digits = s => String(s ?? '').replace(/\D/g, '');
+
+// GET /api/inventory/orders?view=&from=&to=&location=&payment=&product=&q=&cursor= → { orders, cursor }, 50 a page.
+// Dates are Jamaica days, by default the last 30. `q` (order id, customer name or phone) is owners only.
+export async function listOrdersRoute(req, c) {
+  const owner = (await requireStaff(req, c)).role === 'owner';
+  const p = new URL(req.url).searchParams;
+  const view = p.get('view') || 'open', to = p.get('to') || jamaicaDay(+c.now);
+  const from = p.get('from') || (isDay(to) ? new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10) : '');
+  const [location, payment, product, q, rawCursor] = ['location', 'payment', 'product', 'q', 'cursor'].map(k => p.get(k)?.trim() || '');
+  const cursor = rawCursor.match(CURSOR);
+  const span = (Date.parse(to) - Date.parse(from)) / 86400000;
+  if (!Object.hasOwn(VIEWS, view) || !isDay(from) || !isDay(to) || !(span >= 0 && span < MAX_DAYS) || (rawCursor && !cursor) || q.length > 100) throw new HttpError('invalid-query', 400);
+  if (q && !owner) throw new HttpError('forbidden', 403);
+  const needle = q.toLowerCase(), phone = digits(q);
+  const found = o => [o.id, o.customer?.name].some(s => s?.toLowerCase().includes(needle)) || (phone.length >= 3 && digits(o.customer?.phone).includes(phone));
+  const out = await listOrders(c.env, {
+    from, to, cursor: cursor && { placedAt: cursor[1], id: cursor[2] },
+    keep: m => VIEWS[view](m) && (!location || m.locationId === location) && (!payment || m.payment === payment),
+    match: (product || q) && (o => (!product || o.lines.some(l => l.id === product)) && (!q || found(o))),
+  });
+  return json(out, 200, noStore);
+}
+
+// GET /api/inventory/orders/:id → { order, version, covers, scrubbed? }. Viewers get no personal data, internal notes
+// or cost. `covers` maps each line key to a catalog photo, or null.
+export async function getOrderRoute(req, c) {
+  const owner = (await requireStaff(req, c)).role === 'owner';
+  const e = await c.env.ORDERS.getEntry(orderKey(c.params[0]));
+  if (!e.value) throw new HttpError('unknown-order', 404);
+  const order = JSON.parse(e.value);
+  if (!owner) {
+    for (const f of PERSONAL_FIELDS) delete order[f];
+    order.events = (order.events ?? []).filter(ev => ev.type !== 'note');
+    order.lines = order.lines.map(({ costCents, ...l }) => l);
+  }
+  const covers = Object.fromEntries(order.lines.map(l => {
+    const p = c.data.products.find(x => x.id === l.id);
+    return [l.key, (p && imagesFor(p, l.color)?.[0]) ?? null];
+  }));
+  return json({ order, version: e.version, covers, ...(order.scrubbedAt && { scrubbed: true }) }, 200, noStore);
 }
 
 const ACTION_EVENTS = { ready: 'order.ready', fulfilled: 'order.fulfilled', cancel: 'order.cancelled', refund: 'order.refunded', note: 'order.noted' };

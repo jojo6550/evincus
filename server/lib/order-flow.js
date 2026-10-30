@@ -1,51 +1,22 @@
 // Pure order rules: no I/O, no clock. Callers persist record + movements atomically.
 import { HttpError } from './http.js';
+import { pickLines as pick, plan, remaining, refundedQty } from '../../data/refunds.js';
 
 export const FULFILMENT = ['UNFULFILLED', 'READY', 'FULFILLED', 'CANCELLED'];
 
 export const fulfilmentOf = r => r.fulfilmentStatus || 'UNFULFILLED';
 const typeOf = r => r.fulfillment?.type || 'pickup';
-const refundedQty = (r, key) => r.refundedQty?.[key] || 0;
-const remaining = (r, l) => l.qty - refundedQty(r, l.key);
 const invalid = () => new HttpError('invalid-action', 400);
 const posInt = n => Number.isInteger(n) && n > 0;
 
-function taxShare(r, itemsCents) {
-  return r.subtotalCents > 0 ? Math.round((r.taxCents || 0) * itemsCents / r.subtotalCents) : 0;
-}
-
-// Merge duplicate keys, check each is a real line with qty left.
 function pickLines(r, lines) {
-  if (!Array.isArray(lines) || !lines.length) throw invalid();
-  const want = new Map();
-  for (const l of lines) {
-    if (!l || typeof l.key !== 'string' || !posInt(l.qty)) throw invalid();
-    want.set(l.key, (want.get(l.key) || 0) + l.qty);
-  }
-  return [...want].map(([key, qty]) => {
-    const line = r.lines.find(x => x.key === key);
-    if (!line || qty > remaining(r, line)) throw invalid();
-    return { line, qty };
-  });
+  const picked = pick(r, lines);
+  if (!picked) throw invalid();
+  return picked;
 }
-
-const itemsOf = picked => picked.reduce((s, p) => s + p.line.unitCents * p.qty, 0);
-
-// Largest refund for these lines. A pick that completes the order gets the exact tax left,
-// so per-line rounding can't strand a cent; never above what the cumulative cap still allows.
-function plan(r, picked) {
-  const items = itemsOf(picked);
-  const share = taxShare(r, items);
-  const taxLeft = (r.taxCents || 0) - (r.refundedTaxCents || 0);
-  const lastOf = picked.every(p => p.qty === remaining(r, p.line)) && r.lines.every(l => picked.some(p => p.line === l) || remaining(r, l) === 0);
-  const room = r.totalCents - (r.feeCents || 0) - (r.refundedCents || 0); // the processing fee is never refunded
-  const full = items + share;
-  return { share, taxLeft, lastOf, full, cap: Math.min(lastOf ? items + taxLeft : full, room) };
-}
-const maxRefund = (r, picked) => plan(r, picked).cap;
 
 export function defaultRefundCents(record, lines) {
-  return maxRefund(record, pickLines(record, lines));
+  return plan(record, pickLines(record, lines)).cap;
 }
 
 export function applyAction(record, action, { by = null, now } = {}) {
@@ -122,6 +93,7 @@ export function orderSummary(r) {
     locationId: loc?.id ?? null,
     units: r.lines.reduce((s, l) => s + remaining(r, l), 0),
     placedAt: r.placedAt,
+    ...(r.payment?.paidAt && { paidAt: r.payment.paidAt }), // WiPay orders: the list shows their refund window
     ...(r.scrubbedAt && { scrubbed: true }), // lets the retention walk skip scrubbed orders without reading them
   };
 }

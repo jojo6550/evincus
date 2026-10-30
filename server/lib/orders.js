@@ -1,7 +1,7 @@
 import { money } from '../../data/catalog.js';
 import { HttpError } from './http.js';
 import { applyAction, orderSummary } from './order-flow.js';
-import { stockKey, stockDoc, adjKey } from './stock.js';
+import { stockKey, stockDoc, adjKey, listAll } from './stock.js';
 import { isOpId, readOpEntry, opPut } from './ops.js';
 import { MAX_PRODUCTS } from './pricing.js';
 
@@ -11,11 +11,9 @@ export const retryKey = id => `email-retry:${id}`;
 
 export const findOrder = (env, id) => env.ORDERS.get(orderKey(id), 'json');
 
-// The Jamaica day an order was placed (UTC-5, no DST).
-export function dayKey(record) {
-  const day = new Date(Date.parse(record.placedAt) - 5 * 3600000).toISOString().slice(0, 10);
-  return `day:${day}:${record.id}`;
-}
+// The Jamaica day (UTC-5, no DST) of a time in ms, and the one an order was placed.
+export const jamaicaDay = ms => new Date(ms - 5 * 3600000).toISOString().slice(0, 10);
+export const dayKey = record => `day:${jamaicaDay(Date.parse(record.placedAt))}:${record.id}`;
 
 // The order and its day: entry, whose metadata lets the order list skip reading each record. No TTL: amounts are kept
 // forever (retention.js scrubs the personal fields after 2 years).
@@ -102,4 +100,42 @@ export function recordRows(r) {
     ['Subtotal', money(r.subtotalCents)],
     ['Total', `${money(r.totalCents)} USD`],
   ];
+}
+
+// Order list views, on day: metadata (orderSummary) only.
+export const VIEWS = {
+  open: m => ['PAID', 'NOT_COLLECTED'].includes(m.payment) && ['UNFULFILLED', 'READY'].includes(m.fulfilment),
+  ready: m => m.fulfilment === 'READY',
+  awaiting: m => m.payment === 'UNPAID',
+  fulfilled: m => m.fulfilment === 'FULFILLED',
+  cancelled: m => m.fulfilment === 'CANCELLED',
+  all: () => true,
+};
+const LIST_PAGE = 50;
+const dayBefore = day => new Date(Date.parse(`${day}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+// Newest first, ties by id, so a cursor names one place in the walk.
+const newer = (a, b) => (a.placedAt === b.placedAt ? (a.id > b.id ? -1 : a.id < b.id ? 1 : 0) : a.placedAt > b.placedAt ? -1 : 1);
+
+// One page of orders, newest first: a walk down the Jamaica days from `to` (or the cursor's day) to `from`, reading
+// each day's day: keys whole (every KV page; they sort by id, not time). `keep(summary)` filters on the key metadata;
+// `match(order)`, when set, loads each kept order (product filter, search). `cursor` { placedAt, id } is the last row
+// sent; the walk resumes after it. -> { orders: [{ id, ...summary }], cursor: '<placedAt>|<id>' | null }.
+export async function listOrders(env, { from, to, keep, match, cursor }) {
+  const orders = [];
+  for (let day = cursor ? jamaicaDay(Date.parse(cursor.placedAt)) : to; day >= from; day = dayBefore(day)) {
+    const prefix = `day:${day}:`;
+    const rows = [];
+    for (const { name, metadata } of await listAll(env.ORDERS, prefix)) {
+      const id = name.slice(prefix.length);
+      const m = metadata ?? (await findOrder(env, id).then(o => o && orderSummary(o))); // keys from before metadata
+      if (m && keep(m)) rows.push({ id, ...m });
+    }
+    for (const row of rows.sort(newer)) {
+      if (cursor && newer(row, cursor) <= 0) continue;
+      if (match) { const o = await findOrder(env, row.id); if (!o || !match(o)) continue; }
+      orders.push(row);
+      if (orders.length === LIST_PAGE) return { orders, cursor: `${row.placedAt}|${row.id}` };
+    }
+  }
+  return { orders, cursor: null };
 }
