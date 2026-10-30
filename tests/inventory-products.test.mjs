@@ -22,7 +22,8 @@ const stub = replies => {
   return calls;
 };
 const ok = body => [200, body];
-const fail = (status, code, details) => [status, { error: { code, message: `${code}.`, details } }];
+// The server's error body (server/lib/http.js fail): extra fields such as { key } sit beside the code.
+const fail = (status, code, extra) => [status, { error: { code, message: `${code}.`, requestId: 'r', ...extra } }];
 
 const p = {
   id: '99-tee', era: 'core', status: 'active', name: '99 Tee', fabric: 'Cotton', category: 'tees', priceCents: 3499, costCents: 1150,
@@ -207,6 +208,34 @@ test('a save that renames a colour moves stock, kept deltas and row errors to th
   assert.match(pg.msg, /Stock not saved: stock-below-committed\..*couldn’t refresh/);
 });
 
+test('colour names are trimmed as the server trims them, so renames and their keys match its reply', () => {
+  const e = editable(p);
+  e.colors[0].name = 'Classic Black '; // a phone keyboard's trailing space: no rename
+  e.colors[1].name = ' Lucent White ';
+  assert.deepEqual(changedFields(p, e), ['colors']);
+  const { product, renames } = productBody(p, e);
+  assert.deepEqual(renames, { White: 'Lucent White' });
+  assert.deepEqual(product.colors.map(c => c.name), ['Classic Black', 'Lucent White']);
+  assert.equal(product.skus['Lucent White|M'], '99-TEE-WHT-M');
+  e.colors[1].name = 'White  ';
+  assert.deepEqual(changedFields(p, e), [], 'only spaces changed: nothing to save');
+});
+
+test('a save refused with invalid-product or product-changed marks fields and opens the conflict, from real error bodies', async () => {
+  const pg = newPage({ id: p.id, d: stockOf(p.id, {}), eras, who });
+  pg.edited.status = 'active';
+  pg.edited.priceCents = null;
+  stub({ PUT: [fail(400, 'invalid-product', { errors: ['price-required'] })] });
+  await savePage(pg);
+  assert.deepEqual(pg.fieldErrors, ['price-required']);
+  assert.match(pg.msg, /Add a price before making it Active/);
+  const current = { ...p, priceCents: 4200 };
+  stub({ PUT: [fail(409, 'product-changed', { current, version: 'v9' })] });
+  await savePage(pg);
+  assert.deepEqual(pg.conflict, { current, version: 'v9' });
+  assert.deepEqual(changedFields(pg.original, pg.conflict.current), ['priceCents'], 'the banner names the field');
+});
+
 test('rekeyDeltas follows renamed colours, swaps included', () => {
   assert.deepEqual(rekeyDeltas({ 'A|M': 1, 'B|M': 2, 'C|L': 3 }, { A: 'B', B: 'A' }), { 'B|M': 1, 'A|M': 2, 'C|L': 3 });
 });
@@ -259,7 +288,9 @@ test('after signed-out and login, the page still has its edits and Save succeeds
 
   const fresh = { ...stockOf(p.id, { ...rows, 'White|L': { onHand: 3, committed: 1 } }), product: { ...p, priceCents: 3999 }, version: 'v2', media: {} };
   calls = stub({ POST: [ok({ stock: { '99-tee|White|L': { onHand: 3, committed: 1 } } })], PUT: [ok({ product: fresh.product, version: 'v2' })], GET: [ok(fresh)] });
+  pg.historyError = 'Couldn’t load more history: offline';
   assert.equal(await savePage(pg), null);
+  assert.equal(pg.historyError, '', 'refreshed history replaces a stale Load more error');
   const writes = calls.filter(c => c.method !== 'GET');
   assert.deepEqual(writes.map(c => c.body.opId), ops, 'the same ops, so nothing applies twice');
   assert.deepEqual(writes[0].body.changes, [{ key: '99-tee|White|L', delta: -2 }]);

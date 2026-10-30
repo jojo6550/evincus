@@ -1,6 +1,7 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, ApiError, newOpId, onSignedOut } from '../assets/js/inventory-api.js';
+import { fail } from '../server/lib/http.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -54,6 +55,16 @@ test('a 401 from the login route is not signed-out; one from anywhere else is', 
   await assert.rejects(api('POST', '/api/inventory/products', {}), e => e.code === 'signed-out');
   assert.equal(signedOut, 1);
   off();
+});
+
+test("ApiError's details are the extra fields of the server's real error body", async () => {
+  for (const extra of [{ key: 'p|White|M' }, { current: { id: 'p', name: 'P' }, version: 'v2' }, { errors: ['price-required', 'photo-required'] }]) {
+    globalThis.fetch = async () => fail({ reqId: 'r1' }, 'product-changed', 409, extra);
+    const e = await api('PUT', '/api/inventory/products/p', {}).catch(err => err);
+    assert.deepEqual([e.status, e.code, e.requestId, e.details], [409, 'product-changed', 'r1', extra]);
+  }
+  globalThis.fetch = async () => fail({ reqId: 'r2' }, 'forbidden', 403);
+  assert.equal((await api('POST', '/x', {}).catch(err => err)).details, null, 'no extra fields, no details');
 });
 
 test('a request that outlasts its timeout ends as a network error; the default is 30 s', { timeout: 2000 }, async t => {

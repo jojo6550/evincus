@@ -4,8 +4,10 @@ export class ApiError extends Error {
     super(body?.error?.message ?? "Can't reach the server. Check your connection and try again.");
     this.status = status;
     this.code = body?.error?.code ?? 'network';
-    this.details = body?.error?.details ?? null;
-    this.requestId = body?.error?.requestId ?? null;
+    // The server puts extra fields ({ key }, { current, version }, { errors }) beside code and message (http.js fail).
+    const { code, message, requestId, details, ...extra } = body?.error ?? {};
+    this.details = details ?? (Object.keys(extra).length ? extra : null);
+    this.requestId = requestId ?? null;
   }
 }
 

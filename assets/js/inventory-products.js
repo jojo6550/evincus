@@ -37,7 +37,8 @@ export const blankProduct = era => ({
 export const slugify = name => name.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
   .replace(/[^a-z0-9]+/g, '-').slice(0, 60).replace(/^-+|-+$/g, '');
 
-const bare = ({ from, tmp, ...c }) => c;
+// A colour as stored: no row tracking, and its name trimmed as the server trims it.
+const bare = ({ from, tmp, ...c }) => ({ ...c, name: c.name.trim() });
 const value = (p, f) => (f === 'colors' ? p.colors.map(bare) : f === 'description' ? p.description ?? '' : p[f] ?? null);
 export const changedFields = (a, b) => Object.keys(LABELS).filter(f => JSON.stringify(value(a, f)) !== JSON.stringify(value(b, f)));
 
@@ -52,9 +53,10 @@ export function pendingSummary(original, edited, deltas) {
 // The PUT body: renamed rows become `renames`, and each row's SKUs move to its colour's new name. A variant left
 // without one gets the server's default.
 export function productBody(original, edited) {
-  const renames = Object.fromEntries(edited.colors.filter(c => c.from && c.from !== c.name).map(c => [c.from, c.name]));
-  const skus = Object.fromEntries(edited.colors.flatMap(c => edited.sizes.map(s => [`${c.name}|${s}`, edited.skus?.[`${rowKey(c)}|${s}`]?.trim()])).filter(([, v]) => v));
-  const product = { ...edited, colors: edited.colors.map(bare), skus };
+  const colors = edited.colors.map(bare); // names trimmed as the server trims them, so the keys below match its reply
+  const renames = Object.fromEntries(edited.colors.map((c, i) => [c.from, colors[i].name]).filter(([from, name]) => from && from !== name));
+  const skus = Object.fromEntries(edited.colors.flatMap((c, i) => edited.sizes.map(s => [`${colors[i].name}|${s}`, edited.skus?.[`${rowKey(c)}|${s}`]?.trim()])).filter(([, v]) => v));
+  const product = { ...edited, colors, skus };
   if (!product.description && original.description === undefined) delete product.description;
   return { product, ...(Object.keys(renames).length && { renames }) };
 }
@@ -188,7 +190,7 @@ export async function savePage(pg) {
     try {
       const d = await api('GET', `/api/inventory/products/${encodeURIComponent(pg.id)}`);
       registerImages(d.media);
-      Object.assign(pg, { stock: d.stock, history: d.history });
+      Object.assign(pg, { stock: d.stock, history: d.history, historyError: '' });
     } catch (err) {
       msgs.push(`Saved, but the page couldn’t refresh: ${err.message}`);
     }
@@ -444,15 +446,19 @@ function useMine() {
 async function locked(work) {
   const pg = page;
   if (pg.saving) return;
-  pg.saving = true;
+  Object.assign(pg, { saving: true, msg: '' }); // the last save's message would describe the wrong press
   refreshBar();
   lockAll(pg.el);
-  const created = await work(pg);
-  pg.saving = false;
-  if (page !== pg) return;
-  if (!created) return drawPage();
-  page = null; // created: nothing is left unsaved, so leaving asks nothing
-  location.hash = `#inventory/${encodeURIComponent(created)}`;
+  let created = null;
+  try {
+    created = await work(pg);
+  } finally {
+    pg.saving = false; // even if `work` throws, the page unlocks
+    if (page === pg && created) {
+      page = null; // created: nothing is left unsaved, so leaving asks nothing
+      location.hash = `#inventory/${encodeURIComponent(created)}`;
+    } else if (page === pg) drawPage();
+  }
 }
 
 const save = () => locked(savePage);
@@ -463,7 +469,7 @@ const reloadStock = () => locked(async pg => {
     const d = await api('GET', `/api/inventory/products/${encodeURIComponent(pg.id)}`);
     forgetStock(pg.id);
     registerImages(d.media);
-    Object.assign(pg, { stock: d.stock, history: d.history, deltas: {}, rowErrors: {}, msg: 'Stock reloaded. Make any stock changes that are still needed.' });
+    Object.assign(pg, { stock: d.stock, history: d.history, historyError: '', deltas: {}, rowErrors: {}, msg: 'Stock reloaded. Make any stock changes that are still needed.' });
   } catch (err) {
     pg.msg = `Couldn’t reload the stock: ${err.message}`;
   }
