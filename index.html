@@ -104,9 +104,17 @@
       <h2>The Drop <em>it's chaotic!</em></h2>
       <a class="mono" href="#shop">View all <span id="total">9</span> pieces →</a>
     </div>
-    <div class="eras" id="eraFilter" role="group" aria-label="Filter by collection"></div>
+    <div class="eras" id="eraFilter" role="group" aria-label="Filter by collection"><i class="skel skel--pill"></i><i class="skel skel--pill"></i><i class="skel skel--pill"></i></div>
     <div class="era-intro" id="eraIntro" aria-live="polite"></div>
-    <div class="grid" id="grid" aria-live="polite"></div>
+    <!-- Placeholders until the catalog loads; index.js replaces them with the real cards. -->
+    <div class="grid" id="grid" aria-live="polite" aria-busy="true">
+      <div class="card card--skel" aria-hidden="true"><div class="card__img skel"></div><div class="card__meta"><i class="skel"></i><i class="skel"></i></div></div>
+      <div class="card card--skel" aria-hidden="true"><div class="card__img skel"></div><div class="card__meta"><i class="skel"></i><i class="skel"></i></div></div>
+      <div class="card card--skel" aria-hidden="true"><div class="card__img skel"></div><div class="card__meta"><i class="skel"></i><i class="skel"></i></div></div>
+      <div class="card card--skel" aria-hidden="true"><div class="card__img skel"></div><div class="card__meta"><i class="skel"></i><i class="skel"></i></div></div>
+      <div class="card card--skel" aria-hidden="true"><div class="card__img skel"></div><div class="card__meta"><i class="skel"></i><i class="skel"></i></div></div>
+      <div class="card card--skel" aria-hidden="true"><div class="card__img skel"></div><div class="card__meta"><i class="skel"></i><i class="skel"></i></div></div>
+    </div>
     <div class="teasers" id="teasers"></div>
   </section>
 

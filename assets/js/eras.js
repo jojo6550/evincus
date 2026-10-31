@@ -3,7 +3,7 @@ import * as cart from './cart.js';
 import { initBag } from './bag.js';
 import { initProductView } from './product-view.js';
 import { initSale, eraSaleNote } from './sale.js';
-import { imageAttrs } from './images.js';
+import { imageAttrs, initImageFade } from './images.js';
 
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = iso => new Date(iso).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' });
@@ -40,6 +40,7 @@ function card(era, count) {
     : `<article class="era-card era-card--soon">${body}</article>`;
 }
 
+initImageFade();
 await loadCatalog();
 initSale();
 const all = products();
@@ -49,6 +50,7 @@ const list_el = document.getElementById('eraList');
 list_el.innerHTML = list.length
   ? list.map(e => card(e, countIn(e.slug))).join('')
   : '<p class="mono u-smoke">No eras to show yet.</p>';
+list_el.removeAttribute('aria-busy');
 document.getElementById('eraTotal').textContent = list.length;
 
 const count = document.getElementById('count');
