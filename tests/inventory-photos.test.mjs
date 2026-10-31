@@ -57,6 +57,15 @@ test('encodeVariants says so when the photo cannot be decoded, and uses the phot
   assert.equal((await encodeVariants({}, fakes({ width: 700, height: 700 }))).length, 2);
 });
 
+test('encodeVariants refuses a photo under 100 px wide, and never draws a 0 px high variant', async () => {
+  const tiny = fakes({ width: 99, height: 99 });
+  await assert.rejects(encodeVariants({}, tiny), e => e.code === 'photo-too-small' && /100/.test(e.message));
+  assert.ok(tiny.log.some(l => l[0] === 'close'));
+  const wide = fakes({ width: 3000, height: 1 });
+  await encodeVariants({}, wide);
+  assert.ok(wide.log.filter(l => l[0] === 'blob').every(l => l[2] >= 1));
+});
+
 test('photo list helpers edit a colour, or the all-colours list, without touching others', () => {
   const p = { images: [{ id: 'a' }], colors: [{ name: 'Red', from: 'Red' }, { name: 'Blue', from: 'Blue', images: [{ id: 'b' }] }, { name: 'Pink', from: null, tmp: '|1' }] };
   assert.deepEqual(photoList(p, 'all'), [{ id: 'a' }]);

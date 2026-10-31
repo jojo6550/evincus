@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { HttpError, readBytes } from './http.js';
 import { listAll } from './stock.js';
 import { createLogger } from './log.js';
-import { WIDTHS, MAX_VARIANT_BYTES, variantWidths } from '../../data/photos.js';
+import { WIDTHS, MAX_VARIANT_BYTES, MIN_WIDTH, variantWidths } from '../../data/photos.js';
 
 export const MEDIA_NAME = /^[0-9a-f]{24}-[0-9]{3,4}\.(webp|jpg)$/;
 
@@ -72,7 +72,7 @@ export function mediaStore(dir) {
 export async function storePhoto(media, files) {
   const bad = () => new HttpError('invalid-photo', 400);
   const infos = files.map(sniffImage);
-  if (!infos.length || infos.some(i => !i)) throw bad();
+  if (!infos.length || infos.some(i => !i || i.width < MIN_WIDTH || i.height < 1)) throw bad();
   const { ext } = infos[0];
   const widest = infos.reduce((a, b) => (b.width > a.width ? b : a));
   const ratio = widest.height / widest.width;

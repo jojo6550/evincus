@@ -50,6 +50,25 @@ test('a failing sink never fails or delays the request', quiet(async () => {
   assert.ok(r.status >= 400 && r.status < 500);
 }));
 
+test('only a 500 request line is saved: closed-store, health and busy 503s are not', quiet(async () => {
+  const env = env0({ STATUS: 'stocking' });
+  for (let i = 0; i < 50; i++) assert.equal((await call('GET', '/api/eras', { env, headers: { host: 'evincus.shop' } })).status, 503);
+  assert.deepEqual(logKeys(env), []);
+  const busy = env0();
+  busy.ORDERS.commit = async () => false;
+  const order = { checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 6998 };
+  const r = await call('POST', '/api/orders', { env: busy, body: order });
+  assert.deepEqual([r.status, r.json.error.code], [503, 'busy']);
+  assert.deepEqual(logKeys(busy), []);
+  assert.ok(!shouldSave({ level: 'error', event: 'request', status: 503 }));
+  assert.ok(!shouldSave({ level: 'warn', event: 'request', status: 429 }));
+  const broken = env0();
+  const r500 = await call('GET', '/api/eras', { env: broken, data: Promise.reject(new Error('boom')) });
+  assert.equal(r500.status, 500);
+  const saved = logKeys(broken).map(k => JSON.parse(broken.ORDERS.store.get(k).value));
+  assert.ok(saved.some(l => l.event === 'request' && l.status === 500));
+}));
+
 test('bot 404s and 429s are not saved', quiet(async () => {
   const env = env0({ INVENTORY_LIMIT: fakeLimiter(0) });
   assert.equal((await call('GET', '/api/wp-login.php', { env })).status, 404);
@@ -126,7 +145,8 @@ test('flood-prone events: anonymous login.blocked once per IP window, no client.
   assert.ok(!shouldSave({ level: 'warn', event: 'client.error' }));
   assert.ok(!shouldSave({ level: 'warn', event: 'login.blocked', account: null, firstBlock: false }));
   assert.ok(shouldSave({ level: 'warn', event: 'login.blocked', account: null, firstBlock: true }));
-  assert.ok(shouldSave({ level: 'warn', event: 'login.blocked', account: 'boss@evincus.shop', firstBlock: false }));
+  assert.ok(!shouldSave({ level: 'warn', event: 'login.blocked', account: 'boss@evincus.shop', firstBlock: false }));
+  assert.ok(shouldSave({ level: 'warn', event: 'login.blocked', account: 'boss@evincus.shop', firstBlock: true }));
   const env = env0();
   await signIn(env, 'owner');
   env.LOGIN_IP_LIMIT = fakeLimiter(0);
@@ -134,8 +154,12 @@ test('flood-prone events: anonymous login.blocked once per IP window, no client.
   for (let i = 0; i < 5; i++) assert.equal((await attempt('nobody@evincus.shop')).status, 429);
   const blocked = () => logKeys(env).map(k => JSON.parse(env.ORDERS.store.get(k).value)).filter(l => l.event === 'login.blocked');
   assert.equal(blocked().length, 1);
-  for (let i = 0; i < 3; i++) await attempt('owner@evincus.shop');
-  assert.equal(blocked().length, 4);
+  for (let i = 0; i < 5; i++) await attempt('owner@evincus.shop');
+  assert.equal(blocked().length, 2, 'a known account is saved once per IP + account window too');
+  assert.ok(blocked().some(l => l.account === 'owner@evincus.shop'));
+  assert.equal(env.ORDERS.store.get('loginblock:9.9.9.9:owner@evincus.shop').opts.expirationTtl, 900);
+  await call('POST', '/api/inventory/login', { env, ip: '7.7.7.7', body: { email: 'owner@evincus.shop', password: 'x'.repeat(12) } });
+  assert.equal(blocked().length, 3, 'another IP gets its own row');
   const pending = [], log = createLogger({}, { sink: logSink(env, p => pending.push(p)) });
   for (let i = 0; i < 4; i++) log.error('operations.disk_low');
   await Promise.all(pending);

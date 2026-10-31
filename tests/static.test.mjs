@@ -265,3 +265,13 @@ test('STATUS closes the public domain with a 503 page, never the onrender.com de
   assert.equal(await dev.text(), 'home');
   assert.equal((await get('/')).status, 200, 'unset STATUS is live');
 });
+
+test('the inventory app and its /data/ modules load on the public domain while STATUS closes the store', async () => {
+  const pages = { 'inventory.html': 'inv', 'data/photos.js': 'export {}', 'restocking.html': 'restocking' };
+  const at = path => serveStatic(new Request(`https://evincus.shop${path}`, { headers: { host: 'evincus.shop' } }), { env: { STATUS: 'stocking' }, readFile: async p => new TextEncoder().encode(pages[p]) });
+  const js = await at('/data/photos.js');
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get('content-type'), /javascript/);
+  assert.equal(await js.text(), 'export {}');
+  assert.equal((await at('/inventory')).status, 200);
+});

@@ -141,7 +141,10 @@ export async function uploadMediaAdminRoute(req, c) {
 // machine: a development server reached from loopback. Checked before the token and before any body is read.
 const LOOPBACK = new Set(['127.0.0.1', '::1']);
 // Never on Render, whatever ENVIRONMENT or a forwarded header says.
-const localOnly = c => (c.env.ENVIRONMENT === 'development' && c.env.RENDER !== 'true' && LOOPBACK.has(c.ip) ? null : fail(c, 'not-found', 404));
+const isLocalDev = c => c.env.ENVIRONMENT === 'development' && c.env.RENDER !== 'true' && LOOPBACK.has(c.ip);
+const localOnly = c => (isLocalDev(c) ? null : fail(c, 'not-found', 404));
+// Only these two skip ADMIN_LIMIT, and only once isLocalDev passes: a pull sends one media PUT per photo file.
+export const skipsAdminLimit = (handler, c) => (handler === importCatalogRoute || handler === putMediaFileRoute) && isLocalDev(c);
 
 // GET /api/admin/export: catalog, stock and photo names, for npm run inventory:pull. No orders, accounts or logs.
 export async function exportCatalogRoute(req, c) {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
-import { makeEnv, seedFromFixture, makeCtx, captureLogs } from './helpers/fake-env.mjs';
+import { makeEnv, seedFromFixture, makeCtx, captureLogs, fakeLimiter } from './helpers/fake-env.mjs';
 import { createApp } from '../server/index.js';
 import { REV_KEY, ERA_ORDER_KEY, IMPORT_BATCH, loadCatalog } from '../server/lib/catalog-store.js';
 import { clientIp } from '../server/lib/client-ip.js';
@@ -235,4 +235,39 @@ test('pull skips bad media names, and a 401 or 404 from the source gets a specif
   const status = code => async () => new Response(null, { status: code });
   await assert.rejects(main([], { fetchFn: status(401), env, log: () => {}, readEnvFile: () => '' }), /PROD_ADMIN_TOKEN/);
   await assert.rejects(main([], { fetchFn: status(404), env, log: () => {}, readEnvFile: () => '' }), /no export endpoint/);
+});
+
+test('media PUTs on a local dev app skip ADMIN_LIMIT; a non-local request is still limited and 404', async () => {
+  const env = localEnv({ ADMIN_LIMIT: fakeLimiter(20) });
+  const raw = await img(480, 600);
+  for (let i = 1; i <= 30; i++) {
+    const res = await send(env, 'PUT', `/api/admin/media/${String(i).padStart(24, '0')}-480.webp`, { ip: '127.0.0.1', headers: auth(LOCAL_TOKEN), raw });
+    assert.equal(res.status, 204, `PUT ${i}`);
+  }
+  const remote = localEnv({ ADMIN_LIMIT: fakeLimiter(2) });
+  const put = () => send(remote, 'PUT', '/api/admin/media/000000000000000000000001-480.webp', { ip: '8.8.8.8', headers: auth(LOCAL_TOKEN), raw });
+  assert.deepEqual([(await put()).status, (await put()).status, (await put()).status], [404, 404, 429]);
+  const imp = () => send(remote, 'PUT', '/api/admin/import', { ip: '8.8.8.8', headers: auth(LOCAL_TOKEN), body: {} });
+  assert.equal((await imp()).status, 429);
+});
+
+test('pull retries a 429 once after Retry-After', async () => {
+  const prod = await prodEnv();
+  const webp = await img(480, 600);
+  const names = (await exportOf(prod)).media;
+  for (const n of names) prod.MEDIA.files.set(n, new Uint8Array(webp));
+  const local = localEnv();
+  const { fetchFn: base } = world(prod, local);
+  let limited = 0;
+  const fetchFn = async (url, init = {}) => {
+    if (url.startsWith(LOCAL_URL) && init.method === 'PUT' && limited < 1) { limited++; return new Response('{}', { status: 429, headers: { 'Retry-After': '7' } }); }
+    return base(url, init);
+  };
+  const waits = [];
+  const env = { PROD_ADMIN_TOKEN: PROD_TOKEN, ADMIN_TOKEN: LOCAL_TOKEN };
+  await main([], { fetchFn, env, log: () => {}, readEnvFile: () => '', sleep: async ms => { waits.push(ms); } });
+  assert.deepEqual(waits, [7000]);
+  assert.equal(local.MEDIA.files.size, names.length);
+  const always = async (url, init = {}) => (url.startsWith(LOCAL_URL) && init.method === 'PUT' ? new Response('{}', { status: 429, headers: { 'Retry-After': '1' } }) : base(url, init));
+  await assert.rejects(main([], { fetchFn: always, env, log: () => {}, readEnvFile: () => '', sleep: async () => {} }), /429/);
 });

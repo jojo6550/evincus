@@ -17,12 +17,13 @@ export function redact(value) {
 
 const SAVED = new Set(['login.ok', 'login.failed', 'login.blocked', 'account.added', 'account.removed', 'sales.updated', 'era.saved', 'product.saved', 'stock.adjusted', 'media.uploaded', 'order.placed', 'order.ready', 'order.fulfilled', 'order.cancelled', 'order.refunded', 'inventory.pulled']);
 
-// Which lines the Logs tab keeps: errors, 5xx requests, non-request warnings (so not bot 404s or 429s) and staff events.
+// Which lines the Logs tab keeps: errors, 500 requests, non-request warnings (so not bot 404s or 429s) and staff events.
+// 503s (closed store, health, busy) are anonymous and unbounded, so their request lines are never saved.
 export function shouldSave(line) {
   if (line.event === 'client.error') return false; // anonymous beacons would flood the store
-  if (line.event === 'login.blocked') return line.account != null || line.firstBlock === true;
+  if (line.event === 'login.blocked') return line.firstBlock === true;
+  if (line.event === 'request') return line.status === 500;
   if (line.level === 'error') return true;
-  if (line.event === 'request') return line.status >= 500;
   return line.level === 'warn' || SAVED.has(line.event);
 }
 

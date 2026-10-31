@@ -8,13 +8,20 @@ import { parseOptions, adminToken, adminFetch, problem, PROD_URL, LOCAL_URL } fr
 
 const BATCH = 5;
 
-export async function main(argv, { fetchFn = fetch, env = process.env, log = console.log, readEnvFile } = {}) {
+export async function main(argv, { fetchFn = fetch, env = process.env, log = console.log, readEnvFile, sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
   const { flags, rest } = parseOptions(argv);
   if (flags.local || rest.length) throw new Error('Usage: npm run inventory:pull [url=<base>]');
   const source = (flags.url ?? PROD_URL).replace(/\/+$/, '');
   const prodToken = adminToken(env, readEnvFile, 'PROD_ADMIN_TOKEN');
   const localToken = adminToken(env, readEnvFile);
   if (prodToken === localToken) throw new Error('PROD_ADMIN_TOKEN and ADMIN_TOKEN are the same, so your local server is using the production token. Give the local server its own ADMIN_TOKEN.');
+  // A local write that hits a rate limit is tried once more after Retry-After (both writes are idempotent).
+  const toLocal = async (path, init) => {
+    const res = await adminFetch(LOCAL_URL, localToken, path, init, fetchFn);
+    if (res.status !== 429) return res;
+    await sleep((Number(res.headers.get('Retry-After')) || 1) * 1000);
+    return adminFetch(LOCAL_URL, localToken, path, init, fetchFn);
+  };
 
   const exported = await adminFetch(source, prodToken, '/api/admin/export', { method: 'GET' }, fetchFn);
   if (exported.status === 401) throw new Error(`${source} refused PROD_ADMIN_TOKEN. It must be the live server's ADMIN_TOKEN.`);
@@ -31,13 +38,13 @@ export async function main(argv, { fetchFn = fetch, env = process.env, log = con
       if ((await fetchFn(`${LOCAL_URL}/media/${part}`, { method: 'HEAD' })).ok) return;
       const file = await fetchFn(`${source}/media/${part}`);
       if (!file.ok) throw new Error(`Could not download ${name} from ${source} (${file.status}).`);
-      const put = await adminFetch(LOCAL_URL, localToken, `/api/admin/media/${part}`, { method: 'PUT', body: new Uint8Array(await file.arrayBuffer()) }, fetchFn);
+      const put = await toLocal(`/api/admin/media/${part}`, { method: 'PUT', body: new Uint8Array(await file.arrayBuffer()) });
       if (!put.ok) throw new Error(`Upload of ${name}: ${await problem(put)}`);
       copied++;
     }));
   }
 
-  const res = await adminFetch(LOCAL_URL, localToken, '/api/admin/import', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eraOrder, eras, products, stock }) }, fetchFn);
+  const res = await toLocal('/api/admin/import', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eraOrder, eras, products, stock }) });
   if (!res.ok) throw new Error(res.status === 404 ? 'The local server refused the import. Run it with npm run dev (ENVIRONMENT=development) and set ADMIN_TOKEN.' : `Import: ${await problem(res)}`);
   const done = await res.json();
   log(`Pulled from ${source}: ${done.eras} eras, ${done.products} products, ${done.stock} stock records (${done.removed} old local ones removed), ${copied} of ${media.length} photos copied${skipped ? `, ${skipped} skipped (bad name)` : ''}.`);

@@ -2,7 +2,7 @@
 // uploader. The helpers above the UI are pure (or take injected fakes) and exported for tests.
 import { api } from './inventory-api.js';
 import { registerImages, imageAttrs } from './images.js';
-import { variantWidths, MAX_VARIANT_BYTES, photoPath, manifestEntry } from '../../data/photos.js';
+import { variantWidths, MAX_VARIANT_BYTES, MIN_WIDTH, photoPath, manifestEntry } from '../../data/photos.js';
 import { esc, swatch } from './inventory-products-view.js';
 
 class PhotoError extends Error {
@@ -38,6 +38,7 @@ export async function encodeVariants(file, { createImageBitmap = globalThis.crea
     throw new PhotoError('photo-unreadable', "This photo format can't be read here. Try a JPEG.");
   }
   try {
+    if (bitmap.width < MIN_WIDTH) throw new PhotoError('photo-too-small', `This photo is too small. Use one at least ${MIN_WIDTH} pixels wide.`);
     const attempt = async type => {
       const out = [];
       for (const w of variantWidths(bitmap.width)) {

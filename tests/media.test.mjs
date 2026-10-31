@@ -42,6 +42,21 @@ test('storePhoto refuses mixed types, a missing width, an oversized file, a 1600
   await invalid(storePhoto(fakeMedia(), [new Uint8Array(10)]));
 });
 
+test('storePhoto refuses a photo under 100 px wide or 0 px high with invalid-photo, never a 500', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'media-'));
+  try {
+    for (const media of [fakeMedia(), mediaStore(dir)]) {
+      await invalid(storePhoto(media, [await img(80, 100, 'webp')]));
+      const flat = new Uint8Array(await img(480, 600, 'jpeg'));
+      const sof = flat.findIndex((b, i) => b === 0xff && flat[i + 1] === 0xc0);
+      flat[sof + 5] = 0; flat[sof + 6] = 0; // SOF0 height 0 (a DNL-style header)
+      assert.equal(sniffImage(flat).height, 0);
+      await invalid(storePhoto(media, [flat]));
+    }
+    assert.ok((await storePhoto(fakeMedia(), [await img(100, 125, 'webp')])).id);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test('mediaStore refuses names outside MEDIA_NAME, including traversal', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'media-'));
   try {
