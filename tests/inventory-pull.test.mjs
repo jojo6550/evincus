@@ -200,3 +200,39 @@ test('url= replaces the source, and equal tokens are refused before any request'
   assert.equal(calls.length, 0);
   await assert.rejects(main([], { fetchFn, env: { ADMIN_TOKEN: LOCAL_TOKEN }, log: () => {}, readEnvFile: () => '' }), /PROD_ADMIN_TOKEN/);
 });
+
+test('import and media PUT are 404 on Render even in development from loopback; clientIp trusts the header there', async () => {
+  const env = localEnv({ RENDER: 'true' });
+  const exported = await exportOf(await prodEnv());
+  assert.equal((await importTo(env, exported)).status, 404);
+  const raw = await img(480, 600);
+  assert.equal((await send(env, 'PUT', '/api/admin/media/000000000000000000000001-480.webp', { ip: '127.0.0.1', headers: auth(LOCAL_TOKEN), raw })).status, 404);
+  const req = { headers: { 'x-forwarded-for': '1.2.3.4' }, socket: { remoteAddress: '127.0.0.1' } };
+  assert.equal(clientIp(req, { RENDER: 'true' }), '1.2.3.4');
+});
+
+test('import refuses an eraOrder naming eras that are not imported', async () => {
+  const env = localEnv();
+  const good = await exportOf(await prodEnv());
+  assert.equal((await importTo(env, { ...good, eraOrder: [...good.eraOrder, 'ghost'] })).status, 400);
+  assert.equal(env.ORDERS.store.has(REV_KEY), false);
+});
+
+test('pull skips bad media names, and a 401 or 404 from the source gets a specific message', async () => {
+  const prod = await prodEnv();
+  for (const n of (await exportOf(prod)).media) prod.MEDIA.files.set(n, await img(480, 600));
+  const { fetchFn } = world(prod, localEnv());
+  const evil = async (url, init) => {
+    const res = await fetchFn(url, init);
+    if (!url.endsWith('/api/admin/export')) return res;
+    const body = await res.json();
+    return new Response(JSON.stringify({ ...body, media: [...body.media, '../x', 'a b.webp'] }), { status: 200 });
+  };
+  const out = [];
+  const env = { PROD_ADMIN_TOKEN: PROD_TOKEN, ADMIN_TOKEN: LOCAL_TOKEN };
+  await main([], { fetchFn: evil, env, log: l => out.push(l), readEnvFile: () => '' });
+  assert.match(out[0], /2 skipped/);
+  const status = code => async () => new Response(null, { status: code });
+  await assert.rejects(main([], { fetchFn: status(401), env, log: () => {}, readEnvFile: () => '' }), /PROD_ADMIN_TOKEN/);
+  await assert.rejects(main([], { fetchFn: status(404), env, log: () => {}, readEnvFile: () => '' }), /no export endpoint/);
+});

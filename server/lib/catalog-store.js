@@ -123,6 +123,7 @@ export async function seedCatalog(env, { modules, manifest, root, seedStock }) {
 
 const DATA_PREFIXES = ['era:', 'product:', 'stock:'];
 // Mutations per import commit; @deno/kv allows 1000, the margin keeps commits small.
+// shortcut: batches count mutations, not bytes (@deno/kv caps a commit at 800 KiB); split by size if the catalog nears ~700 KB per 400 docs
 export const IMPORT_BATCH = 400;
 const isRef = r => r && typeof r === 'object' && Array.isArray(r.widths);
 

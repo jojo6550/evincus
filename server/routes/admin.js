@@ -140,7 +140,8 @@ export async function uploadMediaAdminRoute(req, c) {
 // The pull routes below write straight to the catalog and the photo store, so they exist only on a developer's own
 // machine: a development server reached from loopback. Checked before the token and before any body is read.
 const LOOPBACK = new Set(['127.0.0.1', '::1']);
-const localOnly = c => (c.env.ENVIRONMENT === 'development' && LOOPBACK.has(c.ip) ? null : fail(c, 'not-found', 404));
+// Never on Render, whatever ENVIRONMENT or a forwarded header says.
+const localOnly = c => (c.env.ENVIRONMENT === 'development' && c.env.RENDER !== 'true' && LOOPBACK.has(c.ip) ? null : fail(c, 'not-found', 404));
 
 // GET /api/admin/export: catalog, stock and photo names, for npm run inventory:pull. No orders, accounts or logs.
 export async function exportCatalogRoute(req, c) {
@@ -159,6 +160,8 @@ export async function importCatalogRoute(req, c) {
   const body = (await readJson(req, 16 * 1024 * 1024)) ?? {};
   if (!Array.isArray(body.eraOrder) || !body.eraOrder.every(s => typeof s === 'string')
     || !entries(body.eras, 'era:') || !entries(body.products, 'product:') || !entries(body.stock, 'stock:')) return fail(c, 'invalid-import', 400);
+  const slugs = new Set(body.eras.map(e => e.key.slice('era:'.length)));
+  if (!body.eraOrder.every(s => slugs.has(s))) return fail(c, 'invalid-import', 400);
   const counts = await importCatalog(c.env, body);
   c.log.info('inventory.pulled', counts);
   return json(counts, 200, noStore);
