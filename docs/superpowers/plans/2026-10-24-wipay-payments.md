@@ -31,7 +31,9 @@ its reasoning).
   path `/plugins/payments/request`, header `Accept: application/json`, timeout 10 s.
 - Hash: `md5(transaction_id + formatTotal(totalCents) + WIPAY_API_KEY)`, lowercase hex, constant-time compare.
 - Attempt ID: 16 chars `[A-Za-z0-9]`. Reuse an `open` attempt younger than 150 s.
-- TTLs: unpaid order/submission 7 days (`UNPAID_TTL = 604800`); once an attempt exists or paid, `ORDER_TTL`.
+- TTLs: `order:` and `day:` have none; `submission:` expires after `UNPAID_TTL = 604800` (7 days) while unpaid and
+  `ORDER_TTL` once an attempt exists or paid. Unpaid orders that never reached WiPay are removed by `sweepUnpaid`
+  (Task 14), not by TTL.
 - Field limits: first/last name 30, email 50, phone existing rule (optional), address line1/line2 100, city 60,
   region 60, postal 20, notes 1000.
 - Every money path idempotent and race-free: decisions go through `env.ORDERS.commit({ checks })`; no
@@ -137,9 +139,11 @@ test('quote returns the breakdown and its sum', () => {
 
 **Files:**
 - Modify: `server/lib/checkout.js` (`parseCheckout`, replace `directRecord`), `server/lib/submissions.js`,
-  `server/lib/orders.js`, `server/lib/retention.js` (`PERSONAL_FIELDS` gains `'pii'`), `server/routes/checkout.js`, `server/lib/http.js` (`MESSAGES`), `data/countries.js`
+  `server/lib/orders.js`, `server/lib/retention.js` (`PERSONAL_FIELDS` gains `'pii'`),
+  `server/routes/inventory.js` (order list search and row names, order detail), `assets/js/inventory-orders-view.js`
+  (scrubbed notice), `server/routes/checkout.js`, `server/lib/http.js` (`MESSAGES`), `data/countries.js`
   (create), `server/lib/delivery.js`
-- Test: `tests/checkout.test.mjs`, `tests/submissions.test.mjs`
+- Test: `tests/checkout.test.mjs`, `tests/submissions.test.mjs`, `tests/inventory-orders-api.test.mjs`
 
 **Interfaces:**
 - Consumes: Task 1 `quote`, Task 2 `seal`/`unseal`.
@@ -176,7 +180,13 @@ test('quote returns the breakdown and its sum', () => {
     with `country: 'XX'` rejected; shipping with only required fields accepted and its record has
     `fulfillment: { type: 'shipping' }`;
   - same token and payload twice returns the same order ID and one `order:` key (existing concurrency test kept).
-- [ ] **Step 2: Run** `node --test tests/checkout.test.mjs`. Expected: FAIL.
+  - inventory routes over sealed orders (owner): the list row `name` and the order detail `customer`/`notes` come from
+    `revealOrder`; search `q` by name or phone finds a sealed order (the route reveals every order in the date range
+    that passed the metadata filters, then matches; the range is capped at `MAX_DAYS` and volume is small, so this is
+    accepted, and it is bounded by the same `listOrders` page); a legacy plaintext order still matches; staff
+    (non-owner) get no customer data and `q` stays 403; a scrubbed order (no `pii`, `scrubbed: true`) lists with no
+    name and its detail says "Customer details removed after 2 years".
+- [ ] **Step 2: Run** `node --test tests/checkout.test.mjs tests/inventory-orders-api.test.mjs`. Expected: FAIL.
 - [ ] **Step 3: Implement.** `submitOrder(env, id, fingerprint, record)` keeps the inventory build's atomic commit
   (submission with `UNPAID_TTL`, order and `day:` via `orderPuts`, stock step through `checkoutStock`, 10 jittered
   rounds, 503 `busy` when they run out); it adds the `hold:` key and no longer writes `email-retry:`. Fingerprint is computed from the parsed
@@ -184,6 +194,8 @@ test('quote returns the breakdown and its sum', () => {
   `MESSAGES['invalid-checkout']` becomes `'Check your name, email (50 characters max), phone, pickup or shipping details, then try again.'`.
   `deliverOrderEmails` reads the recipient from `revealOrder` instead of `record.payer.email`, and its writes go through
   `changeOrder` (there is no `updateOrder`).
+  In `server/routes/inventory.js` replace each `o.customer` read (`found`, row `name`, detail) with
+  `await revealOrder(env, o)` for owners only.
   *Changed after inventory:* `day:` is written here, on the placed day (the plan used to defer it to payment); stock
   is committed with a hold; order and `day:` carry no TTL.
 - [ ] **Step 4: Run** `node --test`. Expected: all pass (fix other tests that read `record.payer` or
@@ -240,7 +252,7 @@ assert.match(newAttemptId(), /^[A-Za-z0-9]{16}$/);
 
 **Files:**
 - Create: `server/lib/payments.js`, `server/routes/payments.js`
-- Modify: `server/lib/order-flow.js` (`orderSummary` carries `paidAt`), `server/index.js` (routes, status-gate exemption, limits), `server/static.js` (gate exempts
+- Modify: `server/index.js` (routes, status-gate exemption, limits), `server/static.js` (gate exempts
   `/order.html`), `main.js` (`PAY_LIMIT: kvLimiter(kv, 'pay', { limit: 10, period: 60 })`)
 - Test: `tests/payments.test.mjs`
 
@@ -525,97 +537,137 @@ assert.equal(formatIn(5000, 'JPY', { USD: 1 }), '$50.00'); // missing rate falls
 - [ ] **Step 4: Run** `node --test`. Expected: all pass.
 - [ ] **Step 5: Commit** `docs(policies): WiPay payments, GCT, fees, shipping and currency estimates`.
 
-### Task 13: Stock hold on unpaid orders
+### Task 13: Stock hold tests
+
+No new code: the hold itself is built in Task 3 (`submitOrder` commits stock, writes `holdUntil` and the `hold:`
+key) and Task 5 (the paid commit clears both). This task only adds the cross-cutting tests, so the behaviour is
+proven in one place.
 
 **Files:**
-- Modify: `server/lib/submissions.js` (`submitOrder` writes `hold:`), `server/lib/payments.js` (paid commit clears it)
-- Test: `tests/holds.test.mjs` (new), `tests/payments.test.mjs`
+- Test: `tests/holds.test.mjs` (new)
 
-**Interfaces:**
-- Consumes: Task 3 `HOLD_MS`, `holdKey`; inventory `checkoutStock`, `stockKey`, `adjKey`.
-- Produces: `holdKey(untilMs, orderId)` entries (empty value, metadata `{ orderId }`) written in `submitOrder`'s
-  commit beside the stock puts; order field `holdUntil` (ISO). An `AWAITING_PAYMENT` order with `holdUntil` is held;
-  a `PAID` order has neither.
-
-- [ ] **Step 1: Write failing tests:** two shoppers, one last unit: the loser gets 409 `bag-changed` with
+- [ ] **Step 1: Write the tests:** two shoppers, one last unit: the loser gets 409 `bag-changed` with
   `insufficient-stock`; a retried checkout (same token) commits stock once; payment success removes `holdUntil` and
   the `hold:` key and leaves `committed` unchanged; `pay` starting at minute 14 does not extend the hold.
-- [ ] **Step 2: Run** `node --test tests/holds.test.mjs`. Expected: FAIL.
-- [ ] **Step 3: Implement.** The `hold:` put sits in `submitOrder`'s existing commit (no extra check). The paid commit
-  deletes `holdKey(Date.parse(order.holdUntil), id)` and drops `holdUntil` from the record.
-- [ ] **Step 4: Run** `node --test`. Expected: all pass.
-- [ ] **Step 5: Commit** `feat(inventory): hold stock for 15 minutes while payment is pending`.
+- [ ] **Step 2: Run** `node --test tests/holds.test.mjs`. Expected: PASS (if one fails, fix it in Task 3 or 5).
+- [ ] **Step 3: Commit** `test(inventory): stock hold at checkout and payment`.
 
 ### Task 14: Release expired holds; late success
 
 **Files:**
 - Create: `server/lib/holds.js`
-- Modify: `server/lib/submissions.js` (release and retry when stock is short), `server/index.js` (the 15-minute job
-  calls `releaseExpiredHolds` and `sweepUnpaid`), `server/lib/payments.js` (hold-lost branch of `confirmPayment`)
+- Modify: `server/lib/submissions.js` (release and retry when stock is short), `server/lib/alerts.js` (`alert`
+  returns `true` when sent or already sent, `false` on failure; today it swallows failures), `server/lib/order-flow.js`
+  (cancel clears the hold; `fulfil` guard on `holdLost`), `server/index.js` (the 15-minute job runs
+  `releaseExpiredHolds`, `sweepUnpaid` and `redriveLate`), `server/lib/payments.js` (hold-lost branch of
+  `confirmPayment`), `server/lib/orders.js` (`orderAction` deletes the `hold:` key on cancel),
+  `assets/js/inventory-orders-view.js` and the stock-history view (labels)
 - Test: `tests/holds.test.mjs`, `tests/payments.test.mjs`
 
 **Interfaces:**
 - Produces in `server/lib/holds.js`:
-  - `releaseHold(env, orderId, { now }) -> Promise<'released' | 'paid' | 'gone' | 'not-expired'>`: one commit
-    checking the order version and each moved `stock:<productId>` version (at most 8 products plus the order, so 9
-    checks), guarded on the order still being `AWAITING_PAYMENT` with `holdUntil <= now`. It puts the order through
-    `orderPuts` (`stockCommitted: false`, `holdUntil` dropped, `events` gains `{ type: 'hold-released', by: null }`),
-    the stock docs with `committed -= qty` (floored at 0), one `adj:` per line (`reason: 'hold-released'`,
-    `committed: -qty`), and deletes the `hold:` key. A version clash re-reads (same 5 rounds and jitter as
-    `changeOrder`); a `PAID` order on re-read returns `'paid'` and changes nothing.
+  - `releaseHold(env, orderId, { now }) -> Promise<'released' | 'paid' | 'gone' | 'not-expired' | 'cancelled'>`: one
+    commit checking the order version and each moved `stock:<productId>` version (at most 8 products plus the order,
+    9 checks). Guard: the order is `AWAITING_PAYMENT`, `stockCommitted === true`, not `CANCELLED`, and
+    `holdUntil <= now`. Puts the order through `orderPuts` (`stockCommitted: false`, `holdUntil` dropped, `events`
+    gains `{ type: 'hold-released', by: null }`), the stock docs with `committed -= qty` (floored at 0), one `adj:`
+    per line (`reason: 'hold-released'`, `committed: -qty`), and deletes the `hold:` key. A version clash re-reads
+    (5 rounds, jitter, as `changeOrder`). On re-read a `PAID` order returns `'paid'`, a cancelled or already
+    released one returns `'cancelled'`/`'not-expired'`, and the stale `hold:` key is deleted; nothing else changes,
+    so a hold can never be released twice or after a cancel already released it.
+  - Owner cancel of an unpaid order: `applyAction` already moves `committed -= qty` while `stockCommitted === true`;
+    in the same `orderAction` commit it then sets `stockCommitted: false`, drops `holdUntil` and deletes the
+    `hold:` key (so cancel plus expiry never release twice). A payment that arrives on a cancelled order is
+    accepted (money is real): the paid commit sets `holdLost: true` and the late-success flow below alerts the owner,
+    who refunds it through the order actions; `recommit` does not re-hold a cancelled order.
   - `releaseExpiredHolds(env, now, { deadline, limit = 50 }) -> Promise<number>`: lists `hold:` keys up to
-    `holdKey(+now, '~')` and calls `releaseHold` on each; one failure is logged and skipped.
-  - `sweepUnpaid(env, now) -> Promise<number>`: deletes orders still `AWAITING_PAYMENT`, hold released, older than
-    `UNPAID_TTL` (order, its `day:` entry, `awaiting:` entry) so the Orders list never shows ghosts; the submission
-    expires by its own TTL. (Orders have no TTL any more, so this replaces the old 7-day order expiry.)
-  - `confirmPayment` hold-lost branch: when the order has `stockCommitted === false` at the paid commit it still
-    marks the order paid (the money is real) with `holdLost: true`, then calls `recommit(env, orderId, { now })`, a
-    stock-only commit like `releaseHold` in reverse (checks the stock docs, `committed += qty` when Available
-    allows, and sets `stockCommitted: true`; otherwise leaves it false). Result `{ outcome: 'paid', stock: 'held' | 'lost' }`.
+    `holdKey(+now, '~')`, calls `releaseHold` on each, logs and skips a failure. Holds beyond the 50 stay listed and
+    the next 15-minute tick takes them (nothing is dropped).
+  - `sweepUnpaid(env, now, { deadline }) -> Promise<number>`: finds candidates by walking `day:` entries (cursor
+    `holds:sweep-cursor` stored like `retention.js` `walkDays`, stopping at `deadline`) whose metadata says payment
+    `UNPAID` and whose `placedAt` is older than `UNPAID_TTL`. For each, one commit checks the order version and
+    deletes `order:`, its `day:` entry and any `hold:` key. It skips (never deletes) any order that has an
+    `attemptId`, an attempt in `payment-attempt:`, a `wipay-txn:`, or an `awaiting:` entry: those reached WiPay. It
+    is not a TTL: the commit's version check means an order paid a moment earlier is never removed. The
+    `submission:` expires by its own TTL.
+  - `recommit(env, orderId, { now }) -> Promise<'held' | 'lost' | 'noop'>`: for a `PAID` order with
+    `stockCommitted === false`, not cancelled: one commit checking the order and its stock docs, `committed += qty`
+    when Available allows (or `continueSelling`), sets `stockCommitted: true`, `adj:` per line (`reason: 'order'`).
+    Otherwise `'lost'`. Idempotent: `stockCommitted === true` is `'noop'`.
+  - `redriveLate(c) -> Promise<number>`: for the cron and for a replayed return. Finds orders with payment `PAID`
+    and `stockCommitted: false` from `day:` metadata (same walk, cursor and deadline as `sweepUnpaid`; the summary
+    carries `stockCommitted`), and for each runs `recommit`, then sends the alert if it has no `alertedLate` marker.
+- Late success inside `confirmPayment`: when the order's `stockCommitted` is false (hold released or cancelled) the
+  paid commit still marks it paid, and in that same commit sets `holdLost: true` (no `alertedLate` yet). After the
+  commit, `lateFollowUp(c, orderId)` runs `recommit` and, if the order is still `stockCommitted: false`, sends
+  `alert(c, 'payment.late:' + orderId, { subject, rows })` (a per-order event name; `alert` dedupes per event name
+  for an hour and swallows failures, so the name is unique per order and success is read from its return value).
+  Only when `alert` returned `true` does `changeOrder` set `alertedLate: true`. A crash anywhere after the paid commit
+  leaves `holdLost` set and no marker, so `redriveLate` (cron) or a replayed return repeats the follow-up; `recommit`
+  and the marker make that idempotent, and a duplicate alert is possible only if the process dies between a
+  successful send and the marker write (accepted: one extra email, never a missed one). Result:
+  `{ outcome: 'paid', stock: 'held' | 'lost' }`.
+- Fulfilment of a `holdLost` order whose stock was not re-held: `applyAction` `move()` silently skips stock when
+  `stockCommitted !== true`, so a plain fulfil would succeed with no stock movement. Decision: add an explicit guard,
+  `fulfil` on an order with `holdLost && stockCommitted !== true` is refused 409 `stock-short`, with the order page
+  showing "Payment arrived after the hold expired; restock or refund." Refund and cancel stay allowed.
+- UI labels: adj reason `hold-released` shows as "Hold expired" in stock history, event `hold-released` shows as
+  "Hold released (unpaid)" in the order timeline; `holdLost` shows a badge "Paid after hold expired".
 
 - [ ] **Step 1: Write failing tests:**
-  - `releaseHold` at minute 16: order `stockCommitted: false`, stock `committed` back to its pre-order value, one
+  - `releaseHold` at minute 16: `stockCommitted: false`, stock `committed` back to its pre-order value, one
     `hold-released` event, no `hold:` key, one `adj:` per line;
-  - `releaseHold` twice, and twice concurrently: one release, stock changed once;
+  - `releaseHold` twice, and twice concurrently: stock changed once;
   - release racing a payment (`Promise.all` of `confirmPayment` and `releaseHold`): in both orders the end state is
-    consistent (paid and held, or released then paid late); `committed` never negative, never double-counted;
-  - `releaseHold` at minute 14 returns `'not-expired'`; on a `PAID` order returns `'paid'`;
-  - cron `releaseExpiredHolds` releases the expired and leaves the live one;
+    consistent (paid and held, or released then paid late); `committed` never negative or double-counted;
+  - owner cancel then `releaseHold` (and `releaseHold` then cancel): `committed` released exactly once, `hold:` key
+    gone; `releaseHold` on a cancelled order returns `'cancelled'`;
+  - payment arriving on a cancelled order: accepted, `holdLost`, one alert, `recommit` does not re-hold;
+  - `releaseHold` at minute 14 returns `'not-expired'`; on a `PAID` order `'paid'`;
+  - `releaseExpiredHolds` with 60 expired holds releases 50, and the next call the remaining 10;
   - checkout short of stock with an expired hold on the last unit: releases it and the new order succeeds; with an
     unexpired hold: 409 `bag-changed` `insufficient-stock`, hold untouched;
-  - late success after release, unit not resold: order `PAID`, `committed` raised again, `stock: 'held'`, no alert;
-  - late success after release and the unit sold again: order `PAID`, `holdLost: true`, `stockCommitted: false`,
-    exactly one owner alert `payment.late` (dedupe key `late:<orderId>`, also across a replayed return and a second
-    transaction) naming the order and the short variants; the owner can still refund or cancel it through
-    `/api/inventory/orders/:id/actions`, and a fulfilment that finds no committed units is refused `stock-short`
-    (the existing refusal, asserted as such);
-  - `sweepUnpaid` removes an 8-day-old unpaid order and its `day:` key; leaves a paid one and a 6-day-old one.
+  - late success after release, unit not resold: `PAID`, `committed` raised again, `stock: 'held'`, no alert;
+  - late success after release and the unit sold again: `PAID`, `holdLost: true`, `stockCommitted: false`, exactly
+    one `payment.late:<id>` alert and `alertedLate: true`; replaying the return and a second transaction send no
+    second alert; crash simulation: make `alert` fail, the order keeps `holdLost` and no marker, then
+    `redriveLate` (cron) sends it once and sets the marker; a second `redriveLate` sends nothing; crash after the paid
+    commit but before `recommit` is repaired by `redriveLate`;
+  - `fulfil` on that order is refused 409 `stock-short` (the new `holdLost` guard); refund and cancel succeed;
+  - `sweepUnpaid` removes an 8-day-old unpaid order that never reached WiPay (order, `day:`, `hold:` gone in one
+    commit); keeps an 8-day-old unpaid order that has an `attemptId`, one with an open attempt, one with a
+    `wipay-txn:`, one with an `awaiting:` entry, a paid one and a 6-day-old one; an order paid between the walk and
+    the delete is not deleted (version check); cursor and deadline resume on the next tick.
 - [ ] **Step 2: Run** `node --test tests/holds.test.mjs`. Expected: FAIL.
 - [ ] **Step 3: Implement.** Reuse `checkoutStock`'s doc handling and `orderAction`'s stock-doc check pattern rather
   than a second one. In `submitOrder`, when `checkoutStock` returns `short`, call
   `releaseExpiredHolds(env, now, { limit: 8 })` once and, if it released anything, re-run the stock step inside the
-  existing 10 rounds. The cron additions use the same `deadline` convention as `runRetention`.
+  existing 10 rounds. The cron additions use the `deadline` convention of `runRetention`.
 - [ ] **Step 4: Run** `node --test`. Expected: all pass.
 - [ ] **Step 5: Commit** `feat(inventory): release expired holds, accept late payments with one alert`.
 
 ### Task 15: Refund index and money fields for Finances
 
 **Files:**
-- Modify: `server/lib/order-flow.js` (`orderSummary` carries `paidAt`, `scrubbed`; the refund path adds the
-  `refund:` put), `server/lib/payments.js`
+- Modify: `server/lib/orders.js` (`orderAction` adds the `refund:` put; `applyAction` in `server/lib/order-flow.js` stays
+  pure and is not changed), `server/lib/payments.js`
 - Test: `tests/refund-index.test.mjs` (new), `tests/refunds.test.mjs`
 
 **Interfaces:**
-- Produces: `refundKey(day, orderId, refundId) = 'refund:' + day + ':' + orderId + ':' + refundId` (day = Jamaica day
-  of the refund's `at`; metadata `{ amountCents, taxCents, restock, reason }`, no TTL, no personal data), put in the
-  same `orderAction` commit that appends to `refunds`. `paid:` metadata and the WiPay record use the same field
-  names as the order: `totalCents`, `taxCents`, `feeCents`, `paidAt`.
+- There is no `refunds[]` and no refund id in the order: a refund is an event `{ at, type: 'refund', by, restock,
+  lines: [{ key, qty }], amountCents, taxCents, reason }` plus `refundedCents`, `refundedTaxCents` and
+  `refundedQty`. Produces: `refundKey(day, orderId, at, opId) = 'refund:' + day + ':' + orderId + ':' + at + ':' + opId`
+  (day = Jamaica day of the event `at`; the id part is event `at` + the action's `opId`, unique and replay-stable).
+  Metadata `{ amountCents, taxCents, restock, reason, lines: [{ key, qty }] }` so Finances can compute
+  "restocked refunded qty" (lines where `restock` is true) without reading orders; no personal data, no TTL. It is
+  put by `orderAction` in the same commit as the order, from the event `applyAction` appended. `paid:` metadata and
+  the WiPay record use the order's field names: `totalCents`, `taxCents`, `feeCents`, `paidAt`.
 
 - [ ] **Step 1: Write failing tests:** a refund through `POST /api/inventory/orders/:id/actions` writes one `refund:`
-  key on the refund's day with the same cents as the record's refund; replaying the `opId` writes no second key; a
-  paid order has `taxCents` and `feeCents` (not `gct` or `fee`); `plan` never refunds `feeCents` and caps a refund at
-  items + tax (the existing `data/refunds.js` tests still pass unchanged); scrubbing an order past 2 years removes
-  `pii` and every other `PERSONAL_FIELDS` key and leaves its `paid:` and `refund:` keys and totals intact.
+  key on the refund's day whose metadata equals the event; replaying the `opId` writes no second key; two refunds
+  of one order write two keys; a paid order has `taxCents` and `feeCents` (not `gct` or `fee`); `plan` never refunds
+  `feeCents` and caps a refund at items + tax (existing `data/refunds.js` tests pass unchanged); scrubbing an order past
+  2 years removes `pii` and every other `PERSONAL_FIELDS` key and leaves its `paid:` and `refund:` keys and totals.
 - [ ] **Step 2: Run** `node --test tests/refund-index.test.mjs`. Expected: FAIL.
 - [ ] **Step 3: Implement.** The `refund:` entry goes in `orderAction`'s `puts` (it counts against the mutation limit,
   not the 10-check one).
@@ -639,7 +691,7 @@ assert.equal(formatIn(5000, 'JPY', { USD: 1 }), '$50.00'); // missing rate falls
   - Revenue = Σ `totalCents` of `paid:` entries by paid day; Refunds = Σ `refund:` entries by refund day; Net =
     Revenue - Refunds; GCT owed = Σ `taxCents` - Σ refunded `taxCents`; WiPay fees = Σ
     `round(totalCents * PROCESSING_FEE.bps / 10000)` with the half-up rule of `charges()`, never reduced by
-    refunds; Cost of goods = Σ `costCents` x (qty - restocked refunded qty), lines without `costCents` count 0 and
+    refunds; Cost of goods = Σ `costCents` x (qty - restocked refunded qty, from the `refund:` metadata `lines` where `restock`), lines without `costCents` count 0 and
     raise `costMissing`; Profit = Net - GCT owed - Fees - COGS; margin = Profit / Net (0 when Net is 0).
   - `empty` is true when no `paid:` entry exists at all (any period); the UI then shows "No payments collected yet.
     Order value is in Stats." `NOT_COLLECTED` orders never count.
