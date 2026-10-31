@@ -1,5 +1,5 @@
 import { imagesFor } from '../../data/catalog.js';
-import { loadCatalog, products, eras, eraName, isLive } from './store.js';
+import { loadCatalog, products, eras, eraName, isLive, OFFLINE_NOTE } from './store.js';
 import * as cart from './cart.js';
 import { refreshQuote } from './quote.js';
 import { initBag } from './bag.js';
@@ -32,6 +32,7 @@ grid.innerHTML = PRODUCTS.map(p => {
     <div class="card__meta"><h3>${esc(p.name)}</h3><span class="price">${priceHtml(p)}</span><span class="mono">${esc(eraName(p.era))} · ${esc(colors)} · USD</span></div>
   </a>`;
 }).join('');
+if (!isLive()) grid.innerHTML = OFFLINE_NOTE;
 grid.removeAttribute('aria-busy');
 grid.addEventListener('click', e => {
   const c = e.target.closest('[data-product]'); if (!c) return;

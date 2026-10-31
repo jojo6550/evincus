@@ -1,5 +1,5 @@
 // The site's copy of the catalog. Loaded once at startup; pages read it synchronously after that.
-// The API is the only source. If it can't be reached, the store shows no products and checkout stays off.
+// The API is the only source. If it can't be reached, the grids show OFFLINE_NOTE and checkout stays off.
 import { findProduct as find } from '../../data/catalog.js';
 import { api, beaconOnce } from './api.js';
 import { registerImages } from './images.js';
@@ -48,5 +48,7 @@ export const sales = () => state.sales;
 // The API's clock, so sale countdowns end when the API says, not when this device does.
 export const serverNow = () => Date.now() + state.skewMs;
 export const isLive = () => state.live;
+// Shown where a product grid would be when the API can't be reached.
+export const OFFLINE_NOTE = `<p class="grid__note mono u-smoke">The store can't load right now. Try again in a minute.</p>`;
 export const findProduct = id => find(state.products, id);
 export const eraName = slug => state.eras.find(e => e.slug === slug)?.name ?? '';

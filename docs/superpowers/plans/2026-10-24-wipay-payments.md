@@ -305,10 +305,10 @@ assert.match(newAttemptId(), /^[A-Za-z0-9]{16}$/);
   `{ paid: true }`. Order's `attemptId` attempt is `open` and `c.now - createdAt < 150000`: return its `url`.
   Otherwise `newAttemptId()`, `requestPayment` (reveal customer/address for the prefill;
   `responseUrl: c.env.API_URL + '/api/payments/wipay/return'`, `version: String(c.env.COMMIT_SHA).slice(0, 16)`),
-  then one commit:
-  checks `[order version]`, puts: attempt (`ORDER_TTL`), order with `attemptId` (`ORDER_TTL`), submission rewritten
-  with `ORDER_TTL`, `awaitingKey(Jamaica day of now, orderId)` (`ORDER_TTL`). Lost commit: re-read and loop (max 3);
-  if the order now has a fresh open attempt, return its `url`.
+  then one commit through `changeOrder` (version-checked on the order): the order with `attemptId` and its `day:`
+  metadata via `orderPuts`, no TTL; `extraPuts`: attempt (`ORDER_TTL`), submission rewritten with `ORDER_TTL`,
+  `awaitingKey(Jamaica day of now, orderId)` (`ORDER_TTL`). Never a hand-written order put. Lost commit: `changeOrder`
+  re-reads and retries; if the re-read order now has a fresh open attempt, return its `url` and write nothing.
 - [ ] **Step 4: Implement `confirmPayment`** as spec section "Flow", step 5, max 3 rounds. The paid commit checks
   the order, `wipay-txn:` (absent) and the attempt (3 checks), and puts the order and its `day:` metadata through
   `orderPuts` (never a hand-written order put), `paidKey`, the attempt, `wipay-txn:`, the submission with `ORDER_TTL`,

@@ -27,15 +27,15 @@ export function pickLines(r, lines) {
 
 const itemsOf = picked => picked.reduce((s, p) => s + p.line.unitCents * p.qty, 0);
 
-// Largest refund for these lines. A pick that completes the order gets the exact tax left,
-// so per-line rounding can't strand a cent; never above what the cumulative cap still allows.
+// Largest refund for these lines. A pick that completes the order gets the exact tax left, so per-line rounding can't
+// strand a cent; any other pick takes at most the tax left, so rounding up can't use it up early. Never above the room left.
 export function plan(r, picked) {
   const items = itemsOf(picked);
   const share = taxShare(r, items);
   const taxLeft = (r.taxCents || 0) - (r.refundedTaxCents || 0);
   const lastOf = picked.every(p => p.qty === remaining(r, p.line)) && r.lines.every(l => picked.some(p => p.line === l) || remaining(r, l) === 0);
   const room = r.totalCents - (r.feeCents || 0) - (r.refundedCents || 0); // the processing fee is never refunded
-  const full = items + share;
+  const full = items + Math.min(share, taxLeft);
   return { share, taxLeft, lastOf, full, cap: Math.min(lastOf ? items + taxLeft : full, room) };
 }
 

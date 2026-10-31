@@ -1,6 +1,8 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { onSignedOut, ApiError } from '../assets/js/inventory-api.js';
+import { swatch, stockRow } from '../assets/js/inventory-products-view.js';
 import {
   filterProducts, pendingSummary, saveAll, productBody, rekeyDeltas, changedFields, editable, slugify, blankProduct, stockUnconfirmed, forgetStock,
   newPage, savePage, resumes, clampDelta,
@@ -298,4 +300,21 @@ test('after signed-out and login, the page still has its edits and Save succeeds
   assert.deepEqual([pg.version, pg.original.priceCents, pg.deltas, pg.stock['White|L'], pg.msg], ['v2', 3999, {}, { onHand: 3, committed: 1 }, 'Saved.']);
   assert.equal(resumes(pg, p.id, who.email), false, 'saved: nothing left to keep');
   off();
+});
+
+const CSS = readFileSync(new URL('../assets/css/inventory.css', import.meta.url), 'utf8');
+const rule = sel => CSS.match(new RegExp(`(?:^|\n)${sel.replace(/[.*+?^${}()|[\]\\:]/g, '\\$&')} \{([^}]*)\}`))?.[1] ?? '';
+
+test('every swatch circle has a 1px ring from a CSS class, never a style attribute', () => {
+  const svg = swatch({ hex: '#000000', ring: '#ffffff' });
+  assert.match(svg, /<circle class="swatch__dot" cx="10" cy="10" r="9" fill="#000000"\/>/);
+  assert.doesNotMatch(svg, /style=/);
+  assert.match(rule('.swatch__dot'), /stroke: var\(--(smoke|char)\); stroke-width: 1px;/);
+});
+
+test('an editable SKU input gets its own full-width line in the stock row', () => {
+  const pg = { owner: true, rowErrors: {}, skuErrors: {}, stock: { 'Black|M': { onHand: 2, committed: 0 } }, deltas: {}, edited: { lowStockAt: 1, skus: { 'Black|M': 'CATASTROPHE-TEE-BLACK-M' } }, original: {} };
+  assert.match(stockRow(pg, { from: 'Black', name: 'Black' }, 'M', 0), /class="vrow__l">M<input class="vrow__sku"[^>]*value="CATASTROPHE-TEE-BLACK-M"/);
+  assert.match(rule('.vrow:has(.vrow__sku)'), /flex-wrap: wrap;/);
+  assert.match(rule('.vrow:has(.vrow__sku) .vrow__l'), /flex-basis: 100%;/);
 });

@@ -10,7 +10,7 @@ const when = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const attr = (on, name) => (on ? ` ${name}` : '');
 
-export const swatch = c => `<svg class="swatch" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="${esc(c.hex)}"/>${c.ring ? `<circle cx="10" cy="10" r="4" fill="${esc(c.ring)}"/>` : ''}</svg>`;
+export const swatch = c => `<svg class="swatch" viewBox="0 0 20 20" aria-hidden="true"><circle class="swatch__dot" cx="10" cy="10" r="9" fill="${esc(c.hex)}"/>${c.ring ? `<circle cx="10" cy="10" r="4" fill="${esc(c.ring)}"/>` : ''}</svg>`;
 
 // The smallest stored variant of a media path: every photo keeps variantWidths(its largest width).
 export const thumb = path => safeImage(path).replace(/-(\d+)\.(webp|jpg)$/, (m, w, ext) => `-${variantWidths(+w)[0]}.${ext}`);

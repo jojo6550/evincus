@@ -149,8 +149,19 @@ test('refunding every line at its default always works and ends REFUNDED with ex
   }
 });
 
-test('cumulative amount cap triggers on its own', () => {
-  // two lines; first refund takes its default, second asks for a cent more than room (prior refund was overpaid-free, so shrink room via fee)
+test('a non-final refund never takes more tax than is left, so 1c lines end REFUNDED only on the last one', () => {
+  let rec = mk({ subtotalCents: 4, taxCents: 2, feeCents: 0, totalCents: 6, lines: ['a', 'b', 'c', 'd'].map(k => ({ key: k, qty: 1, unitCents: 1 })) });
+  for (const [i, l] of rec.lines.entries()) {
+    const lines = [{ key: l.key, qty: 1 }];
+    rec = run(rec, { type: 'refund', lines, amountCents: defaultRefundCents(rec, lines), restock: true, reason: 'x' }).record;
+    assert.equal(rec.paymentStatus, i === 3 ? 'REFUNDED' : 'PARTIALLY_REFUNDED', `after line ${i + 1}`);
+  }
+  assert.equal(rec.refundedTaxCents, 2);
+  assert.equal(rec.refundedCents, 6);
+});
+
+test('the room left caps a refund that is within its line cap', () => {
+  // two lines, no tax; after line A (100) is refunded, totalCents is lowered to 150 so only 50 of room is left for B
   const r = mk({ subtotalCents: 200, taxCents: 0, feeCents: 0, totalCents: 250, lines: [{ key: A, qty: 1, unitCents: 100 }, { key: B, qty: 1, unitCents: 100 }] });
   const half = run(r, R(A, 1, 100)).record;
   bad({ ...half, totalCents: 150 }, R(B, 1, 100)); // within line cap (100) but 100 + 100 > 150

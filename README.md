@@ -36,22 +36,21 @@ any value other than `production` also lets other localhost origins through CORS
 
 ## Catalog changes
 
-Each era is a folder in `data/eras/`. Image fields in `era.js` are bare filenames from that era's `img/` folder,
-lowercase-kebab (`core-tee-black-1.jpg`), max 500 KB each.
+The live catalog is in the server's store and is changed in `/inventory` (sign in as an owner). Changes are live on save,
+with no deploy. `data/eras/` is seed data only: it fills an empty store once and editing it changes nothing live.
 
 | Task | How |
 | --- | --- |
-| Add an era | `npm run new-era <slug> "<Name>" [local] [url=<base>]` creates a draft era on the server; fill it in and publish it in `/inventory` |
-| Schedule a drop | Set `dropsAt` (ISO with offset, e.g. `2026-11-20T18:00:00-05:00`). Until then the API shows only a teaser |
-| Retire an era | Set `endsAt`. Its products stay visible but can't be bought, and old links keep working |
-| Delete an era | Delete its folder and its two lines in `data/eras/index.js` |
-| Add photos | `npm run photos -- <era> <product-id> [--color "<Colour>"] <photo...> [local] [url=<base>]`, or `npm run photos -- <era> hero <photo>`. In PowerShell, which drops the `--`, write `color="<Colour>"` instead of `--color`. Photos are turned upright, stripped of EXIF/GPS, made into webp copies under 250 KB, uploaded to the server and attached. Needs `ADMIN_TOKEN` |
-| Add, edit or remove a product | Edit that era's `products` array and add or remove its photos |
-| Move a product to another era | Move its object and its photos to the other folder |
-| Sold out | `soldOut: true` for a whole product, or `soldOutVariants: ['Black\|XL']` for one colour and size |
-| Replace a stand-in photo | Overwrite the file in `img/` with the same name |
+| Add an era | Inventory › Eras › **+ Era**, or `npm run new-era <slug> "<Name>" [local] [url=<base>]` for a draft. Fill it in, set Status to Published, Save |
+| Schedule a drop | Open the era, set **Drops at**, Save. Until then shoppers see only a teaser |
+| Retire an era | Open the era, set **Ends at**, Save. Its products stay visible but can't be bought, and old links keep working |
+| Delete an era | Set its Status to **Archived**. Eras are never deleted, so old orders and links keep working |
+| Add, edit or remove a product | Inventory › **+ Product**, or open the product, edit and Save. To remove one, set its Status to **Archived** (or **Draft** to hide it for now) |
+| Move a product to another era | Open the product, change **Era**, Save. Its photos move with it |
+| Sold out | Open the product and set that size's stock to 0, with **Keep selling when out of stock** off. It shows Sold out by itself |
+| Add or replace a photo | On the product (or era hero) page, add the new photo and remove the old one, then Save. Or `npm run photos -- <era> <product-id> [--color "<Colour>"] <photo...> [local] [url=<base>]` (`npm run photos -- <era> hero <photo>` for a hero); in PowerShell write `color="<Colour>"` instead of `--color`. Needs `ADMIN_TOKEN` |
 
-Then `npm test`, push to `dev`, merge into `main`, then into `prod`. Only `prod` deploys, and only after the tests pass; the tests check folder names, photos and data.
+Code changes still go `npm test`, push to `dev`, merge into `main`, then into `prod`. Only `prod` deploys, and only after the tests pass.
 
 ### Sales
 

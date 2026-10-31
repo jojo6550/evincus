@@ -423,6 +423,7 @@ main, footer { overflow-x: clip; } /* contain tilted tape + rotated script witho
 
 /* ---------- utilities (replace former inline styles) ---------- */
 .u-smoke { color: var(--smoke); }
+.grid__note { grid-column: 1 / -1; margin: 0; padding-block: 40px; } /* the API is down: one line across the grid */
 .u-hazard { color: var(--hazard); }
 .sr-only { position: absolute; left: -9999px; }
 .pos-62-50 { object-position: 62% 50%; }

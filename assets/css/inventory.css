@@ -147,6 +147,7 @@ main:focus { outline: 0; }
 .margin { margin: 0; color: var(--ok); font: 400 12px var(--mono); }
 .group { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; color: var(--smoke); font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; overflow-wrap: anywhere; }
 .swatch { flex: none; width: 14px; height: 14px; }
+.swatch__dot { stroke: var(--smoke); stroke-width: 1px; vector-effect: non-scaling-stroke; } /* a black swatch stays visible on the dark UI */
 .photos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .photos img { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; background: var(--char); }
 .photos .note { grid-column: 1 / -1; }
@@ -188,6 +189,10 @@ main:focus { outline: 0; }
 
 .vrow { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
 .vrow.is-error { padding-left: 8px; border-left: 3px solid var(--hazard); }
+/* An editable SKU gets the row's full width, so a long one stays readable; the stock control wraps under it. */
+.vrow:has(.vrow__sku) { flex-wrap: wrap; }
+.vrow:has(.vrow__sku) .vrow__l { flex-basis: 100%; }
+.vrow:has(.vrow__sku) .vrow__d { margin-left: auto; }
 .vrow__l { flex: 1; min-width: 0; font: 500 13px var(--mono); overflow-wrap: anywhere; }
 .vrow__l small { display: block; color: var(--smoke); font-size: 11px; }
 .vrow .vrow__err { color: var(--hazard); }

@@ -35,13 +35,17 @@ test('only the listed lines are saved, after redaction, with a 30-day TTL', quie
 test('a failing sink never fails or delays the request', quiet(async () => {
   const env = env0();
   const put = env.ORDERS.put.bind(env.ORDERS);
-  let hung = 0;
-  env.ORDERS.put = (k, ...a) => k.startsWith('log:') ? (hung++, new Promise(() => {})) : put(k, ...a); // the log store never answers
+  let hung = 0, released = false, release;
+  const gate = new Promise(r => { release = () => { released = true; r(); }; });
+  env.ORDERS.put = (k, ...a) => k.startsWith('log:') ? (hung++, gate) : put(k, ...a); // the log store answers only on release()
   const ctx = { ...makeCtx(), waitUntil: () => {} };
-  const res = await Promise.race([
-    createApp().fetch(new Request('https://api.test/api/inventory/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'nobody@evincus.shop', password: 'x'.repeat(12) }) }), env, ctx),
-    new Promise((_, no) => setTimeout(() => no(new Error('request waited for the sink')), 1000)),
-  ]);
+  // No timing race: a response that waited on the put could only arrive after release(), which the assert below catches.
+  // The safety release only stops a broken build from hanging until the test timeout (a 600k-round PBKDF2 can be slow).
+  const safety = setTimeout(release, 60000);
+  const res = await createApp().fetch(new Request('https://api.test/api/inventory/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'nobody@evincus.shop', password: 'x'.repeat(12) }) }), env, ctx);
+  clearTimeout(safety);
+  assert.equal(released, false, 'the response arrived while the log put was still pending');
+  release();
   assert.equal(res.status, 401);
   assert.ok(hung > 0, 'the sink ran');
   const broken = env0();

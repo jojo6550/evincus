@@ -55,6 +55,7 @@ export function applyAction(record, action, { by = null, now } = {}) {
       const doneCents = rec.refundedCents || 0;
       const refundable = rec.totalCents - (rec.feeCents || 0);
       const { cap, taxLeft, lastOf, share, full } = plan(rec, picked);
+      // cap already holds the room left; the cumulative check is a backstop should plan() ever change.
       if (amountCents > cap || doneCents + amountCents > refundable) throw invalid();
       const scaled = full > 0 ? Math.round(share * amountCents / full) : 0;
       const tax = Math.max(0, Math.min(lastOf ? taxLeft : scaled, taxLeft, amountCents));

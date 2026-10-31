@@ -1,4 +1,4 @@
-import { loadCatalog, products, eras } from './store.js';
+import { loadCatalog, products, eras, isLive, OFFLINE_NOTE } from './store.js';
 import * as cart from './cart.js';
 import { initBag } from './bag.js';
 import { initProductView } from './product-view.js';
@@ -49,7 +49,7 @@ const list = eras();
 const list_el = document.getElementById('eraList');
 list_el.innerHTML = list.length
   ? list.map(e => card(e, countIn(e.slug))).join('')
-  : '<p class="mono u-smoke">No eras to show yet.</p>';
+  : isLive() ? '<p class="mono u-smoke">No eras to show yet.</p>' : OFFLINE_NOTE;
 list_el.removeAttribute('aria-busy');
 document.getElementById('eraTotal').textContent = list.length;
 
