@@ -19,7 +19,7 @@ import { checkoutOptions, placeOrderRoute } from './routes/checkout.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
-import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute, listErasAdminRoute, newEraRoute, uploadMediaAdminRoute, attachPhotosRoute } from './routes/admin.js';
+import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute, listErasAdminRoute, newEraRoute, uploadMediaAdminRoute, attachPhotosRoute, exportCatalogRoute, importCatalogRoute, putMediaFileRoute } from './routes/admin.js';
 import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute, uploadMediaRoute, orderActionRoute, listOrdersRoute, getOrderRoute, statsRoute, logsRoute, healthDetailRoute } from './routes/inventory.js';
 
 // The fourth field marks routes that read the catalog: only they load it, with running sales and stock applied.
@@ -46,6 +46,9 @@ const ROUTES = [
   ['POST', /^\/api\/admin\/eras$/, newEraRoute],
   ['PUT', /^\/api\/admin\/media$/, uploadMediaAdminRoute],
   ['POST', /^\/api\/admin\/photos$/, attachPhotosRoute],
+  ['GET', /^\/api\/admin\/export$/, exportCatalogRoute],
+  ['PUT', /^\/api\/admin\/import$/, importCatalogRoute],
+  ['PUT', /^\/api\/admin\/media\/([^/]+)$/, putMediaFileRoute],
   ['PUT', /^\/api\/inventory\/media$/, uploadMediaRoute],
   ['POST', /^\/api\/inventory\/login$/, loginRoute],
   ['POST', /^\/api\/inventory\/logout$/, logoutRoute],

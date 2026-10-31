@@ -156,6 +156,7 @@ while `STATUS` closes the public site.
   Add `local` to talk to `npm run dev` on localhost, or `url=<base>` for another server.
 - **Live vs local:** the page shows a LOCAL badge when the server runs with `ENVIRONMENT=development`. Local KV is
   separate from production, so nothing done there touches the live store.
+- **Pull the live catalog:** `npm run inventory:pull` (or `url=<base>` for another source) copies eras, products, stock and photos from the live site into your running `npm run dev`, so `/inventory` has real data to try things on. It needs `PROD_ADMIN_TOKEN` in `.env` (the live `ADMIN_TOKEN`; keep your local `ADMIN_TOKEN` different), never copies orders, accounts, sessions or logs, and the local server refuses the import unless it is a development server reached from your own machine.
 - **Rollout:** stock the shop at `/inventory` while `STATUS=stocking`, then open the store with WiPay.
 - `data/eras/` is seed data. Once the store is live, stock and products are managed in `/inventory`, not by editing those files.
 

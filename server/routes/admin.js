@@ -1,9 +1,10 @@
-import { HttpError, json, fail, readJson } from '../lib/http.js';
-import { uploadPhoto, MEDIA_NAME } from '../lib/media.js';
+import { HttpError, json, fail, readJson, readBytes } from '../lib/http.js';
+import { uploadPhoto, MEDIA_NAME, sniffImage } from '../lib/media.js';
+import { MAX_VARIANT_BYTES } from '../../data/photos.js';
 import { SALES_KEY } from '../lib/sales.js';
 import { isSale } from '../../data/catalog.js';
 import { ROLES, ITERATIONS, accountKey } from '../lib/accounts.js';
-import { loadCatalog, eraKey, productKey } from '../lib/catalog-store.js';
+import { loadCatalog, eraKey, productKey, exportCatalog, importCatalog } from '../lib/catalog-store.js';
 import { saveEra, saveProduct } from '../lib/catalog-save.js';
 
 const MAX_SALES = 50;
@@ -134,6 +135,45 @@ export async function uploadMediaAdminRoute(req, c) {
   const ref = await uploadPhoto(req, c.env.MEDIA);
   c.log.info('media.uploaded', { photo: ref.id });
   return json(ref, 200, noStore);
+}
+
+// The pull routes below write straight to the catalog and the photo store, so they exist only on a developer's own
+// machine: a development server reached from loopback. Checked before the token and before any body is read.
+const LOOPBACK = new Set(['127.0.0.1', '::1']);
+const localOnly = c => (c.env.ENVIRONMENT === 'development' && LOOPBACK.has(c.ip) ? null : fail(c, 'not-found', 404));
+
+// GET /api/admin/export: catalog, stock and photo names, for npm run inventory:pull. No orders, accounts or logs.
+export async function exportCatalogRoute(req, c) {
+  const refused = await denied(req, c);
+  if (refused) return refused;
+  return json(await exportCatalog(c.env), 200, noStore);
+}
+
+const entries = (list, prefix) => Array.isArray(list) && list.every(e => e && typeof e.key === 'string' && e.key.startsWith(prefix)
+  && typeof e.value === 'string' && (() => { try { return JSON.parse(e.value) !== null; } catch { return false; } })());
+
+// PUT /api/admin/import { eraOrder, eras, products, stock }: local development only. Replaces the catalog keys with the export.
+export async function importCatalogRoute(req, c) {
+  const refused = localOnly(c) ?? await denied(req, c);
+  if (refused) return refused;
+  const body = (await readJson(req, 16 * 1024 * 1024)) ?? {};
+  if (!Array.isArray(body.eraOrder) || !body.eraOrder.every(s => typeof s === 'string')
+    || !entries(body.eras, 'era:') || !entries(body.products, 'product:') || !entries(body.stock, 'stock:')) return fail(c, 'invalid-import', 400);
+  const counts = await importCatalog(c.env, body);
+  c.log.info('inventory.pulled', counts);
+  return json(counts, 200, noStore);
+}
+
+// PUT /api/admin/media/<name> (raw bytes): local development only. Stores one photo file under its own name.
+export async function putMediaFileRoute(req, c) {
+  const refused = localOnly(c) ?? await denied(req, c);
+  if (refused) return refused;
+  const name = c.params[0];
+  if (!MEDIA_NAME.test(name)) return fail(c, 'invalid-photo', 400);
+  const bytes = await readBytes(req, MAX_VARIANT_BYTES);
+  if (sniffImage(bytes)?.ext !== name.split('.')[1]) return fail(c, 'invalid-photo', 400);
+  await c.env.MEDIA.write(name, bytes);
+  return new Response(null, { status: 204 });
 }
 
 const refShape = r => !!r && typeof r === 'object' && Array.isArray(r.widths) && r.widths.length > 0

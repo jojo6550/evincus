@@ -120,3 +120,50 @@ export async function seedCatalog(env, { modules, manifest, root, seedStock }) {
     { key: REV_KEY, value: JSON.stringify({ rev: crypto.randomUUID() }) },
   ] });
 }
+
+const DATA_PREFIXES = ['era:', 'product:', 'stock:'];
+// Mutations per import commit; @deno/kv allows 1000, the margin keeps commits small.
+export const IMPORT_BATCH = 400;
+const isRef = r => r && typeof r === 'object' && Array.isArray(r.widths);
+
+// Only catalog data (eras, products, stock) and the photo names they use; never orders, accounts, sessions or logs.
+export async function exportCatalog(env) {
+  const kv = env.ORDERS;
+  const head = await kv.get(REV_KEY, 'json');
+  const out = { rev: head?.rev ?? null, eraOrder: (await kv.get(ERA_ORDER_KEY, 'json')) ?? head?.eraOrder ?? [], eras: [], products: [], stock: [], media: [] };
+  const media = new Set();
+  for (const [prefix, list] of [['era:', out.eras], ['product:', out.products], ['stock:', out.stock]]) {
+    for (const { name } of await listAll(kv, prefix)) {
+      const value = await kv.get(name);
+      if (value === null) continue; // deleted since the listing
+      list.push({ key: name, value });
+      if (prefix === 'stock:') continue;
+      const doc = JSON.parse(value);
+      for (const r of [doc.hero, ...(doc.images ?? []), ...(doc.colors ?? []).flatMap(c => c.images ?? [])]) {
+        if (isRef(r)) for (const w of r.widths) media.add(`${r.id}-${w}.${r.ext}`);
+      }
+    }
+  }
+  out.media = [...media].sort();
+  return out;
+}
+
+// Makes the catalog keys equal the export and touches nothing else. REV_KEY goes in its own last commit, so this
+// process's catalog cache reloads only once all the data is in. Running it twice leaves the same data.
+export async function importCatalog(env, { eraOrder, eras, products, stock }) {
+  const kv = env.ORDERS;
+  const incoming = [...eras, ...products, ...stock];
+  const keep = new Set(incoming.map(e => e.key));
+  const deletes = [];
+  for (const prefix of DATA_PREFIXES) for (const { name } of await listAll(kv, prefix)) if (!keep.has(name)) deletes.push(name);
+  const muts = [...deletes.map(key => ({ del: key })), ...incoming];
+  for (let i = 0; i < muts.length; i += IMPORT_BATCH) {
+    const part = muts.slice(i, i + IMPORT_BATCH);
+    await kv.commit({ puts: part.filter(m => !m.del), deletes: part.filter(m => m.del).map(m => m.del) });
+  }
+  await kv.commit({ puts: [
+    { key: ERA_ORDER_KEY, value: JSON.stringify(eraOrder) },
+    { key: REV_KEY, value: JSON.stringify({ rev: crypto.randomUUID() }) },
+  ] });
+  return { eras: eras.length, products: products.length, stock: stock.length, removed: deletes.length };
+}

@@ -18,6 +18,7 @@
     "add-viewer": "node --env-file-if-exists=.env scripts/viewers.mjs add",
     "remove-viewer": "node --env-file-if-exists=.env scripts/viewers.mjs remove",
     "list-viewers": "node --env-file-if-exists=.env scripts/viewers.mjs list",
+    "inventory:pull": "node --env-file-if-exists=.env scripts/inventory-pull.mjs",
     "optimize:images": "node scripts/optimize-images.mjs",
     "check:security": "node scripts/security-check.mjs",
     "check:performance": "node scripts/performance-check.mjs",
