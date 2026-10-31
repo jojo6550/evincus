@@ -39,6 +39,23 @@ its reasoning).
 - Logs never carry personal details, the hash, `WIPAY_API_KEY` or `CUSTOMER_DATA_KEY`.
 - FX source `https://open.er-api.com/v6/latest/USD`, refetch after 12 h, timeout 10 s, attribution link
   `https://www.exchangerate-api.com`.
+- **Inventory fit (written after the inventory build; Tasks 13 to 18 are new, the sandbox run is now Task 19).** Orders
+  carry `fulfilmentStatus`, `events`, `stockCommitted` and lines with `sku` and `costCents`. Every task obeys:
+  - Order writes after creation go through `changeOrder(env, id, change)` (`server/lib/orders.js`, version-checked,
+    writes `day:` metadata via `orderPuts`). `updateOrder` no longer exists. A commit that must also move stock or add
+    `paid:`/`refund:` entries uses `extraPuts`, or the explicit-checks pattern of `orderAction`.
+  - `day:<placed day>:<id>` is written once, in `submitOrder`, at creation, whatever the payment status; payment
+    only updates its metadata (`paidAt`). Never write `day:` at payment, never key it on the paid day.
+  - A commit has at most 10 checks (`@deno/kv`); a cart spans at most `MAX_PRODUCTS` = 8 products, so
+    "order + 8 stock docs" fits, "order + 8 stock docs + attempt + txn" does not. Payment and stock never share a commit.
+  - Stock lives in `stock:<productId>` = `{ '<colour>|<size>': { onHand, committed } }`; the doc is the authority on
+    which variants exist. Owner actions refuse with 409 `stock-short` / `variant-gone` / `stock-mismatch`; owner
+    actions go through `POST /api/inventory/orders/:id/actions` (op kind `order-action`).
+  - Refund math is `data/refunds.js` (`plan`, `defaultRefundCents`). The WiPay record stores `feeCents` and
+    `taxCents` under exactly those names; refunds never refund the fee and are capped per refund at items + tax.
+  - Personal data lives only in `PERSONAL_FIELDS` (`server/lib/retention.js`): `customer`, `payer`, `notes`, `shipto`,
+    `shipping`, `personal`, plus `pii` (added in Task 3). The sealed `pii` blob holds customer, address and notes.
+  - `order:` and `day:` have no TTL (retention scrubs people after 2 years); only `submission:` keeps `ORDER_TTL`.
 - Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Work on `dev`.
 
 ## Review Focus
@@ -120,7 +137,7 @@ test('quote returns the breakdown and its sum', () => {
 
 **Files:**
 - Modify: `server/lib/checkout.js` (`parseCheckout`, replace `directRecord`), `server/lib/submissions.js`,
-  `server/lib/orders.js`, `server/routes/checkout.js`, `server/lib/http.js` (`MESSAGES`), `data/countries.js`
+  `server/lib/orders.js`, `server/lib/retention.js` (`PERSONAL_FIELDS` gains `'pii'`), `server/routes/checkout.js`, `server/lib/http.js` (`MESSAGES`), `data/countries.js`
   (create), `server/lib/delivery.js`
 - Test: `tests/checkout.test.mjs`, `tests/submissions.test.mjs`
 
@@ -130,12 +147,15 @@ test('quote returns the breakdown and its sum', () => {
   - `COUNTRIES: Record<string, string>` (alpha-2 to ISO 4217) in `data/countries.js`, every ISO 3166-1 code.
   - `parseCheckout(body) -> { customer: { firstName, lastName, email, phone }, fulfillment: { type: 'pickup', location } | { type: 'shipping' }, address: { line1, line2, city, region, postalCode, country } | null, notes }`.
   - `buildOrder(env, id, q, details, now) -> Promise<record>`: `status: 'AWAITING_PAYMENT'`, `paymentStatus: 'UNPAID'`,
-    `subtotalCents`, `taxCents`, `feeCents`, `taxBps`, `feeBps`, `totalCents`, `lines`, `fulfillment`, `placedAt`,
+    `subtotalCents`, `taxCents`, `feeCents`, `taxBps`, `feeBps`, `totalCents`, `lines` (with `sku`, `costCents` as the
+    inventory builder sets them), `fulfillment`, `placedAt`, `fulfilmentStatus: 'UNFULFILLED'`, `stockCommitted: true`,
+    `holdUntil` (ISO, `placedAt` + 15 min), `events: [{ at, type: 'placed', by: null }]`,
     `pii: seal({ customer, address, notes })`, `email: { customer: 'pending', owner: 'daily-summary', attempts: 0 }`.
-    No plaintext `customer`, `payer` or `notes`.
+    No plaintext `customer`, `payer` or `notes`. The inventory build's builder is extended, not replaced.
   - `revealOrder(env, record) -> Promise<record & { customer: { firstName, lastName, name, email, phone }, address, notes }>`
     in `server/lib/orders.js`; legacy records (no `pii`) map `customer.name` to `name` and split on the last space.
-  - `UNPAID_TTL = 604800` in `server/lib/orders.js`. `dayKey(record)` uses `record.payment?.paidAt ?? record.placedAt`.
+  - `UNPAID_TTL = 604800` in `server/lib/orders.js`, for the **submission** only. `dayKey` is unchanged (placed day).
+    `HOLD_MS = 900000`, `holdKey(untilMs, orderId) = 'hold:' + String(untilMs).padStart(13, '0') + ':' + orderId`.
   - Request body: `customer: { firstName, lastName, email, phone? }`,
     `fulfillment: { type: 'pickup', locationId } | { type: 'shipping', address: {...} }`, `notes?`, `items`,
     `checkoutToken`, `expectedTotalCents`.
@@ -143,8 +163,10 @@ test('quote returns the breakdown and its sum', () => {
     the current order (`findOrder`), not the submission copy.
 
 - [ ] **Step 1: Update `body()` in `tests/checkout.test.mjs`** to the new shape and write failing tests:
-  - placed order is `AWAITING_PAYMENT`/`UNPAID`, no email sent, no `email-retry:` and no `day:` key, order and
-    submission `opts.expirationTtl === 604800`;
+  - placed order is `AWAITING_PAYMENT`/`UNPAID`, no email sent, no `email-retry:`, one `day:` key on the **placed**
+    day whose metadata says payment `UNPAID`, submission `opts.expirationTtl === 604800`, order and `day:` with no TTL;
+    `stock:<productId>` committed rose by the quantities, `holdUntil === placedAt + 15 min`, one `hold:` key, one
+    `adj:` per line, `stockCommitted === true`; a cart of 9 products is refused as inventory already does;
   - stored order JSON (`env.ORDERS.store.get('order:…').value`) contains no `ann@example.com`, no first name, no
     notes text; `revealOrder` returns them;
   - phone omitted is accepted; `phone: 'abc'` is `invalid-checkout`;
@@ -155,11 +177,15 @@ test('quote returns the breakdown and its sum', () => {
     `fulfillment: { type: 'shipping' }`;
   - same token and payload twice returns the same order ID and one `order:` key (existing concurrency test kept).
 - [ ] **Step 2: Run** `node --test tests/checkout.test.mjs`. Expected: FAIL.
-- [ ] **Step 3: Implement.** `submitOrder(env, id, fingerprint, record)` writes only the submission and the order,
-  both with `UNPAID_TTL`; it no longer writes `day:` or `email-retry:`. Fingerprint is computed from the parsed
+- [ ] **Step 3: Implement.** `submitOrder(env, id, fingerprint, record)` keeps the inventory build's atomic commit
+  (submission with `UNPAID_TTL`, order and `day:` via `orderPuts`, stock step through `checkoutStock`, 10 jittered
+  rounds, 503 `busy` when they run out); it adds the `hold:` key and no longer writes `email-retry:`. Fingerprint is computed from the parsed
   plaintext details before sealing (as today). `placeOrderRoute` no longer calls `sendOrderEmails`.
   `MESSAGES['invalid-checkout']` becomes `'Check your name, email (50 characters max), phone, pickup or shipping details, then try again.'`.
-  `deliverOrderEmails` reads the recipient from `revealOrder` instead of `record.payer.email`.
+  `deliverOrderEmails` reads the recipient from `revealOrder` instead of `record.payer.email`, and its writes go through
+  `changeOrder` (there is no `updateOrder`).
+  *Changed after inventory:* `day:` is written here, on the placed day (the plan used to defer it to payment); stock
+  is committed with a hold; order and `day:` carry no TTL.
 - [ ] **Step 4: Run** `node --test`. Expected: all pass (fix other tests that read `record.payer` or
   `NOT_COLLECTED` for new orders; legacy fixtures keep working through `revealOrder`).
 - [ ] **Step 5: Commit** `feat(checkout): first/last name, optional phone, pickup or shipping address; orders placed unpaid and sealed`.
@@ -214,13 +240,15 @@ assert.match(newAttemptId(), /^[A-Za-z0-9]{16}$/);
 
 **Files:**
 - Create: `server/lib/payments.js`, `server/routes/payments.js`
-- Modify: `server/index.js` (routes, status-gate exemption, limits), `server/static.js` (gate exempts
+- Modify: `server/lib/order-flow.js` (`orderSummary` carries `paidAt`), `server/index.js` (routes, status-gate exemption, limits), `server/static.js` (gate exempts
   `/order.html`), `main.js` (`PAY_LIMIT: kvLimiter(kv, 'pay', { limit: 10, period: 60 })`)
 - Test: `tests/payments.test.mjs`
 
 **Interfaces:**
 - Consumes: Tasks 2 to 4.
 - Produces:
+  - `paidKey(day, orderId) = 'paid:' + day + ':' + orderId` (day = Jamaica day of `paidAt`; metadata
+    `{ totalCents, taxCents, feeCents, paidAt }`, no TTL, no personal data).
   - Keys: `attemptKey(id) = 'payment-attempt:' + id`, `txnKey(id) = 'wipay-txn:' + id`,
     `awaitingKey(day, orderId) = 'awaiting:' + day + ':' + orderId` (exported from `server/lib/payments.js`).
   - `startPayment(c, orderId) -> Promise<{ paid: true } | { url }>`.
@@ -236,15 +264,19 @@ assert.match(newAttemptId(), /^[A-Za-z0-9]{16}$/);
   with a real md5 from `node:crypto` over the attempt's `transaction_id` and `formatTotal(order.totalCents)`):
   - `pay` without WiPay config: 503 `payments-unavailable`, no WiPay call.
   - `pay` twice within 150 s: same `url`, one WiPay call, one `payment-attempt:` key; order now has `attemptId`,
-    order and submission TTL `ORDER_TTL`, one `awaiting:` key.
+    submission TTL `ORDER_TTL`, order and `day:` still without TTL, one `awaiting:` key; the hold is not extended.
   - `pay` after 151 s with the attempt still open: new attempt, new URL.
   - Two concurrent `pay` calls (`Promise.all`): both return the same `url`; one attempt referenced by the order.
   - `pay` with WiPay replying 400: 502 `payment-unavailable`, no attempt saved, order unchanged.
   - Sale between place and pay (Review Focus): place with `FIXTURE`, then `pay` with a `data` that has the product
     at a different price; WiPay `total` is still `formatTotal(order.totalCents)`.
   - Successful return: 303 to `paid`; order `PLACED`/`PAID`, `payment.transactionId`, `payment.paidAt === NOW iso`,
-    `payment.chargedTotal`, one `wipay-txn:`, one `email-retry:`, one `day:` key on the paid day, attempt
-    `state: 'paid'`, receipt email sent once.
+    `payment.chargedTotal`, one `wipay-txn:`, one `email-retry:`, still one `day:` key, on the **placed** day, whose
+    metadata now has `paidAt` and payment `PAID`; one `paid:<paid day>:<id>` key; `holdUntil` gone and the `hold:`
+    key deleted; `events` gains `paid`; `stockCommitted` still true and stock unchanged; each line's `costCents`
+    equals the product's current cost (change the cost between place and pay to prove it); attempt
+    `state: 'paid'`, receipt email sent once. Paying on a later Jamaica day than the placed day puts `day:` and
+    `paid:` under different dates.
   - Same return URL twice, and twice concurrently: identical end state, one `wipay-txn:`, one receipt email.
   - Two different successful transactions for one order (two attempts): order paid by the first; second gets
     `wipay-txn:` with `duplicate: true`; exactly one owner alert whose rows name both transaction IDs; second
@@ -265,13 +297,18 @@ assert.match(newAttemptId(), /^[A-Za-z0-9]{16}$/);
   checks `[order version]`, puts: attempt (`ORDER_TTL`), order with `attemptId` (`ORDER_TTL`), submission rewritten
   with `ORDER_TTL`, `awaitingKey(Jamaica day of now, orderId)` (`ORDER_TTL`). Lost commit: re-read and loop (max 3);
   if the order now has a fresh open attempt, return its `url`.
-- [ ] **Step 4: Implement `confirmPayment`** exactly as spec section "Flow", step 5, max 3 rounds; the paid commit
-  also rewrites the submission with `ORDER_TTL`. Log `payment.started` (Step 3), `payment.confirmed`,
+- [ ] **Step 4: Implement `confirmPayment`** as spec section "Flow", step 5, max 3 rounds. The paid commit checks
+  the order, `wipay-txn:` (absent) and the attempt (3 checks), and puts the order and its `day:` metadata through
+  `orderPuts` (never a hand-written order put), `paidKey`, the attempt, `wipay-txn:`, the submission with `ORDER_TTL`,
+  and deletes the `hold:` key. Refreshing `costCents` happens in the same record rewrite (`lines[i].costCents` from
+  `c.data` by `sku`; a missing product keeps the placed cost). Stock is not in this commit; Task 14 covers the
+  hold-lost branch. Log `payment.started` (Step 3), `payment.confirmed`,
   `payment.failed`, `payment.hash_mismatch`, `payment.duplicate` with order ID, attempt ID, transaction ID and
   cents only. The duplicate
   alert uses `alert(c, 'payment.duplicate', { subject, rows, dedupe: false })`; it only fires when the duplicate
   `wipay-txn:` commit wins, so it is once per transaction. After a `paid` outcome, `c.waitUntil(sendOrderEmails(c, latest))`.
   `reportedTotal` differing from `formatTotal(totalCents)` logs `payment.total_mismatch` (warn).
+  *Changed after inventory:* the earlier steps wrote a `day:` key at payment and a plain put of the order; both are gone.
 - [ ] **Step 5: Implement routes and gates.** Return route reads params with `URLSearchParams.get` (first value),
   caps each at 256 chars before use, and wraps everything in try/catch that logs and redirects `failed`.
   `server/index.js` status gate regex adds `payments/wipay/return` and `orders/[^/]+/status`. `server/static.js`
@@ -287,7 +324,9 @@ assert.match(newAttemptId(), /^[A-Za-z0-9]{16}$/);
 - Test: `tests/emails.test.mjs`, `tests/checkout.test.mjs` (summary tests)
 
 **Interfaces:**
-- Consumes: `revealOrder`, `awaitingKey`, `seal`/`unseal`.
+- Consumes: `revealOrder`, `awaitingKey`, `paidKey`, `seal`/`unseal`.
+- *Changed after inventory:* "paid orders of that paid day" come from `list({ prefix: 'paid:<day>:' })`, not `day:`
+  (keyed on the placed day); reads use `findOrder`; every write uses `changeOrder`.
 - Produces: `receiptEmail(revealed)` and `recordRows(revealed)` take a revealed record.
 
 - [ ] **Step 1: Write failing tests:**
@@ -306,7 +345,8 @@ assert.match(newAttemptId(), /^[A-Za-z0-9]{16}$/);
 - [ ] **Step 2: Run** `node --test tests/emails.test.mjs tests/checkout.test.mjs`. Expected: FAIL.
 - [ ] **Step 3: Implement.** Digest stores parts as `{ sent, subject, sealed }` where `sealed = seal(html)`; sending
   unseals (or uses legacy `html`). Delivery passes `revealOrder(env, record)` to `receiptEmail`.
-- [ ] **Step 4: Run** `node --test`. Expected: all pass.
+- [ ] **Step 4: Run** `node --test`. Expected: all pass. Add a test: an order placed on day A and paid on day B
+  appears in day B's summary only.
 - [ ] **Step 5: Commit** `feat(email): paid receipts with transaction ID; summary of paid and unfinished orders`.
 
 ### Task 7: Startup checks and settings
@@ -354,8 +394,11 @@ assert.match(newAttemptId(), /^[A-Za-z0-9]{16}$/);
   a second run seals nothing (`sealed: 0`); a record changed between read and write is retried, not overwritten
   (commit with version check).
 - [ ] **Step 2: Run** the test. Expected: FAIL.
-- [ ] **Step 3: Implement** with `list({ prefix })`, `getEntry`, and `commit({ checks: [{ key, version }], puts })`.
-  Preserve each key's remaining TTL (`ORDER_TTL` is acceptable when the original is unknown).
+- [ ] **Step 3: Implement** with `list({ prefix: 'order:' })` and each order rewritten through `changeOrder` (so the
+  version check and `day:` metadata come for free); `submission:` copies use `getEntry` and
+  `commit({ checks: [{ key, version }], puts })`. `order:` gets no TTL (inventory rule); `submission:` keeps its
+  remaining TTL (`ORDER_TTL` when unknown). The sealed result has no `PERSONAL_FIELDS` key except `pii`.
+  *Changed after inventory:* the earlier step preserved TTLs on `order:`; orders now have none.
 - [ ] **Step 4: Run** `node --test` and `npm run check:restore`. Expected: pass.
 - [ ] **Step 5: Commit** `feat(scripts): encrypt-orders seals existing customer details in place`.
 
@@ -482,7 +525,189 @@ assert.equal(formatIn(5000, 'JPY', { USD: 1 }), '$50.00'); // missing rate falls
 - [ ] **Step 4: Run** `node --test`. Expected: all pass.
 - [ ] **Step 5: Commit** `docs(policies): WiPay payments, GCT, fees, shipping and currency estimates`.
 
-### Task 13: Sandbox run on evincus-dev
+### Task 13: Stock hold on unpaid orders
+
+**Files:**
+- Modify: `server/lib/submissions.js` (`submitOrder` writes `hold:`), `server/lib/payments.js` (paid commit clears it)
+- Test: `tests/holds.test.mjs` (new), `tests/payments.test.mjs`
+
+**Interfaces:**
+- Consumes: Task 3 `HOLD_MS`, `holdKey`; inventory `checkoutStock`, `stockKey`, `adjKey`.
+- Produces: `holdKey(untilMs, orderId)` entries (empty value, metadata `{ orderId }`) written in `submitOrder`'s
+  commit beside the stock puts; order field `holdUntil` (ISO). An `AWAITING_PAYMENT` order with `holdUntil` is held;
+  a `PAID` order has neither.
+
+- [ ] **Step 1: Write failing tests:** two shoppers, one last unit: the loser gets 409 `bag-changed` with
+  `insufficient-stock`; a retried checkout (same token) commits stock once; payment success removes `holdUntil` and
+  the `hold:` key and leaves `committed` unchanged; `pay` starting at minute 14 does not extend the hold.
+- [ ] **Step 2: Run** `node --test tests/holds.test.mjs`. Expected: FAIL.
+- [ ] **Step 3: Implement.** The `hold:` put sits in `submitOrder`'s existing commit (no extra check). The paid commit
+  deletes `holdKey(Date.parse(order.holdUntil), id)` and drops `holdUntil` from the record.
+- [ ] **Step 4: Run** `node --test`. Expected: all pass.
+- [ ] **Step 5: Commit** `feat(inventory): hold stock for 15 minutes while payment is pending`.
+
+### Task 14: Release expired holds; late success
+
+**Files:**
+- Create: `server/lib/holds.js`
+- Modify: `server/lib/submissions.js` (release and retry when stock is short), `server/index.js` (the 15-minute job
+  calls `releaseExpiredHolds` and `sweepUnpaid`), `server/lib/payments.js` (hold-lost branch of `confirmPayment`)
+- Test: `tests/holds.test.mjs`, `tests/payments.test.mjs`
+
+**Interfaces:**
+- Produces in `server/lib/holds.js`:
+  - `releaseHold(env, orderId, { now }) -> Promise<'released' | 'paid' | 'gone' | 'not-expired'>`: one commit
+    checking the order version and each moved `stock:<productId>` version (at most 8 products plus the order, so 9
+    checks), guarded on the order still being `AWAITING_PAYMENT` with `holdUntil <= now`. It puts the order through
+    `orderPuts` (`stockCommitted: false`, `holdUntil` dropped, `events` gains `{ type: 'hold-released', by: null }`),
+    the stock docs with `committed -= qty` (floored at 0), one `adj:` per line (`reason: 'hold-released'`,
+    `committed: -qty`), and deletes the `hold:` key. A version clash re-reads (same 5 rounds and jitter as
+    `changeOrder`); a `PAID` order on re-read returns `'paid'` and changes nothing.
+  - `releaseExpiredHolds(env, now, { deadline, limit = 50 }) -> Promise<number>`: lists `hold:` keys up to
+    `holdKey(+now, '~')` and calls `releaseHold` on each; one failure is logged and skipped.
+  - `sweepUnpaid(env, now) -> Promise<number>`: deletes orders still `AWAITING_PAYMENT`, hold released, older than
+    `UNPAID_TTL` (order, its `day:` entry, `awaiting:` entry) so the Orders list never shows ghosts; the submission
+    expires by its own TTL. (Orders have no TTL any more, so this replaces the old 7-day order expiry.)
+  - `confirmPayment` hold-lost branch: when the order has `stockCommitted === false` at the paid commit it still
+    marks the order paid (the money is real) with `holdLost: true`, then calls `recommit(env, orderId, { now })`, a
+    stock-only commit like `releaseHold` in reverse (checks the stock docs, `committed += qty` when Available
+    allows, and sets `stockCommitted: true`; otherwise leaves it false). Result `{ outcome: 'paid', stock: 'held' | 'lost' }`.
+
+- [ ] **Step 1: Write failing tests:**
+  - `releaseHold` at minute 16: order `stockCommitted: false`, stock `committed` back to its pre-order value, one
+    `hold-released` event, no `hold:` key, one `adj:` per line;
+  - `releaseHold` twice, and twice concurrently: one release, stock changed once;
+  - release racing a payment (`Promise.all` of `confirmPayment` and `releaseHold`): in both orders the end state is
+    consistent (paid and held, or released then paid late); `committed` never negative, never double-counted;
+  - `releaseHold` at minute 14 returns `'not-expired'`; on a `PAID` order returns `'paid'`;
+  - cron `releaseExpiredHolds` releases the expired and leaves the live one;
+  - checkout short of stock with an expired hold on the last unit: releases it and the new order succeeds; with an
+    unexpired hold: 409 `bag-changed` `insufficient-stock`, hold untouched;
+  - late success after release, unit not resold: order `PAID`, `committed` raised again, `stock: 'held'`, no alert;
+  - late success after release and the unit sold again: order `PAID`, `holdLost: true`, `stockCommitted: false`,
+    exactly one owner alert `payment.late` (dedupe key `late:<orderId>`, also across a replayed return and a second
+    transaction) naming the order and the short variants; the owner can still refund or cancel it through
+    `/api/inventory/orders/:id/actions`, and a fulfilment that finds no committed units is refused `stock-short`
+    (the existing refusal, asserted as such);
+  - `sweepUnpaid` removes an 8-day-old unpaid order and its `day:` key; leaves a paid one and a 6-day-old one.
+- [ ] **Step 2: Run** `node --test tests/holds.test.mjs`. Expected: FAIL.
+- [ ] **Step 3: Implement.** Reuse `checkoutStock`'s doc handling and `orderAction`'s stock-doc check pattern rather
+  than a second one. In `submitOrder`, when `checkoutStock` returns `short`, call
+  `releaseExpiredHolds(env, now, { limit: 8 })` once and, if it released anything, re-run the stock step inside the
+  existing 10 rounds. The cron additions use the same `deadline` convention as `runRetention`.
+- [ ] **Step 4: Run** `node --test`. Expected: all pass.
+- [ ] **Step 5: Commit** `feat(inventory): release expired holds, accept late payments with one alert`.
+
+### Task 15: Refund index and money fields for Finances
+
+**Files:**
+- Modify: `server/lib/order-flow.js` (`orderSummary` carries `paidAt`, `scrubbed`; the refund path adds the
+  `refund:` put), `server/lib/payments.js`
+- Test: `tests/refund-index.test.mjs` (new), `tests/refunds.test.mjs`
+
+**Interfaces:**
+- Produces: `refundKey(day, orderId, refundId) = 'refund:' + day + ':' + orderId + ':' + refundId` (day = Jamaica day
+  of the refund's `at`; metadata `{ amountCents, taxCents, restock, reason }`, no TTL, no personal data), put in the
+  same `orderAction` commit that appends to `refunds`. `paid:` metadata and the WiPay record use the same field
+  names as the order: `totalCents`, `taxCents`, `feeCents`, `paidAt`.
+
+- [ ] **Step 1: Write failing tests:** a refund through `POST /api/inventory/orders/:id/actions` writes one `refund:`
+  key on the refund's day with the same cents as the record's refund; replaying the `opId` writes no second key; a
+  paid order has `taxCents` and `feeCents` (not `gct` or `fee`); `plan` never refunds `feeCents` and caps a refund at
+  items + tax (the existing `data/refunds.js` tests still pass unchanged); scrubbing an order past 2 years removes
+  `pii` and every other `PERSONAL_FIELDS` key and leaves its `paid:` and `refund:` keys and totals intact.
+- [ ] **Step 2: Run** `node --test tests/refund-index.test.mjs`. Expected: FAIL.
+- [ ] **Step 3: Implement.** The `refund:` entry goes in `orderAction`'s `puts` (it counts against the mutation limit,
+  not the 10-check one).
+- [ ] **Step 4: Run** `node --test`. Expected: all pass.
+- [ ] **Step 5: Commit** `feat(finances): paid and refund index entries`.
+
+### Task 16: Finances API
+
+**Files:**
+- Create: `server/lib/finances.js`, `server/routes/finances.js`
+- Modify: `server/index.js` (`GET /api/inventory/finances?from=&to=` and `GET /api/inventory/finances.csv`, owner-only
+  like the other owner routes)
+- Test: `tests/finances.test.mjs`
+
+**Interfaces:**
+- Consumes: `paid:` and `refund:` keys, `findOrder`, `PROCESSING_FEE`, `ordersRev` for the cache.
+- Produces: `finances(env, { from, to, now }) -> Promise<{ empty, revenueCents, refundsCents, netCents,
+  gctOwedCents, feesCents, cogsCents, costMissing, profitCents, marginBps, bestSellers: [{ id, name, units,
+  revenueCents, profitCents }], refunds: [{ orderId, at, reason, amountCents }], months: [{ month, revenueCents,
+  gctOwedCents, profitCents }] }>` and `financesCsv(env, range) -> Promise<string>`.
+  - Revenue = Σ `totalCents` of `paid:` entries by paid day; Refunds = Σ `refund:` entries by refund day; Net =
+    Revenue - Refunds; GCT owed = Σ `taxCents` - Σ refunded `taxCents`; WiPay fees = Σ
+    `round(totalCents * PROCESSING_FEE.bps / 10000)` with the half-up rule of `charges()`, never reduced by
+    refunds; Cost of goods = Σ `costCents` x (qty - restocked refunded qty), lines without `costCents` count 0 and
+    raise `costMissing`; Profit = Net - GCT owed - Fees - COGS; margin = Profit / Net (0 when Net is 0).
+  - `empty` is true when no `paid:` entry exists at all (any period); the UI then shows "No payments collected yet.
+    Order value is in Stats." `NOT_COLLECTED` orders never count.
+  - CSV: one row per paid order (`id, paidAt, subtotalCents, taxCents, feeCents, totalCents, cogsCents,
+    refundedCents`) and one per refund (`orderId, at, amountCents, taxCents, restock`); no customer fields.
+  - `paid:`/`refund:` are read by `list` over the range; orders are read only for lines and cost, in chunks like the
+    Stats tab's order loads. A scrubbed order still counts.
+
+- [ ] **Step 1: Write failing tests,** using the mockup's worked example (inventory spec, Finances; the numbers add
+  up) as the fixture: Revenue, Refunds, Net, GCT owed, WiPay fees (4.83% of each full charge, unchanged by a
+  refund), COGS, Profit and margin all equal the mockup; an order placed in September and paid in October counts in
+  October; a refund in November reduces November only; `costMissing` counts lines without `costCents`; best sellers
+  sorted by profit; by-month rows sum to the headline; `empty` true with zero `paid:` keys; staff account gets 403
+  on both routes; CSV contains no email, name, address, phone, notes or `pii` for a record that has all of them;
+  bad range params are 400.
+- [ ] **Step 2: Run** `node --test tests/finances.test.mjs`. Expected: FAIL.
+- [ ] **Step 3: Implement,** caching by `ordersRev` as the Stats module does.
+- [ ] **Step 4: Run** `node --test`. Expected: all pass.
+- [ ] **Step 5: Commit** `feat(finances): revenue, fees, cost and profit API with CSV`.
+
+### Task 17: Finances tab
+
+**Files:**
+- Create: `assets/js/inventory-finances.js`
+- Modify: `inventory.html` (Finances tab, owner only), `assets/js/inventory.js` (register the tab, hide it for
+  staff), `assets/js/inventory-api.js` (`finances`, `financesCsv`), `assets/css/inventory.css`
+- Test: `tests/inventory-finances-view.test.mjs`, `tests/static.test.mjs`
+
+**Interfaces:**
+- Consumes: Task 16 API; `assets/js/inventory-chart.js` (the Stats tab's chart module: reuse it for the by-month
+  series, no second chart implementation).
+- Produces: `renderFinances(root, data, { owner })` (no fetch, testable); layout follows the right side of
+  `.superpowers/brainstorm/1990-1793148163/content/stats-finances.html`: period picker (this month, last month,
+  year, custom), tiles (revenue, refunds, net, GCT owed, WiPay fees, cost of goods, profit with margin), by-month
+  chart and table, best sellers by profit, refunds list, "Download CSV".
+
+- [ ] **Step 1: Write failing tests:** `empty: true` renders exactly "No payments collected yet. Order value is in
+  Stats." and no tiles; with data every tile shows the mockup's formatted number; `costMissing: 3` shows "cost
+  missing on 3 items"; for a non-owner the nav entry is absent and `renderFinances` is never called; the module
+  imports `inventory-chart.js` and no other chart code; `inventory.html` has no `style=` and no inline script.
+- [ ] **Step 2: Run** `node --test tests/inventory-finances-view.test.mjs`. Expected: FAIL.
+- [ ] **Step 3: Implement,** mobile first: tiles in one column at 375px, grid from the same `min-width: 768px` query
+  the other tabs use; tables scroll inside their own wrapper, never the page.
+- [ ] **Step 4: Run** `node --test`. Then `npm run dev` and check the tab at 375px and 1024px as owner and as staff
+  (tab absent, API 403).
+- [ ] **Step 5: Commit** `feat(finances): Finances tab`.
+
+### Task 18: Open the store
+
+Its own commit so it can be reverted alone; pushed only as part of the Task 19 rollout.
+
+**Files:**
+- Modify: `server/lib/startup.js` (Task 7), `render.yaml` (prod `STATUS: live`), `README.md` (deploy checklist: stock
+  entered, owner accounts, WiPay keys, then `STATUS=live`; drop "the store stays closed until WiPay")
+- Test: `tests/startup.test.mjs`
+
+**Interfaces:**
+- Extends `productionConfigErrors(env)`: `STATUS === 'live'` with WiPay unset returns an error, so the store can
+  never be open without a way to pay (the reason it was closed).
+
+- [ ] **Step 1: Write failing tests:** `STATUS: 'live'` with WiPay unset errors; `'live'` with a valid live WiPay set
+  returns `[]`; `STATUS: 'stocking'` with WiPay unset returns `[]`.
+- [ ] **Step 2: Run** it. Expected: FAIL.
+- [ ] **Step 3: Implement** and update `render.yaml` and the README.
+- [ ] **Step 4: Run** `node --test` and `npm run check:security`. Expected: pass.
+- [ ] **Step 5: Commit** `feat(config): open the store with payments (STATUS=live)`.
+
+### Task 19: Sandbox run on evincus-dev
 
 Needs the owner's go-ahead: pushing `dev` deploys the dev service.
 
@@ -492,5 +717,9 @@ Needs the owner's go-ahead: pushing `dev` deploys the dev service.
   `4000000000000002` then Pay again succeeds; reload `order.html` after paying; press back from WiPay. Expected:
   each paid order shows on `order.html` as paid, `payment.transactionId` starts `SB-`, no duplicate, cart cleared
   once. Receipts go to the test inbox only if email is enabled on dev (it is disabled by default).
-- [ ] **Step 4:** Record results in the PR description. No live switch until the owner has a WiPay BUSINESS
-  account, API key, and has stored `CUSTOMER_DATA_KEY` safely.
+- [ ] **Step 4:** Also on dev (`SEED_STOCK=10`): place an order and let 16 minutes pass, confirm the stock returns
+  and the order stays unpaid; pay a released order late, confirm it is accepted and one alert is sent; open
+  Finances as owner after a paid order and a refund, confirm the numbers and the CSV.
+- [ ] **Step 5:** Record results in the PR description. No live switch until the owner has a WiPay BUSINESS
+  account, API key, has stored `CUSTOMER_DATA_KEY` safely and has entered real stock. Then production gets
+  `STATUS=live` (Task 18), the only step that opens the store.
