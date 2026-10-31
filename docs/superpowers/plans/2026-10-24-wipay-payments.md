@@ -558,9 +558,10 @@ proven in one place.
 - Create: `server/lib/holds.js`
 - Modify: `server/lib/submissions.js` (release and retry when stock is short), `server/lib/alerts.js` (`alert`
   returns `true` when sent or already sent, `false` on failure; today it swallows failures), `server/lib/order-flow.js`
-  (cancel clears the hold; `fulfil` guard on `holdLost`), `server/index.js` (the 15-minute job runs
+  (`orderSummary` gains `stockCommitted` (boolean) and `holdLost` (only when true); the `holdLost` guard on the
+  `'fulfilled'` action goes here), `server/index.js` (the 15-minute job runs
   `releaseExpiredHolds`, `sweepUnpaid` and `redriveLate`), `server/lib/payments.js` (hold-lost branch of
-  `confirmPayment`), `server/lib/orders.js` (`orderAction` deletes the `hold:` key on cancel),
+  `confirmPayment`), `server/lib/orders.js` (`orderAction`: cancel clears `holdUntil`, sets `stockCommitted: false` and deletes the `hold:` key),
   `assets/js/inventory-orders-view.js` and the stock-history view (labels)
 - Test: `tests/holds.test.mjs`, `tests/payments.test.mjs`
 
@@ -608,8 +609,8 @@ proven in one place.
   successful send and the marker write (accepted: one extra email, never a missed one). Result:
   `{ outcome: 'paid', stock: 'held' | 'lost' }`.
 - Fulfilment of a `holdLost` order whose stock was not re-held: `applyAction` `move()` silently skips stock when
-  `stockCommitted !== true`, so a plain fulfil would succeed with no stock movement. Decision: add an explicit guard,
-  `fulfil` on an order with `holdLost && stockCommitted !== true` is refused 409 `stock-short`, with the order page
+  `stockCommitted !== true`, so a plain `'fulfilled'` action would succeed with no stock movement. Decision: add an explicit guard,
+  `'fulfilled'` on an order with `holdLost && stockCommitted !== true` is refused 409 `stock-short`, with the order page
   showing "Payment arrived after the hold expired; restock or refund." Refund and cancel stay allowed.
 - UI labels: adj reason `hold-released` shows as "Hold expired" in stock history, event `hold-released` shows as
   "Hold released (unpaid)" in the order timeline; `holdLost` shows a badge "Paid after hold expired".
@@ -633,7 +634,10 @@ proven in one place.
     second alert; crash simulation: make `alert` fail, the order keeps `holdLost` and no marker, then
     `redriveLate` (cron) sends it once and sets the marker; a second `redriveLate` sends nothing; crash after the paid
     commit but before `recommit` is repaired by `redriveLate`;
-  - `fulfil` on that order is refused 409 `stock-short` (the new `holdLost` guard); refund and cancel succeed;
+  - `'fulfilled'` on that order is refused 409 `stock-short` (the new `holdLost` guard); refund and cancel succeed;
+  - `orderSummary` (the `day:` metadata) carries `stockCommitted` and, when true, `holdLost`; for a worst-case
+    order (8 products, 50 lines, `scrubbed`, `holdLost`) its JSON stays under 1 KiB and contains no customer, email,
+    phone, address, notes or `pii`; `redriveLate` finds a `PAID` + `stockCommitted: false` order from metadata alone;
   - `sweepUnpaid` removes an 8-day-old unpaid order that never reached WiPay (order, `day:`, `hold:` gone in one
     commit); keeps an 8-day-old unpaid order that has an `attemptId`, one with an open attempt, one with a
     `wipay-txn:`, one with an `awaiting:` entry, a paid one and a 6-day-old one; an order paid between the walk and
