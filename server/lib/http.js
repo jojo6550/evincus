@@ -29,6 +29,8 @@ export const MESSAGES = {
   'invalid-beacon': 'That report was not in the expected format.',
   'bag-changed': 'Some items in your cart changed. Check your cart, then check out again.',
   'busy': 'Lots of people are checking out right now. Your cart is safe — try again in a moment.',
+  'payment-unavailable': "Card payment couldn't start. Try again in a minute.",
+  'payments-unavailable': "Card payment isn't available yet. Check back soon.",
   'unauthorized': 'That admin token is missing or wrong.',
   'invalid-sales': 'That sales list is not valid.',
   'login-failed': "That email and password don't match an account.",
