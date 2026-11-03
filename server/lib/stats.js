@@ -26,10 +26,11 @@ export function periodBounds(period, now, { from, to } = {}) {
 // Placed orders that count: not cancelled, not waiting for payment.
 const counts = m => m.fulfilment !== 'CANCELLED' && m.payment !== 'UNPAID';
 const dayOf = m => jamaicaDay(Date.parse(m.placedAt));
+const net = m => m.totalCents - (m.refundedCents || 0); // the processing fee stays in: it is never refunded
 const within = (m, a, b) => { const d = dayOf(m); return d >= a && d <= b; };
 
 function total(rows) {
-  const sales = rows.reduce((s, m) => s + m.totalCents, 0), units = rows.reduce((s, m) => s + m.units, 0);
+  const sales = rows.reduce((s, m) => s + net(m), 0), units = rows.reduce((s, m) => s + m.units, 0);
   return { sales, orders: rows.length, units, average: rows.length ? Math.round(sales / rows.length) : 0 };
 }
 const top = map => [...map.values()].sort((a, b) => b.units - a.units || b.cents - a.cents || (a.name < b.name ? -1 : 1)).slice(0, TOP);
@@ -42,7 +43,7 @@ export function computeStats(rows, catalog, stock, bounds) {
   const perDay = [];
   for (let d = bounds.from; d <= bounds.to; d = shift(d, 1)) perDay.push({ day: d, cents: 0, orders: 0 });
   const at = new Map(perDay.map(p => [p.day, p]));
-  for (const m of cur) { const p = at.get(dayOf(m)); p.cents += m.totalCents; p.orders++; }
+  for (const m of cur) { const p = at.get(dayOf(m)); p.cents += net(m); p.orders++; }
 
   const eraOf = new Map(catalog.products.map(p => [p.id, p.era]));
   const best = { product: new Map(), era: new Map(), colour: new Map(), size: new Map() };
@@ -62,7 +63,7 @@ export function computeStats(rows, catalog, stock, bounds) {
   for (const m of cur.filter(m => m.type === 'pickup')) {
     const e = pickups.get(m.locationId) ?? pickups.set(m.locationId, { locationId: m.locationId, orders: 0, cents: 0 }).get(m.locationId);
     e.orders++;
-    e.cents += m.totalCents;
+    e.cents += net(m);
   }
   const sizes = top(best.size);
   return {

@@ -24,16 +24,18 @@ const row = o => ({ id: o.id, ...orderSummary(o), lines: o.lines.map(l => ({ ...
 const bounds = periodBounds('7d', new Date(NOW));
 
 test('stats count placed orders, exclude cancelled and awaiting payment, subtract refunded units', () => {
-  const a = mk(), b = mk({ lines: [line({ qty: 3 })], refundedQty: { 'alpha-tee|Black, white print|S': 1 }, paymentStatus: 'PARTIALLY_REFUNDED' });
+  const a = mk(), b = mk({ lines: [line({ qty: 3 })], refundedQty: { 'alpha-tee|Black, white print|S': 1 }, refundedCents: 1000, paymentStatus: 'PARTIALLY_REFUNDED' });
   const out = [mk({ fulfilmentStatus: 'CANCELLED' }), mk({ paymentStatus: 'UNPAID' })];
   const s = computeStats([a, b, ...out].map(row), FIXTURE, fixtureStock(), bounds);
   assert.equal(s.tiles.orders, 2);
   assert.equal(s.tiles.units, 2 + 2);
-  assert.equal(s.tiles.sales, a.totalCents + b.totalCents);
-  assert.equal(s.tiles.average, Math.round((a.totalCents + b.totalCents) / 2));
+  const sales = a.totalCents + b.totalCents - 1000; // refunds come off sales
+  assert.equal(s.tiles.sales, sales);
+  assert.equal(s.tiles.average, Math.round(sales / 2));
+  assert.equal(s.perDay.reduce((t, p) => t + p.cents, 0), sales);
   assert.equal(s.best.product[0].units, 4);
   assert.equal(s.sizes[0].name, 'S');
-  assert.deepEqual(s.pickup, [{ locationId: 'trendy-hats', orders: 2, cents: a.totalCents + b.totalCents }]);
+  assert.deepEqual(s.pickup, [{ locationId: 'trendy-hats', orders: 2, cents: sales }]);
 });
 
 test('previous period has the same length', () => {

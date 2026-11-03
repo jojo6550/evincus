@@ -90,6 +90,7 @@ export function orderSummary(r) {
   const loc = r.fulfillment?.location;
   return {
     totalCents: r.totalCents,
+    ...(r.refundedCents && { refundedCents: r.refundedCents }), // stats count sales net of refunds
     payment: r.paymentStatus,
     fulfilment: fulfilmentOf(r),
     type: typeOf(r),
