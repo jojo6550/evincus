@@ -28,7 +28,7 @@ export async function revealOrder(env, record) {
   const { pii, ...rest } = record;
   if (pii) {
     const { customer, address, notes } = await unseal(env, pii);
-    return { ...rest, customer: { ...customer, name: `${customer.firstName} ${customer.lastName}` }, address, notes };
+    return { ...rest, customer: customer && { ...customer, name: `${customer.firstName} ${customer.lastName}` }, address, notes };
   }
   if (!record.customer) return rest;
   const { name = '', email, phone } = record.customer, cut = name.lastIndexOf(' ');

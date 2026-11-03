@@ -135,6 +135,8 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
 
    **Store `CUSTOMER_DATA_KEY` in a password manager.** Losing it loses every stored customer detail. Never rotate
    it by just replacing the value: every sealed order would become unreadable.
+   Orders placed before encryption are sealed by running `npm run encrypt-orders` once in the `evincus` service's
+   Render Shell after the key is set. It is safe to run again.
 
 2. Service `evincus`, Settings, **Deploy Hook**: copy the URL into GitHub, Settings, Secrets and variables, Actions,
    as the secret `RENDER_DEPLOY_HOOK_URL`.

@@ -23,7 +23,8 @@
     "check:security": "node scripts/security-check.mjs",
     "check:performance": "node scripts/performance-check.mjs",
     "check:load": "node scripts/load-check.mjs",
-    "check:restore": "node scripts/restore-check.mjs --fixture"
+    "check:restore": "node scripts/restore-check.mjs --fixture",
+    "encrypt-orders": "node --env-file-if-exists=.env scripts/encrypt-orders.mjs"
   },
   "dependencies": {
     "@deno/kv": "^0.14.0"
