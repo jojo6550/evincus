@@ -3,6 +3,7 @@ import * as cart from './cart.js';
 import { initBag } from './bag.js';
 import { initProductView } from './product-view.js';
 import { initSale, eraSaleNote } from './sale.js';
+import { initCurrency } from './currency.js';
 import { imageAttrs, initImageFade } from './images.js';
 
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -43,6 +44,7 @@ function card(era, count) {
 initImageFade();
 await loadCatalog();
 initSale();
+initCurrency(null, null); // the stored or detected choice; the picker is on the store page
 const all = products();
 const countIn = slug => all.filter(p => p.era === slug).length;
 const list = eras();

@@ -5,6 +5,7 @@ import { refreshQuote } from './quote.js';
 import { initBag, openBag } from './bag.js';
 import { initProductView, openProduct } from './product-view.js';
 import { initSale, priceHtml, saleTag } from './sale.js';
+import { initCurrency, onCurrencyChange, currentCurrency } from './currency.js';
 import { initSignup } from './signup.js';
 import { initReel } from './reel.js';
 import { imageAttrs, initImageFade } from './images.js';
@@ -14,6 +15,7 @@ initImageFade();
 initReel();
 await loadCatalog();
 initSale();
+const currencyReady = initCurrency(document.getElementById('currency'), document.getElementById('fxCredit'));
 const PRODUCTS = products();
 const grid = document.getElementById('grid');
 document.getElementById('total').textContent = PRODUCTS.length;
@@ -29,11 +31,17 @@ grid.innerHTML = PRODUCTS.map(p => {
       <img ${imageAttrs(front)} alt="${esc(p.name)}" loading="lazy">
       <img class="alt" ${imageAttrs(back)} alt="" loading="lazy">
     </div>
-    <div class="card__meta"><h3>${esc(p.name)}</h3><span class="price">${priceHtml(p)}</span><span class="mono">${esc(eraName(p.era))} · ${esc(colors)} · USD</span></div>
+    <div class="card__meta"><h3>${esc(p.name)}</h3><span class="price" data-price="${esc(p.id)}">${priceHtml(p)}</span><span class="mono">${esc(eraName(p.era))} · ${esc(colors)}<span data-usd> · USD</span></span></div>
   </a>`;
 }).join('');
 if (!isLive()) grid.innerHTML = OFFLINE_NOTE;
 grid.removeAttribute('aria-busy');
+const reprice = () => {
+  for (const el of grid.querySelectorAll('[data-price]')) el.innerHTML = priceHtml(PRODUCTS.find(p => p.id === el.dataset.price));
+  for (const el of grid.querySelectorAll('[data-usd]')) el.hidden = currentCurrency() !== 'USD';
+};
+onCurrencyChange(reprice);
+currencyReady.then(reprice);
 grid.addEventListener('click', e => {
   const c = e.target.closest('[data-product]'); if (!c) return;
   e.preventDefault();

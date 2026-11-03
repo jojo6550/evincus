@@ -2,6 +2,7 @@ import { api, ApiError } from './api.js';
 import * as cart from './cart.js';
 import { money } from '../../data/catalog.js';
 import { COUNTRIES } from '../../data/countries.js';
+import { formatPrice, currentCurrency } from './currency.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const CARD_ICON = '<svg class="pay-btn__card" viewBox="0 0 28 20" aria-hidden="true"><rect x="1" y="1" width="26" height="18" rx="2"/><path d="M1 7h26M5 14h8"/></svg>';
@@ -59,7 +60,7 @@ export async function mountCheckout(container, { q, breakdown, onBagChanged }) {
     </fieldset>
     <label>Order notes (optional)<textarea name="notes" maxlength="1000" rows="3"></textarea></label>
     <div class="sum">${breakdown(q)}</div>
-    <p class="bag__note">You'll be charged ${money(total)} USD. Other currencies are estimates; your bank sets the final rate.</p>
+    <p class="bag__note">You'll be charged ${money(total)} USD${currentCurrency() === 'USD' ? '' : ` (${formatPrice(total)})`}. Other currencies are estimates; your bank sets the final rate.</p>
     <p class="pay-error" role="alert" hidden></p>
     <button type="submit" class="btn btn--solid bag__go pay-btn">${CARD_ICON}<span data-label>${payLabel}</span></button>
     <button type="button" class="text-btn mono" data-act="back">← Back to cart</button>

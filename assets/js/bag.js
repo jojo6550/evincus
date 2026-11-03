@@ -4,6 +4,7 @@ import * as cart from './cart.js';
 import * as quote from './quote.js';
 import { mountCheckout } from './checkout.js';
 import { imageAttrs } from './images.js';
+import { formatPrice, currentCurrency, onCurrencyChange } from './currency.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -40,7 +41,7 @@ function lineHtml(l) {
         </div>` : ''}
       </div>
       <div class="line__end">
-        ${canChange && l.totalCents !== undefined ? `<span class="price">${money(l.totalCents)}</span>` : ''}
+        ${canChange && l.totalCents !== undefined ? `<span class="price">${formatPrice(l.totalCents)}</span>` : ''}
         <button type="button" class="text-btn mono" data-act="remove">Remove</button>
       </div>
     </li>`;
@@ -48,12 +49,14 @@ function lineHtml(l) {
 
 const row = (label, value, cls = '') => `<div class="sum__row${cls}"><span>${label}</span><span>${value}</span></div>`;
 const pct = bps => `${bps / 100}%`;
-// Rates come from the quote, so a rate change in data/fees.js needs no client edit.
+// Rates come from the quote, so a rate change in data/fees.js needs no client edit. The total is always the USD
+// amount WiPay charges; other rows follow the chosen currency.
 export const breakdownHtml = q => `
-    ${row('Subtotal', money(q.subtotalCents))}
-    ${row(`${esc(q.tax.label)} (${pct(q.tax.bps)})`, money(q.taxCents))}
-    ${row(`${esc(q.fee.label)} (${pct(q.fee.bps)}, non-refundable)`, money(q.feeCents))}
-    ${row('Total', `${money(q.totalCents)} <small class="mono">USD</small>`, ' sum__total')}`;
+    ${row('Subtotal', formatPrice(q.subtotalCents))}
+    ${row(`${esc(q.tax.label)} (${pct(q.tax.bps)})`, formatPrice(q.taxCents))}
+    ${row(`${esc(q.fee.label)} (${pct(q.fee.bps)}, non-refundable)`, formatPrice(q.feeCents))}
+    ${row('Total', `${money(q.totalCents)} <small class="mono">USD</small>`, ' sum__total')}
+    ${currentCurrency() === 'USD' ? '' : `<p class="sum__est mono">${formatPrice(q.totalCents)}. Your bank sets the final rate.</p>`}`;
 const checkout = enabled => `<button type="button" class="btn btn--solid bag__go" data-act="checkout"${enabled ? '' : ' disabled'}>Check out</button>`;
 
 function footHtml(s) {
@@ -64,7 +67,7 @@ function footHtml(s) {
   }
   if (s.status !== 'ready' || !s.quote) {
     return `
-      ${row('Subtotal', money(cart.subtotal()))}
+      ${row('Subtotal', formatPrice(cart.subtotal()))}
       <p class="bag__note is-loading" role="status">Checking prices and availability…</p>
       ${checkout(false)}`;
   }
@@ -74,7 +77,7 @@ function footHtml(s) {
     return `
       <p class="bag__note" role="status">${q.problem ? esc(q.message) : `Some items can't be bought. ${unavailable ? 'Remove them' : 'Lower the quantity'} to check out.`}</p>
       ${unavailable ? '<button type="button" class="btn btn--line bag__go" data-act="remove-unavailable">Remove unavailable items</button>' : ''}
-      ${row('Subtotal', money(q.subtotalCents))}
+      ${row('Subtotal', formatPrice(q.subtotalCents))}
       ${checkout(false)}`;
   }
   return `
@@ -207,6 +210,7 @@ export function initBag() {
   dialog.addEventListener('close', () => { if (step !== 'bag') go('bag'); });
 
   cart.onChange(() => { render(); quote.scheduleQuote(); });
+  onCurrencyChange(render);
   quote.onQuote(onQuote);
   render();
 }
