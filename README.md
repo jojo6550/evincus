@@ -144,16 +144,19 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
    Until they resolve, add the GitHub Actions variable `RENDER_URL=https://evincus.onrender.com` so CI checks that
    address, and pass `url=https://evincus.onrender.com` to `npm run discount`. Delete the variable afterwards.
 4. Verify the sending domain in Resend.
-5. Merge `main` into `prod` and push. The Actions run must end green, then place a pickup test order on the live site.
-6. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
+5. **Open the store** only when stock is entered at `/inventory`, owner accounts exist, and `WIPAY_ACCOUNT_NUMBER`,
+   `WIPAY_API_KEY` and `CUSTOMER_DATA_KEY` are set on `evincus`. `render.yaml` sets `STATUS: live`, and production
+   refuses to start with the store open and WiPay unset, so set the WiPay values before that change deploys.
+6. Merge `main` into `prod` and push. The Actions run must end green, then place a pickup test order on the live site.
+7. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
 
 ## Inventory
 
-`/inventory` is the staff page: sign in, then use the Inventory, Orders, Stats and Logs tabs (Logs is for owners
-only). It is never linked from the store, carries `noindex`, is disallowed in `robots.txt`, and stays reachable
+`/inventory` is the staff page: sign in, then use the Inventory, Orders, Stats, Finances and Logs tabs (Finances and Logs
+are for owners only). It is never linked from the store, carries `noindex`, is disallowed in `robots.txt`, and stays reachable
 while `STATUS` closes the public site.
 
-- **Roles:** `viewer` can look; `owner` can also change things and see Logs.
+- **Roles:** `viewer` can look; `owner` can also change things and see Finances and Logs.
 - **Accounts** are made from your own machine, never on the site. They need `ADMIN_TOKEN` in your environment or `.env`:
   ```bash
   npm run add-viewer you@example.com owner     # create a login, or reset its password; prints a generated password
@@ -164,7 +167,7 @@ while `STATUS` closes the public site.
 - **Live vs local:** the page shows a LOCAL badge when the server runs with `ENVIRONMENT=development`. Local KV is
   separate from production, so nothing done there touches the live store.
 - **Pull the live catalog:** `npm run inventory:pull` (or `url=<base>` for another source) copies eras, products, stock and photos from the live site into your running `npm run dev`, so `/inventory` has real data to try things on. It needs `PROD_ADMIN_TOKEN` in `.env` (the live `ADMIN_TOKEN`; keep your local `ADMIN_TOKEN` different), never copies orders, accounts, sessions or logs, and the local server refuses the import unless it is a development server reached from your own machine.
-- **Rollout:** stock the shop at `/inventory` while `STATUS=stocking`, then open the store with WiPay.
+- **Rollout:** stock the shop at `/inventory` while `STATUS=stocking`, then open the store with WiPay (see the deploy checklist).
 - `data/eras/` is seed data. Once the store is live, stock and products are managed in `/inventory`, not by editing those files.
 
 ## Orders and fulfillment

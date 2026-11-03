@@ -26,8 +26,16 @@ test('the customer data key must be a valid key, and not another secret', () => 
   assert.match(productionConfigErrors({ ...valid, CUSTOMER_DATA_KEY: key(5), ADMIN_TOKEN: key(5) }).join(), /CUSTOMER_DATA_KEY/);
 });
 
-test('WiPay unset entirely is allowed: payments are off', () => {
-  assert.deepEqual(productionConfigErrors(without('WIPAY_ENVIRONMENT', 'WIPAY_ACCOUNT_NUMBER', 'WIPAY_API_KEY')), []);
+test('WiPay unset entirely is allowed while the store is closed: payments are off', () => {
+  assert.deepEqual(productionConfigErrors({ ...without('WIPAY_ENVIRONMENT', 'WIPAY_ACCOUNT_NUMBER', 'WIPAY_API_KEY'), STATUS: 'stocking' }), []);
+});
+
+test('the store can never be open without a way to pay', () => {
+  const noWipay = without('WIPAY_ENVIRONMENT', 'WIPAY_ACCOUNT_NUMBER', 'WIPAY_API_KEY');
+  assert.match(productionConfigErrors({ ...noWipay, STATUS: 'live' }).join(), /STATUS/);
+  assert.match(productionConfigErrors(noWipay).join(), /STATUS/, 'unset STATUS is live');
+  assert.deepEqual(productionConfigErrors({ ...valid, STATUS: 'live' }), []);
+  assert.deepEqual(productionConfigErrors({ ...noWipay, STATUS: 'maintenance' }), []);
 });
 
 test('WiPay set with sandbox settings or the public test key refuses to start', () => {

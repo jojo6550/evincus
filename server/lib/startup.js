@@ -1,7 +1,8 @@
 import { validDataKey } from './crypto.js';
 
 // Settings production refuses to start without. WiPay may be unset (payments off), but never half set, sandbox, or
-// the public test key, so a test card can never mark a live order paid. -> human-readable errors, [] when fine.
+// the public test key, so a test card can never mark a live order paid. An open store (STATUS live, the default) needs
+// WiPay set: it was closed because there was no way to pay. -> human-readable errors, [] when fine.
 export function productionConfigErrors(env) {
   const errors = [];
   const keys = ['ADMIN_TOKEN', 'NEWSLETTER_KEY'];
@@ -14,6 +15,8 @@ export function productionConfigErrors(env) {
     if (!env.WIPAY_ACCOUNT_NUMBER || !env.WIPAY_API_KEY) errors.push('Set both WIPAY_ACCOUNT_NUMBER and WIPAY_API_KEY, or neither');
     if (env.WIPAY_ENVIRONMENT !== 'live') errors.push('WIPAY_ENVIRONMENT must be live in production');
     if (env.WIPAY_API_KEY === '123') errors.push("WIPAY_API_KEY is WiPay's public sandbox key");
+  } else if ((env.STATUS || 'live') === 'live') {
+    errors.push('STATUS is live but WiPay is not set: set WIPAY_ACCOUNT_NUMBER and WIPAY_API_KEY, or keep STATUS=stocking');
   }
   return errors;
 }

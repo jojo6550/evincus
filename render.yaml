@@ -39,8 +39,9 @@ services:
       - key: API_URL
         value: https://evincus.shop
       # live | maintenance | stocking. Anything but live shows a 503 page on evincus.shop; onrender.com always shows the store.
+      # live needs WIPAY_ACCOUNT_NUMBER and WIPAY_API_KEY set: production refuses to start open without a way to pay.
       - key: STATUS
-        value: stocking
+        value: live
       # Asked for once when the Blueprint is created.
       - key: OWNER_EMAIL
         sync: false
