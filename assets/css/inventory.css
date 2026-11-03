@@ -38,7 +38,8 @@ main:focus { outline: 0; }
 }
 .tabs a {
   flex: 1; display: flex; align-items: center; justify-content: center; min-height: 44px; color: var(--smoke); text-decoration: none;
-  font: 800 12px var(--display); font-variation-settings: "wdth" 115; letter-spacing: .12em; text-transform: uppercase;
+  /* Narrow on phones so INVENTORY fits a quarter of a 320px screen. */
+  font: 800 11px var(--display); font-variation-settings: "wdth" 100; letter-spacing: .08em; text-transform: uppercase;
   border-top: 3px solid transparent;
 }
 .tabs a[aria-current="page"] { color: var(--bone); border-top-color: var(--hazard); background: var(--char); }
@@ -68,7 +69,7 @@ main:focus { outline: 0; }
   .bar__who { display: block; }
   #signout { margin-left: 0; }
   .tabs { position: sticky; inset: auto; top: var(--bar); align-self: start; flex-direction: column; height: calc(100dvh - var(--bar)); padding: 12px 0; border-top: 0; border-right: 1px solid var(--char); }
-  .tabs a { flex: none; justify-content: flex-start; padding: 0 24px; border-top: 0; border-left: 3px solid transparent; }
+  .tabs a { flex: none; justify-content: flex-start; padding: 0 24px; border-top: 0; border-left: 3px solid transparent; font-size: 12px; font-variation-settings: "wdth" 115; letter-spacing: .12em; }
   .tabs a[aria-current="page"] { border-left-color: var(--hazard); }
   .view { padding: 32px; }
 }

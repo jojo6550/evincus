@@ -191,6 +191,13 @@ test('a 366-day range is drawn a week to a bar, with positive widths and a bound
   assert.equal(bucketed(data.slice(0, 62)).length, 62, 'up to 62 days stay daily');
 });
 
+test('axis labels never round a half step', () => {
+  const ticks = cents => [...barChart([{ day: '2026-10-01', cents, orders: 1 }]).matchAll(/x="38" y="[\d.]+" text-anchor="end">([^<]+)</g)].map(m => m[1]);
+  assert.deepEqual(ticks(0), ['$1', '$0.50', '$0']);
+  assert.deepEqual(ticks(400), ['$5', '$2.50', '$0']);
+  assert.deepEqual(ticks(15000), ['$200', '$100', '$0']);
+});
+
 test('an empty or all-zero chart still renders', () => {
   assert.match(barChart([]), /^<svg /);
   assert.match(barChart([{ day: '2026-10-01', cents: 0, orders: 0 }]), /^<svg /);

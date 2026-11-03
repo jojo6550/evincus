@@ -43,7 +43,7 @@ export function barChart(days, { title = 'Sales per day' } = {}) {
   const peak = data.reduce((a, p) => (p.cents > (a?.cents ?? -1) ? p : a), null);
   const label = data.length ? `${title}, ${fmtDay(days[0].day)} to ${fmtDay(days.at(-1).day)}.${peak?.cents ? ` Highest ${dollars(peak.cents)}: ${peak.label}.` : ' No sales.'}` : `${title}. No days.`;
   const out = [`<svg viewBox="0 0 ${W} ${H}" role="group"><title>${esc(label)}</title>`];
-  for (const [f, y] of [[1, TOP], [.5, (TOP + BASE) / 2]]) out.push(`<line class="gl" x1="${LEFT}" x2="${W}" y1="${y}" y2="${y}"/><text x="${LEFT - 6}" y="${y + 3}" text-anchor="end">${dollars(max * f, true)}</text>`);
+  for (const [f, y] of [[1, TOP], [.5, (TOP + BASE) / 2]]) out.push(`<line class="gl" x1="${LEFT}" x2="${W}" y1="${y}" y2="${y}"/><text x="${LEFT - 6}" y="${y + 3}" text-anchor="end">${dollars(max * f, max * f % 100 === 0)}</text>`);
   out.push(`<line class="base" x1="${LEFT}" x2="${W}" y1="${BASE}" y2="${BASE}"/><text x="${LEFT - 6}" y="${BASE + 3}" text-anchor="end">$0</text>`);
   data.forEach((p, i) => {
     const x = LEFT + 4 + i * (bw + GAP), h = p.cents * scale, r = Math.min(RADIUS, bw / 2, h), y = BASE - h;
