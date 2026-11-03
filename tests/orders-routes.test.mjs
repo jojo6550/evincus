@@ -53,7 +53,7 @@ test('the open view lists paid and not-collected unfulfilled or ready orders fro
   const r = await list('/api/inventory/orders');
   assert.deepEqual(ids(r), [ready.id, paid.id, yesterday.id], 'newest first, last 30 days, the open view by default');
   assert.equal(r.json.cursor, null);
-  const summary = { id: ready.id, totalCents: 6998, payment: 'NOT_COLLECTED', fulfilment: 'READY', type: 'pickup', locationId: 'evincus-store', units: 2, placedAt: ready.placedAt };
+  const summary = { id: ready.id, totalCents: 6998, payment: 'NOT_COLLECTED', fulfilment: 'READY', type: 'pickup', locationId: 'evincus-store', units: 2, placedAt: ready.placedAt, stockCommitted: true };
   assert.deepEqual(r.json.orders[0], { ...summary, name: 'Ann L.' });
   assert.deepEqual((await list('/api/inventory/orders', viewer)).json.orders[0], summary, 'viewers get no name');
   assert.deepEqual(ids(await list('/api/inventory/orders?view=open&location=trendy-hats')), [paid.id, yesterday.id]);

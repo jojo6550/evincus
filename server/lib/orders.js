@@ -89,6 +89,9 @@ export async function orderAction(env, id, { opId, version, action }, { by, now 
       const current = JSON.parse(cur.value);
       if (cur.version !== version) throw new HttpError('order-changed', 409, { current, version: cur.version });
       const { record, movements } = applyAction(current, action, { by, now });
+      // A cancel releases the stock (applyAction moved it), so the hold is over: expiry must not release it again.
+      const holdDeletes = action?.type === 'cancel' && record.holdUntil ? [holdKey(Date.parse(record.holdUntil), id)] : [];
+      if (action?.type === 'cancel') { record.stockCommitted = false; delete record.holdUntil; }
       const ids = [...new Set(movements.map(m => splitLine(m.key)[0]))];
       // One check per moved stock doc plus the order and the op must fit @deno/kv's 10 checks; checkout caps an order at MAX_PRODUCTS.
       if (ids.length > MAX_PRODUCTS) throw new Error(`Order ${id} moves stock of ${ids.length} products; one commit fits ${MAX_PRODUCTS}`);
@@ -110,6 +113,7 @@ export async function orderAction(env, id, { opId, version, action }, { by, now 
       const ok = await env.ORDERS.commit({
         checks: [{ key, version: cur.version }, ...[...entries].map(([pid, e]) => ({ key: stockKey(pid), version: e.version })), op.check],
         puts: [...orderPuts(record), ...[...docs].map(([pid, doc]) => ({ key: stockKey(pid), value: stockDoc(doc) })), ...adjs, opPut(opId, 'order-action', { id })],
+        deletes: holdDeletes,
       });
       if (!ok) continue;
       bumpOrders();

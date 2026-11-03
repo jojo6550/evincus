@@ -4,6 +4,9 @@ import { parseCheckout, buildOrder } from '../lib/checkout.js';
 import { PICKUP_LOCATIONS } from '../../data/fulfillment.js';
 import { findOrder } from '../lib/orders.js';
 import { submitOrder } from '../lib/submissions.js';
+import { releaseExpiredHolds } from '../lib/holds.js';
+import { loadStock } from '../lib/stock.js';
+import { applyStock } from '../../data/catalog.js';
 
 export function checkoutOptions(req, c) {
   return json({ pickupLocations: PICKUP_LOCATIONS }, 200, { 'Cache-Control': 'no-store' });
@@ -30,6 +33,11 @@ export async function placeOrderRoute(req, c) {
     let q;
     try { q = quote(c.data, c.now, body?.items); }
     catch (err) { if (err instanceof CartError) return fail(c, 'invalid-cart', 400); throw err; }
+    // Short only because of unpaid orders whose hold expired: release those and price again on the freed stock.
+    if (q.lines.some(l => l.status === 'sold-out' || l.status === 'insufficient-stock') && await releaseExpiredHolds(c.env, c.now, { limit: 8 })) {
+      c.data = applyStock(c.data, await loadStock(c.env));
+      q = quote(c.data, c.now, body.items);
+    }
     // Never silently accept a changed price or capped quantity.
     if (!q.checkoutReady || q.lines.some(l => l.status !== 'ok') || body.expectedTotalCents !== q.totalCents) return fail(c, 'bag-changed', 409, { lines: q.lines });
     result = await submitOrder(c.env, id, fingerprint, await buildOrder(c.env, id, q, details, c.now, c.data.products), { products: c.data.products });

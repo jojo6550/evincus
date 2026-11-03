@@ -10,7 +10,7 @@ const idOf = name => name.slice(name.indexOf(':', 4) + 1); // day:<date>:<id>
 // Pages `day:` keys from the cursor stored at `cursorKey`, calling `each(key)` on each. The page is the unit of progress:
 // a spent deadline stops after the page and the saved cursor resumes the next run. `each` returns true to end the walk
 // after its page. -> true when the walk reached its end, false when the deadline cut it short.
-async function walkDays(env, cursorKey, deadline, each) {
+export async function walkDays(env, cursorKey, deadline, each) {
   let cursor = (await env.ORDERS.get(cursorKey)) ?? undefined;
   for (;;) {
     const page = await env.ORDERS.list({ prefix: 'day:', cursor, limit: PAGE });

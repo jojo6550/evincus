@@ -1,6 +1,7 @@
 import { UNPAID_TTL, orderPuts, holdKey, bumpOrders } from './orders.js';
 import { stockKey, checkoutStock } from './stock.js';
 import { HttpError } from './http.js';
+import { releaseExpiredHolds } from './holds.js';
 
 export const submissionKey = id => `submission:${id}`;
 // Every checkout of a product races on its one stock document. A lost round always means another order landed, so
@@ -15,6 +16,7 @@ const pause = round => new Promise(r => setTimeout(r, (5 + Math.random() * 20) *
 // `continueSelling`.
 export async function submitOrder(env, id, fingerprint, record, { products = [] } = {}) {
   const ids = [...new Set(record?.lines.map(l => l.id))];
+  let freed = false;
   for (let round = 0; round < ROUNDS; round++) {
     if (round) await pause(round);
     // Stock before the submission, so a shortage seen here can't be this token's own order landing in between.
@@ -27,7 +29,11 @@ export async function submitOrder(env, id, fingerprint, record, { products = [] 
     }
     if (!record) return { record: null };
     const stock = checkoutStock(entries, record.lines, products, { orderId: record.id, now: new Date(record.placedAt) });
-    if (stock.short) return { short: stock.short };
+    if (stock.short) {
+      // Units held by unpaid orders whose hold expired are free again: release those once and look again.
+      if (!freed) { freed = true; if (await releaseExpiredHolds(env, new Date(record.placedAt), { limit: 8 })) { round--; continue; } }
+      return { short: stock.short };
+    }
     const saved = await env.ORDERS.commit({
       checks: [{ key: submissionKey(id), version }, ...stock.checks],
       puts: [

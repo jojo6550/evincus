@@ -86,7 +86,7 @@ export const ERRORS = {
 
 const STATUSES = { active: 'Active', draft: 'Draft', archived: 'Archived' };
 const REASONS = { received: 'Received', correction: 'Correction', damaged: 'Damaged', returned: 'Returned', other: 'Other' };
-const HISTORY = { ...REASONS, order: 'Order' };
+const HISTORY = { ...REASONS, order: 'Order', 'hold-released': 'Hold expired' };
 const cents = v => (v == null ? '' : (v / 100).toFixed(2));
 
 export function marginText(p) {

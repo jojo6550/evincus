@@ -67,7 +67,7 @@ test('orders without stockCommitted never produce movements', () => {
 
 test('orderSummary has no personal fields and fits in 1 KiB', () => {
   const s = orderSummary(mk());
-  assert.deepEqual(Object.keys(s).sort(), ['fulfilment', 'locationId', 'payment', 'placedAt', 'totalCents', 'type', 'units']);
+  assert.deepEqual(Object.keys(s).sort(), ['fulfilment', 'locationId', 'payment', 'placedAt', 'stockCommitted', 'totalCents', 'type', 'units']);
   assert.equal(s.units, 3);
   assert.equal(s.locationId, 'loc1');
   assert.ok(JSON.stringify(s).length < 1024);

@@ -5,6 +5,7 @@ import { submissionKey } from './submissions.js';
 import { wipayConfig, newAttemptId, requestPayment, formatTotal } from './wipay.js';
 import { sendOrderEmails, BACKOFF_MINUTES } from './delivery.js';
 import { alert } from './alerts.js';
+import { lateFollowUp } from './holds.js';
 import { HttpError } from './http.js';
 
 export const attemptKey = id => `payment-attempt:${id}`;
@@ -82,6 +83,8 @@ export async function confirmPayment(c, { attempt, attemptId, transactionId, rep
       // Cost of goods as it stands when the money lands; a product gone since keeps the placed cost.
       lines: cur.lines.map(l => { const p = products.find(x => x.id === l.id); return p?.costCents != null ? { ...l, costCents: p.costCents } : l; }),
       events: [...(cur.events ?? []), { at: paidAt, type: 'paid', by: null }],
+      // The money is real even when the hold expired or the order was cancelled: accept it, then follow up.
+      ...(cur.stockCommitted !== true && { holdLost: true }),
     };
     const submission = await c.env.ORDERS.get(submissionKey(orderId));
     outcome = 'paid';
@@ -100,13 +103,19 @@ export async function confirmPayment(c, { attempt, attemptId, transactionId, rep
     };
   });
   if (outcome === 'other') return recordDuplicate(c, { orderId, attempt, attemptId, transactionId });
-  if (outcome !== 'paid') return { orderId, outcome };
+  if (outcome !== 'paid') {
+    // A replayed return finishes a follow-up a crash or failed alert left undone.
+    const o = await findOrder(c.env, orderId);
+    if (o?.holdLost && o.stockCommitted !== true && !o.alertedLate) await lateFollowUp(c, orderId);
+    return { orderId, outcome };
+  }
   c.log.info('payment.confirmed', { orderId, attemptId, transactionId, totalCents: record.totalCents });
   if (reportedTotal && reportedTotal !== formatTotal(record.totalCents)) {
     c.log.warn('payment.total_mismatch', { orderId, attemptId, transactionId, totalCents: record.totalCents });
   }
   c.waitUntil(sendOrderEmails(c, record));
-  return { orderId, outcome: 'paid' };
+  if (record.holdLost) return { orderId, outcome: 'paid', stock: await lateFollowUp(c, orderId) };
+  return { orderId, outcome: 'paid', stock: 'held' };
 }
 
 // The order was already paid by another transaction: the customer paid twice. Recorded once per transaction, and

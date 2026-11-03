@@ -84,7 +84,7 @@ export function rowsHtml(orders, { now = Date.now(), head = true, left }) {
 // ---- Order page ----
 
 const EVENTS = {
-  placed: () => 'Order placed', paid: () => 'Paid via WiPay', ready: () => 'Marked ready for pickup',
+  placed: () => 'Order placed', paid: () => 'Paid via WiPay', 'hold-released': () => 'Hold released (unpaid)', ready: () => 'Marked ready for pickup',
   fulfilled: (e, o) => (o.fulfillment?.type === 'shipping' ? 'Shipped' : 'Picked up'),
   cancel: e => `Cancelled · ${e.restock ? 'items back in stock' : 'not put back in stock'}`,
   refund: e => `Refund recorded: ${money(e.amountCents ?? 0)}${e.restock ? ' · back in stock' : ''}${e.reason ? ` · “${e.reason}”` : ''}`,
@@ -179,7 +179,8 @@ export function pageHtml(pg, { actions, labels, left, max }) {
   return `
     <a class="pp__back" href="#orders">‹ Orders</a>
     ${lost}
-    <div class="ord__head"><h1 class="pp__title">${esc(o.id)}</h1><span class="orow__tags">${badges(o.paymentStatus, o.fulfilmentStatus || 'UNFULFILLED', o.fulfillment?.type || 'pickup')}</span></div>
+    <div class="ord__head"><h1 class="pp__title">${esc(o.id)}</h1><span class="orow__tags">${badges(o.paymentStatus, o.fulfilmentStatus || 'UNFULFILLED', o.fulfillment?.type || 'pickup')}${o.holdLost ? badge(['Paid after hold expired', 'unpaid']) : ''}</span></div>
+    ${o.holdLost && o.stockCommitted !== true ? '<p class="note ord__warn">Payment arrived after the hold expired; restock or refund.</p>' : ''}
     <p class="pp__sub">Placed ${whenText(o.placedAt)}</p>
     ${pg.lost ? '' : `<p class="note ord__msg" role="status" aria-live="polite">${esc(pg.msg)}</p>`}
     ${actions.length ? `<div class="ord__acts">${actions.map(a => `<button type="button" class="${cls[a]}" data-act="${a}"${off}>${esc(labels[a])}</button>`).join('')}</div>` : ''}

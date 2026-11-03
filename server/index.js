@@ -19,6 +19,7 @@ import { checkoutOptions, placeOrderRoute } from './routes/checkout.js';
 import { payRoute, orderStatusRoute, wipayReturnRoute } from './routes/payments.js';
 import { currenciesRoute } from './routes/currencies.js';
 import { getRates } from './lib/fx.js';
+import { releaseExpiredHolds, sweepUnpaid, redriveLate } from './lib/holds.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
@@ -174,6 +175,11 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
         else if (failed) await env.ORDERS.put(attemptKey, String(attempts + 1), { expirationTtl: 172800 });
       })());
       run(getRates(c)); // fetches when the cached rates are over 12 hours old
+      run((async () => {
+        await releaseExpiredHolds(env, c.now, { deadline: c.deadline, log });
+        await redriveLate(c);
+        await sweepUnpaid(env, c.now, { deadline: c.deadline, log });
+      })());
       // After every job above has settled, so the health panel's "last run" means the run finished.
       ctx.waitUntil(Promise.all(runs).then(() => env.ORDERS.put('cron:lastRun', c.now.toISOString())).catch(logFailure));
     },

@@ -37,6 +37,8 @@ export function applyAction(record, action, { by = null, now } = {}) {
       break;
     case 'fulfilled':
       if (state !== 'UNFULFILLED' && !(state === 'READY' && typeOf(rec) === 'pickup')) throw invalid();
+      // Paid after its hold expired and not re-held: fulfilling would move no stock. Restock, or refund it.
+      if (rec.holdLost && rec.stockCommitted !== true) throw new HttpError('stock-short', 409);
       for (const l of rec.lines) { const q = remaining(rec, l); if (q > 0) move(l, -q, -q, 'sold'); }
       rec.fulfilmentStatus = 'FULFILLED';
       break;
@@ -96,5 +98,7 @@ export function orderSummary(r) {
     placedAt: r.placedAt,
     ...(r.payment?.paidAt && { paidAt: r.payment.paidAt }), // WiPay orders: the list shows their refund window
     ...(r.scrubbedAt && { scrubbed: true }), // lets the retention walk skip scrubbed orders without reading them
+    stockCommitted: r.stockCommitted === true,
+    ...(r.holdLost && { holdLost: true }), // paid after its hold expired: redriveLate finds it from metadata alone
   };
 }
