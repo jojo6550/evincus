@@ -1,4 +1,5 @@
 import { money } from '../../data/catalog.js';
+import { jamaicaTime, chargeRows, addressLines } from '../emails/html.js';
 import { HttpError } from './http.js';
 import { applyAction, orderSummary } from './order-flow.js';
 import { stockKey, stockDoc, adjKey, listAll } from './stock.js';
@@ -122,13 +123,20 @@ export async function orderAction(env, id, { opId, version, action }, { by, now 
 
 // Label/value rows for the owner's daily summary, from a revealed order (revealOrder).
 export function recordRows(r) {
+  const loc = r.fulfillment?.location;
+  const status = r.paymentStatus === 'PAID' ? `Paid ${jamaicaTime(r.payment.paidAt)}` : r.paymentStatus === 'NOT_COLLECTED' ? 'Placed — no payment collected' : 'Not paid';
   return [
-    ['Status', 'Placed — no payment collected'], ['Placed at', r.placedAt], ['Phone', r.customer.phone], ['Pickup', r.fulfillment.location ? `${r.fulfillment.location.name}, ${r.fulfillment.location.address ?? r.fulfillment.location.area + ' (address to be confirmed)'}` : ''], ['Notes', r.notes],
+    ['Status', status], ['Placed at', r.placedAt],
+    ['Customer', `${r.customer?.name ?? ''} <${r.customer?.email ?? ''}>`], ['Phone', r.customer?.phone ?? ''],
+    r.fulfillment?.type === 'shipping'
+      ? ['Ship to', r.address ? addressLines(r.address).join(', ') : '']
+      : ['Pickup', loc ? `${loc.name}, ${loc.address ?? loc.area + ' (address to be confirmed)'}` : ''],
+    ['Notes', r.notes ?? ''],
     ['Order', r.id],
-    ['Customer', `${r.customer.name} <${r.customer.email}>`],
+    ...(r.payment ? [['WiPay transaction', r.payment.transactionId]] : []),
+    ...(r.attemptId && r.paymentStatus !== 'PAID' ? [['WiPay attempt', r.attemptId]] : []),
     ...r.lines.map(l => [`${l.qty} × ${l.name}`, `${l.color} / ${l.size} at ${money(l.unitCents)}`]),
-    ['Subtotal', money(r.subtotalCents)],
-    ['Total', `${money(r.totalCents)} USD`],
+    ...chargeRows(r),
   ];
 }
 

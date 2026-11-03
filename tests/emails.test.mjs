@@ -119,3 +119,41 @@ test('a failed record update after sending still queues the email retry', async 
   assert.equal(orderPuts, 2);
   assert.deepEqual(retryState(env, id), { retries: 0, nextAt: NOW + 15 * MIN });
 });
+
+const paidPickup = () => ({
+  id: 'EV-1', status: 'PLACED', paymentStatus: 'PAID', placedAt: '2026-10-24T11:50:00.000Z',
+  lines: [{ key: 'a|Black|S', id: 'a', name: 'Alpha <Tee>', color: 'Black', size: 'S', qty: 2, unitCents: 3499 }],
+  subtotalCents: 6998, taxCents: 1050, feeCents: 389, taxBps: 1500, feeBps: 483, totalCents: 8437,
+  fulfillment: { type: 'pickup', location: { id: 'trendy-hats', name: 'TrendyHatz', area: 'Bankhouse Mall, Mandeville', address: null } },
+  payment: { provider: 'wipay', transactionId: 'SB-12-1-Ab3dE5gH7jK9mN1p-20261024120000', paidAt: '2026-10-24T12:00:00.000Z', chargedTotal: '84.37', currency: 'USD' },
+  customer: { firstName: 'Ann', lastName: 'Lee', name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, address: null, notes: '',
+});
+
+test('a paid receipt shows Jamaica paid time, transaction, the four money rows, pickup and the refund window', async () => {
+  const { receiptEmail } = await import('../server/emails/receipt.js');
+  const { html } = receiptEmail(paidPickup(), 'https://evincus.shop');
+  for (const s of ['Oct 24, 2026, 7:00 AM', 'SB-12-1-Ab3dE5gH7jK9mN1p-20261024120000', 'Subtotal', '$69.98', 'GCT (15%)', '$10.50',
+    'Processing fee (4.83%, non-refundable)', '$3.89', '$84.37 USD', 'TrendyHatz', 'https://evincus.shop/policies.html#refund', 'within 24 hours']) assert.ok(html.includes(s), s);
+  assert.ok(!html.includes('No payment was collected'));
+  assert.ok(html.includes('Alpha &lt;Tee&gt;'));
+});
+
+test('a shipping receipt shows the address and the shipping line', async () => {
+  const { receiptEmail } = await import('../server/emails/receipt.js');
+  const r = { ...paidPickup(), fulfillment: { type: 'shipping' }, address: { line1: '1 Main St', line2: 'Apt <2>', city: 'Toronto', region: 'Ontario', postalCode: 'M5V 2T6', country: 'CA' } };
+  const { html } = receiptEmail(r, 'https://evincus.shop');
+  for (const s of ['1 Main St', 'Apt &lt;2&gt;', 'Toronto', 'Ontario', 'M5V 2T6', 'Canada', "We'll contact you about shipping cost and timing"]) assert.ok(html.includes(s), s);
+  assert.ok(!html.includes('TrendyHatz'));
+});
+
+test('a legacy not-collected order still renders in the receipt and the summary rows', async () => {
+  const { receiptEmail } = await import('../server/emails/receipt.js');
+  const { recordRows, revealOrder } = await import('../server/lib/orders.js');
+  const legacy = { ...paidPickup(), paymentStatus: 'NOT_COLLECTED', payment: undefined, taxCents: undefined, feeCents: undefined, taxBps: undefined, feeBps: undefined, totalCents: 6998,
+    customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, payer: { name: 'Ann Lee', email: 'ann@example.com' }, address: undefined, notes: 'hi' };
+  const shown = await revealOrder(makeEnv(), legacy);
+  assert.ok(receiptEmail(shown, 'https://evincus.shop').html.includes('$69.98 USD'));
+  const rows = recordRows(shown);
+  assert.ok(rows.some(([k, v]) => k === 'Customer' && v === 'Ann Lee <ann@example.com>'));
+  assert.ok(!rows.some(([k]) => k.startsWith('GCT')));
+});

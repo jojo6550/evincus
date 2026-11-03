@@ -2,6 +2,7 @@ import { sendEmail } from './email.js';
 import { alert } from './alerts.js';
 import { findOrder, changeOrder, retryKey, revealOrder } from './orders.js';
 import { receiptEmail } from '../emails/receipt.js';
+import { siteUrl } from './newsletter.js';
 
 export const BACKOFF_MINUTES = [15, 30, 60, 120, 240];
 const MIN = 60_000;
@@ -11,7 +12,7 @@ export async function deliverOrderEmails(c, record) {
   const attempt = record.email.attempts + 1;
   const shown = await revealOrder(c.env, record);
   const jobs = [
-    ['customer', shown.customer.email, () => receiptEmail(shown)],
+    ['customer', shown.customer.email, () => receiptEmail(shown, siteUrl(c.env))],
   ];
   for (const [recipient, to, build] of jobs) {
     if (record.email[recipient] === 'sent') continue;

@@ -6,9 +6,11 @@ import { createApp } from '../server/index.js';
 import { revealOrder } from '../server/lib/orders.js';
 import { sendOrderEmails } from '../server/lib/delivery.js';
 import { COUNTRIES } from '../data/countries.js';
+import { unseal } from '../server/lib/crypto.js';
+import { WIPAY, payOrder } from './helpers/pay.mjs';
 import { FIXTURE, NOW, fixtureStock } from './helpers/fixture.mjs';
 
-const envForOrders = makeEnv;
+const envForOrders = (over = {}) => makeEnv({ ...WIPAY, ...over });
 const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { firstName: 'Ann', lastName: 'Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, notes: '<please pack carefully>', expectedTotalCents: 8437 });
 const place = (b, env, data) => call('POST', '/api/orders', { body: b, env, data });
 const oneUnit = () => ({ ...body(), items: [{ ...body().items[0], qty: 1 }], expectedTotalCents: 4218 });
@@ -120,9 +122,11 @@ test('customer markup is escaped in receipts and daily summaries', async () => {
   const up = fakeUpstreams();
   const env = envForOrders();
   const b = body(); b.customer.firstName = '<img src=x onerror=alert(1)>'; b.notes = '<script>alert(1)</script>';
-  assert.equal((await place(b, env)).status, 201);
+  const r = await place(b, env);
+  assert.equal(r.status, 201);
+  await payOrder(env, r.json.id);
   await cron(env, '2026-10-04T13:00:00Z');
-  assert.ok(up.emails.length >= 1);
+  assert.ok(up.emails.length >= 2);
   for (const email of up.emails) {
     assert.doesNotMatch(email.html, /<script>|<img src=x/);
     assert.match(email.html, /&lt;/);
@@ -209,33 +213,67 @@ test('a failed receipt is queued and retried without losing the order', async ()
   assert.equal(env.ORDERS.store.has(`email-retry:${r.json.id}`), false);
 });
 
-test('daily digest waits for 8am Jamaica, includes orders, escapes notes, and sends only once', async () => {
+const placePaid = async (env, b = body(), clock) => { const r = await place(b, env); await payOrder(env, r.json.id, clock && { clock }); return r.json.id; };
+const ownerMails = up => up.emails.filter(e => e.to[0] === 'owner@evincus.shop');
+const html = async (env, part) => (part.sealed ? unseal(env, part.sealed) : part.html);
+
+test('daily summary waits for 8am Jamaica, lists paid orders with contact, money and transaction, and sends once', async () => {
   const up = fakeUpstreams(); const env = envForOrders();
-  await place(body(), env);
+  const id = await placePaid(env);
   await cron(env, '2026-10-04T12:45:00Z');
-  assert.equal(up.emails.length, 0);
+  assert.equal(ownerMails(up).length, 0);
   await cron(env, '2026-10-04T13:00:00Z');
-  const digest = up.emails.find(e => e.to[0] === env.OWNER_EMAIL);
+  const [digest] = ownerMails(up);
   assert.match(digest.subject, /2026-10-03 \(1 orders\)/);
-  assert.ok(digest.html.includes('ann@example.com'));
-  assert.ok(digest.html.includes('&lt;please pack carefully&gt;'));
+  const txn = (await env.ORDERS.get(`order:${id}`, 'json')).payment.transactionId;
+  for (const s of ['ann@example.com', 'Ann Lee', '+1 555 123 4567', 'TrendyHatz', txn, 'Subtotal', 'GCT (15%)', 'Processing fee (4.83%, non-refundable)', '$84.37 USD', 'Collected', '&lt;please pack carefully&gt;']) assert.ok(digest.html.includes(s), s);
   assert.ok(!digest.html.includes('<please pack carefully>'));
-  assert.ok(digest.html.includes('no payment collected'));
+  assert.ok(!/order value/i.test(digest.html));
   await cron(env, '2026-10-04T13:15:00Z');
-  assert.equal(up.emails.length, 1);
+  assert.equal(ownerMails(up).length, 1);
 });
 
-test('daily digest failures retry with stable content and idempotency key', async () => {
+test('the summary lists orders that reached WiPay but are unpaid, with contact and attempt, and leaves out paid ones', async () => {
+  const up = fakeUpstreams(); const env = envForOrders();
+  const unpaid = (await place({ ...body(), customer: { ...body().customer, firstName: 'Bo', email: 'bo@example.com' } }, env)).json.id;
+  await call('POST', `/api/orders/${unpaid}/pay`, { body: {}, env });
+  const neverPaid = (await place({ ...body(), customer: { ...body().customer, firstName: 'Cy', email: 'cy@example.com' } }, env)).json.id; // never reached WiPay
+  await placePaid(env);
+  await cron(env, '2026-10-04T13:00:00Z');
+  const [digest] = ownerMails(up);
+  const attemptId = (await env.ORDERS.get(`order:${unpaid}`, 'json')).attemptId;
+  const section = digest.html.slice(digest.html.indexOf('Reached WiPay, not paid'));
+  assert.ok(section.includes(unpaid) && section.includes('bo@example.com') && section.includes(attemptId));
+  assert.ok(!digest.html.includes('cy@example.com') && !digest.html.includes(neverPaid));
+  assert.ok(!section.includes('ann@example.com'), 'a paid order is not listed as unpaid');
+});
+
+test('an order placed on one day and paid the next is in the paid day\'s summary only', async () => {
+  const up = fakeUpstreams(); const env = envForOrders();
+  await placePaid(env, body(), () => NOW + 86400000);
+  await cron(env, '2026-10-04T13:00:00Z');
+  await cron(env, '2026-10-05T13:00:00Z');
+  const [day3, day4] = ['2026-10-03', '2026-10-04'].map(d => ownerMails(up).find(e => e.subject.includes(d)));
+  assert.match(day3.subject, /\(0 orders\)/);
+  assert.match(day4.subject, /\(1 orders\)/);
+});
+
+test('saved summaries are sealed, resend unchanged after a failure, and a legacy plaintext part still sends', async () => {
   let fail = true;
   const up = fakeUpstreams({ resend: { fail: b => fail && b.to[0] === 'owner@evincus.shop' } });
-  const env = envForOrders(); await place(body(), env);
+  const env = envForOrders(); await placePaid(env);
   await cron(env, '2026-10-04T13:00:00Z');
   const job = await env.ORDERS.get('digest-pending:2026-10-03', 'json');
   assert.equal(job.parts[0].sent, false);
+  assert.ok(!env.ORDERS.store.get('digest-pending:2026-10-03').value.includes('ann@example.com'));
+  assert.equal(job.parts[0].html, undefined);
+  await env.ORDERS.put('digest-pending:2026-09-30', JSON.stringify({ day: '2026-09-30', parts: [{ sent: false, subject: 'old', html: '<p>legacy</p>' }] }));
   fail = false;
   await cron(env, '2026-10-04T13:15:00Z');
-  assert.equal(up.emails[0].html, job.parts[0].html);
-  assert.equal(up.emails[0].idempotencyKey, 'daily-orders-2026-10-03-0');
+  const sent = ownerMails(up);
+  const mine = sent.find(e => e.idempotencyKey === 'daily-orders-2026-10-03-0');
+  assert.equal(mine.html, await html(env, job.parts[0]));
+  assert.ok(sent.some(e => e.html === '<p>legacy</p>'));
   assert.equal(await env.ORDERS.get('digest-pending:2026-10-03'), null);
 });
 
@@ -257,14 +295,14 @@ test('daily digest reports an empty day and splits large days into stable parts'
   const up = fakeUpstreams();
   const empty = envForOrders();
   await cron(empty, '2026-10-04T13:00:00Z');
-  assert.match(up.emails[0].html, /No orders today/);
+  assert.match(up.emails[0].html, /No paid orders/);
   const env = envForOrders();
-  const placed = await place(body(), env);
-  const record = await env.ORDERS.get(`order:${placed.json.id}`, 'json');
+  const id0 = await placePaid(env);
+  const record = await env.ORDERS.get(`order:${id0}`, 'json');
   for (let i = 0; i < 21; i++) {
     const id = `extra-${i}`;
     await env.ORDERS.put(`order:${id}`, JSON.stringify({ ...record, id }));
-    await env.ORDERS.put(`day:2026-10-03:${id}`, '');
+    await env.ORDERS.put(`paid:2026-10-03:${id}`, '');
   }
   await cron(env, '2026-10-04T13:00:00Z');
   const parts = up.emails.filter(e => e.subject.includes('(22 orders)'));
