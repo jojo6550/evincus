@@ -1,9 +1,10 @@
-// Bag drawer: a native <dialog> with bag, checkout and confirmation steps.
+// Bag drawer: a native <dialog> with bag and checkout steps. Payment confirmation is order.html, after WiPay.
 import { money, MAX_QTY } from '../../data/catalog.js';
 import * as cart from './cart.js';
 import * as quote from './quote.js';
 import { mountCheckout } from './checkout.js';
 import { imageAttrs } from './images.js';
+import { formatPrice, currentCurrency, onCurrencyChange } from './currency.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -13,22 +14,25 @@ const STATUS_TEXT = {
   'era-ended': 'No longer sold',
   'unknown-item': 'No longer available',
   'qty-capped': 'Limit of 10 per item',
+  'insufficient-stock': l => `Only ${esc(l.available)} left`,
 };
-const BUYABLE = new Set(['ok', 'qty-capped', undefined]);
-const TITLES = { bag: 'Your cart', pay: 'Check out', paid: 'Order placed' };
+const BUYABLE = new Set(['ok', 'qty-capped', 'insufficient-stock', undefined]);
+const TITLES = { bag: 'Your cart', pay: 'Check out' };
 
 let dialog, title, body, foot;
 let step = 'bag';
 
 function lineHtml(l) {
   const canChange = BUYABLE.has(l.status);
+  const text = STATUS_TEXT[l.status];
+  const status = typeof text === 'function' ? text(l) : text;
   return `
     <li class="line${canChange ? '' : ' is-unavailable'}" data-key="${esc(l.key)}">
       <span class="line__img">${l.image ? `<img ${imageAttrs(l.image, '96px')} alt="" loading="lazy">` : ''}</span>
       <div class="line__info">
         <h3 class="line__name">${esc(l.name ?? 'Item no longer available')}</h3>
         <span class="line__meta mono">${esc(l.color)}, size ${esc(l.size)}</span>
-        ${STATUS_TEXT[l.status] ? `<span class="line__status mono">${STATUS_TEXT[l.status]}</span>` : ''}
+        ${status ? `<span class="line__status mono">${status}</span>` : ''}
         ${canChange ? `
         <div class="qty" role="group" aria-label="Quantity">
           <button type="button" data-act="dec" aria-label="Remove one">−</button>
@@ -37,13 +41,22 @@ function lineHtml(l) {
         </div>` : ''}
       </div>
       <div class="line__end">
-        ${canChange && l.totalCents !== undefined ? `<span class="price">${money(l.totalCents)}</span>` : ''}
+        ${canChange && l.totalCents !== undefined ? `<span class="price">${formatPrice(l.totalCents)}</span>` : ''}
         <button type="button" class="text-btn mono" data-act="remove">Remove</button>
       </div>
     </li>`;
 }
 
 const row = (label, value, cls = '') => `<div class="sum__row${cls}"><span>${label}</span><span>${value}</span></div>`;
+const pct = bps => `${bps / 100}%`;
+// Rates come from the quote, so a rate change in data/fees.js needs no client edit. The total is always the USD
+// amount WiPay charges; other rows follow the chosen currency.
+export const breakdownHtml = q => `
+    ${row('Subtotal', formatPrice(q.subtotalCents))}
+    ${row(`${esc(q.tax.label)} (${pct(q.tax.bps)})`, formatPrice(q.taxCents))}
+    ${row(`${esc(q.fee.label)} (${pct(q.fee.bps)}, non-refundable)`, formatPrice(q.feeCents))}
+    ${row('Total', `${money(q.totalCents)} <small class="mono">USD</small>`, ' sum__total')}
+    ${currentCurrency() === 'USD' ? '' : `<p class="sum__est mono">${formatPrice(q.totalCents)}. Your bank sets the final rate.</p>`}`;
 const checkout = enabled => `<button type="button" class="btn btn--solid bag__go" data-act="checkout"${enabled ? '' : ' disabled'}>Check out</button>`;
 
 function footHtml(s) {
@@ -54,21 +67,21 @@ function footHtml(s) {
   }
   if (s.status !== 'ready' || !s.quote) {
     return `
-      ${row('Subtotal', money(cart.subtotal()))}
+      ${row('Subtotal', formatPrice(cart.subtotal()))}
       <p class="bag__note is-loading" role="status">Checking prices and availability…</p>
       ${checkout(false)}`;
   }
   const q = s.quote;
   if (!q.checkoutReady) {
+    const unavailable = quote.unavailableKeys().length > 0;
     return `
-      <p class="bag__note" role="status">Some items can't be bought. Remove them to check out.</p>
-      <button type="button" class="btn btn--line bag__go" data-act="remove-unavailable">Remove unavailable items</button>
-      ${row('Subtotal', money(q.subtotalCents))}
+      <p class="bag__note" role="status">${q.problem ? esc(q.message) : `Some items can't be bought. ${unavailable ? 'Remove them' : 'Lower the quantity'} to check out.`}</p>
+      ${unavailable ? '<button type="button" class="btn btn--line bag__go" data-act="remove-unavailable">Remove unavailable items</button>' : ''}
+      ${row('Subtotal', formatPrice(q.subtotalCents))}
       ${checkout(false)}`;
   }
   return `
-    ${row('Subtotal', money(q.subtotalCents))}
-    ${row('Total', `${money(q.totalCents)} <small class="mono">USD</small>`, ' sum__total')}
+    ${breakdownHtml(q)}
     ${checkout(true)}`;
 }
 
@@ -112,29 +125,12 @@ function renderPay() {
   title.textContent = TITLES.pay;
   body.innerHTML = `
     <div class="pay">
-      <p class="pay__copy">Refund requests must be sent within 24 hours of purchase. Review our <a href="/policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="/policies.html#pickup" target="_blank" rel="noopener">pickup policy</a> and <a href="/policies.html#terms" target="_blank" rel="noopener">terms</a> before placing your order.</p>
+      <p class="pay__copy">You'll pay by card on WiPay's secure page. Refund requests must be sent within 24 hours of purchase. Review our <a href="/policies.html#refund" target="_blank" rel="noopener">refund policy</a>, <a href="/policies.html#pickup" target="_blank" rel="noopener">pickup</a> and <a href="/policies.html#shipping" target="_blank" rel="noopener">shipping</a> policies and <a href="/policies.html#terms" target="_blank" rel="noopener">terms</a> before you pay.</p>
       <div class="checkout-mount"></div>
     </div>`;
   foot.innerHTML = '';
   foot.hidden = true;
-  mountCheckout(body.querySelector('.checkout-mount'), { q, onPlaced: onPaid, onBagChanged: () => { go('bag'); quote.refreshQuote(); } });
-}
-
-function renderPaid(order) {
-  title.textContent = TITLES.paid;
-  body.innerHTML = `
-    <div class="paid">
-      <div class="paid__stamp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5"/></svg>Payment complete</div>
-      <h3 class="paid__title" tabindex="-1">${order.name ? `Thank you, ${esc(order.name)}.` : 'Thank you.'}</h3>
-      <p>Your order is placed. No payment was collected. Your confirmation will be emailed to ${esc(order.email)}.</p>
-      <p>${order.fulfillment ? `Pickup at ${esc(order.fulfillment.location.name)}. ` : ''}We'll contact you when it's ready and confirm the pickup details.</p>
-      <p class="paid__ref mono">Order reference <b>${esc(order.id)}</b></p>
-      <p>Questions? DM <a href="https://www.instagram.com/evincus.sw/" target="_blank" rel="noopener">@evincus.sw</a> on Instagram with your order reference.</p>
-      <button type="button" class="btn btn--solid" data-act="keep">Keep shopping</button>
-    </div>`;
-  foot.innerHTML = '';
-  foot.hidden = true;
-  body.querySelector('.paid__title').focus();
+  mountCheckout(body.querySelector('.checkout-mount'), { q, breakdown: breakdownHtml, onBagChanged: () => { go('bag'); quote.refreshQuote(); } });
 }
 
 function render() {
@@ -147,13 +143,6 @@ function go(next) {
   else render();
   body.scrollTop = 0;
   if (dialog.open) title.focus();
-}
-
-function onPaid(order, ordered) {
-  cart.consume(ordered);
-  step = 'paid';
-  if (!dialog.open) dialog.showModal();
-  renderPaid(order);
 }
 
 function onQuote() {
@@ -185,7 +174,7 @@ function onAction(e) {
   if (act === 'remove-unavailable') cart.removeMany(quote.unavailableKeys());
   if (act === 'checkout' && quote.isCheckoutReady()) go('pay');
   if (act === 'back') go('bag');
-  if (act === 'shop' || act === 'keep') closeBag();
+  if (act === 'shop') closeBag();
 }
 
 export function openBag() {
@@ -221,6 +210,7 @@ export function initBag() {
   dialog.addEventListener('close', () => { if (step !== 'bag') go('bag'); });
 
   cart.onChange(() => { render(); quote.scheduleQuote(); });
+  onCurrencyChange(render);
   quote.onQuote(onQuote);
   render();
 }

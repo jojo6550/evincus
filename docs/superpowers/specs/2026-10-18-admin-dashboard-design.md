@@ -1,6 +1,6 @@
 # Admin dashboard (`/login-admin`): design
 
-Date: 2026-10-18. Status: draft for owner approval.
+Date: 2026-10-18. Status: replaced by `2026-10-27-inventory-design.md`.
 
 ## Intent
 

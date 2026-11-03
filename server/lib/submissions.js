@@ -1,31 +1,51 @@
-import { ORDER_TTL, orderKey, retryKey, dayKey } from './orders.js';
+import { UNPAID_TTL, orderPuts, holdKey, bumpOrders } from './orders.js';
+import { stockKey, checkoutStock } from './stock.js';
+import { HttpError } from './http.js';
+import { releaseExpiredHolds } from './holds.js';
 
 export const submissionKey = id => `submission:${id}`;
-const ROUNDS = 3;
+// Every checkout of a product races on its one stock document. A lost round always means another order landed, so
+// 10 rounds see 10 shoppers through; a short jittered pause spreads the retries.
+const ROUNDS = 10;
+const pause = round => new Promise(r => setTimeout(r, (5 + Math.random() * 20) * (1 + round / 4)));
 
-// One order per checkout token. The submission, the order, its day index and its email retry job land in one
-// atomic commit that only succeeds while the submission is unchanged since it was read, so double clicks and network
-// retries can't create a second order or a half-saved one. The retry job is written before the order is
-// acknowledged, so a confirmation lost to a shutdown is still sent by the cron.
-export async function submitOrder(env, id, fingerprint, record) {
+// One order per checkout token. The submission, the order, its day index, its stock hold and its stock commitment
+// land in one atomic commit that only succeeds while the submission and every stock document read are unchanged, so
+// double clicks and network retries can't create a second order or a half-saved one, and two shoppers can't both buy
+// the last unit. The order is unpaid: its receipt waits for payment. `products` are the internal ones, read for
+// `continueSelling`.
+export async function submitOrder(env, id, fingerprint, record, { products = [] } = {}) {
+  const ids = [...new Set(record?.lines.map(l => l.id))];
+  let freed = false;
   for (let round = 0; round < ROUNDS; round++) {
+    if (round) await pause(round);
+    // Stock before the submission, so a shortage seen here can't be this token's own order landing in between.
+    // Every round reads again: a lost round's versions would only fail again.
+    const entries = new Map(await Promise.all(ids.map(async pid => [pid, await env.ORDERS.getEntry(stockKey(pid))])));
     const { value, version } = await env.ORDERS.getEntry(submissionKey(id));
     if (value) {
       const saved = JSON.parse(value);
       return saved.fingerprint === fingerprint ? { record: saved.record } : { conflict: true };
     }
     if (!record) return { record: null };
-    const ttl = { expirationTtl: ORDER_TTL };
+    const stock = checkoutStock(entries, record.lines, products, { orderId: record.id, now: new Date(record.placedAt) });
+    if (stock.short) {
+      // Units held by unpaid orders whose hold expired are free again: release those once and look again.
+      if (!freed) { freed = true; if (await releaseExpiredHolds(env, new Date(record.placedAt), { limit: 8 })) { round--; continue; } }
+      return { short: stock.short };
+    }
     const saved = await env.ORDERS.commit({
-      checks: [{ key: submissionKey(id), version }],
+      checks: [{ key: submissionKey(id), version }, ...stock.checks],
       puts: [
-        { key: submissionKey(id), value: JSON.stringify({ fingerprint, record }), opts: ttl },
-        { key: orderKey(record.id), value: JSON.stringify(record), opts: ttl },
-        { key: dayKey(record), value: '', opts: ttl },
-        { key: retryKey(record.id), value: JSON.stringify({ retries: 0, nextAt: Date.parse(record.placedAt) }) },
+        // Payment starting rewrites this with ORDER_TTL, so a payment WiPay holds always has its submission.
+        { key: submissionKey(id), value: JSON.stringify({ fingerprint, record }), opts: { expirationTtl: UNPAID_TTL } },
+        ...orderPuts(record),
+        { key: holdKey(Date.parse(record.holdUntil), record.id), value: '' },
+        ...stock.puts,
       ],
     });
-    if (saved) return { record };
+    if (saved) { bumpOrders(); return { record }; }
   }
-  throw new Error('Order storage unavailable');
+  // Handled, not unhandled: the shopper retries with the same token, and the owner gets no alert.
+  throw new HttpError('busy', 503);
 }

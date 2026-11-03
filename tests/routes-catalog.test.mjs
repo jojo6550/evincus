@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { call, makeEnv, captureLogs, fakeUpstreams } from './helpers/fake-env.mjs';
+import { call, callWithoutData, seedFromFixture, makeEnv, putStock, captureLogs, fakeUpstreams } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 import { redact } from '../server/lib/log.js';
+import { productImages } from '../server/lib/seo.js';
+import { serveStatic } from '../server/static.js';
+
+const imagePaths = (eras, products) => [...new Set([...eras.map(e => e.hero), ...products.flatMap(productImages)])].sort();
 
 test('GET /api/eras lists eras with status; upcoming has no story and no products', async () => {
   const { status, json, res } = await call('GET', '/api/eras');
@@ -32,7 +36,7 @@ test('upcoming era returns a teaser with no products or story', async () => {
 test('live era returns story and products with buyable flags', async () => {
   const { json } = await call('GET', '/api/eras/alpha');
   assert.equal(json.story, 'Alpha story');
-  assert.deepEqual(json.products.map(p => [p.id, p.buyable, p.soldOutVariants]), [['alpha-tee', true, ['White|M']], ['alpha-hood', false, []]]);
+  assert.deepEqual(json.products.map(p => [p.id, p.buyable, p.soldOutVariants]), [['alpha-tee', true, ['White|M']], ['alpha-hood', false, ['Black|M']]]);
 });
 
 test('unknown era is 404 with a shopper message and the request id', async () => {
@@ -125,7 +129,7 @@ test('every request logs one request line with route, status and ms', async () =
   try { await call('GET', '/api/eras/nope'); } finally { logs.restore(); }
   const req = logs.lines.filter(l => l.event === 'request');
   assert.equal(req.length, 1);
-  assert.equal(req[0].route, 'GET /api/eras/nope');
+  assert.equal(req[0].route, 'GET /api/eras/:param');
   assert.equal(req[0].status, 404);
   assert.equal(req[0].level, 'warn');
   assert.equal(typeof req[0].ms, 'number');
@@ -162,4 +166,94 @@ test('STATUS refuses the API on the public domain with 503, except health and ne
   assert.notEqual((await call('GET', '/api/health', { env, headers: { host: 'evincus.shop' } })).status, 503);
   assert.notEqual((await call('POST', '/api/newsletter/unsubscribe', { env, headers: { host: 'evincus.shop' }, body: {} })).status, 503);
   assert.equal((await call('GET', '/api/eras', { env, headers: { host: 'evincus-dev.onrender.com' } })).status, 200);
+});
+
+test('without injected data the API serves the KV catalog with stock applied and a media map', async () => {
+  const env = makeEnv(); await seedFromFixture(env);
+  const r = await callWithoutData('GET', '/api/catalog', { env });
+  assert.equal(r.status, 200);
+  const img = r.json.products.find(p => p.id === 'alpha-tee').colors[0].images[0];
+  assert.match(img, /^media\//);
+  assert.ok(r.json.media[img].variants.length);
+  assert.equal(r.json.products.some(p => 'costCents' in p || 'available' in p || 'skus' in p), false);
+  assert.deepEqual(Object.keys(r.json.media).sort(), imagePaths(r.json.eras, r.json.products));
+  assert.deepEqual(r.json.products.map(p => [p.id, p.buyable, p.soldOutVariants]).sort(),
+    [['alpha-hood', false, ['Black|M']], ['alpha-tee', true, ['White|M']], ['old-tee', false, []]]);
+
+  const era = await callWithoutData('GET', '/api/eras/alpha', { env });
+  assert.deepEqual(Object.keys(era.json.media).sort(), imagePaths([era.json], era.json.products));
+  const product = await callWithoutData('GET', '/api/products/alpha-tee', { env });
+  assert.deepEqual(Object.keys(product.json.media).sort(), imagePaths([], [product.json]));
+  assert.ok(Object.keys(product.json.media).length);
+});
+
+test('health counts the KV catalog and fails until it is seeded', async () => {
+  const env = makeEnv();
+  const empty = await callWithoutData('GET', '/api/health', { env });
+  assert.equal(empty.status, 503);
+  assert.deepEqual(empty.json.catalog, { eras: 0, products: 0 });
+  await seedFromFixture(env);
+  const seeded = await callWithoutData('GET', '/api/health', { env });
+  assert.equal(seeded.status, 200);
+  assert.deepEqual(seeded.json.catalog, { eras: 3, products: 4 });
+});
+
+test('without injected data, a KV failure makes health 503 with kv error, and routes that never read the catalog keep working', async () => {
+  for (const failing of [() => true, key => key === 'catalog:rev']) {
+    const env = makeEnv(); await seedFromFixture(env);
+    env.ORDERS.failGets = failing;
+    const logs = captureLogs();
+    let r;
+    try { r = await callWithoutData('GET', '/api/health', { env }); } finally { logs.restore(); }
+    assert.equal(r.status, 503);
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.kv, 'error');
+    assert.ok(!logs.lines.some(l => l.event === 'unhandled'));
+  }
+  const env = makeEnv(); await seedFromFixture(env);
+  env.ORDERS.failGets = key => key === 'catalog:rev';
+  const logs = captureLogs();
+  let beacon;
+  try { beacon = await callWithoutData('POST', '/api/beacon', { env, raw: JSON.stringify({ event: 'api-unreachable' }) }); } finally { logs.restore(); }
+  assert.equal(beacon.status, 204);
+});
+
+test('a draft product is absent from catalog, era, product, quote, product page and sitemap', async () => {
+  const data = {
+    ...FIXTURE,
+    eras: FIXTURE.eras.map(e => (e.slug === 'old' ? { ...e, state: 'archived' } : e)),
+    products: [
+      ...FIXTURE.products.map(p => (p.id === 'alpha-hood' ? { ...p, status: 'draft' } : p)),
+      { ...FIXTURE.products[1], id: 'alpha-cap', name: 'Alpha Cap', status: 'archived' },
+    ],
+  };
+  const env = makeEnv(); await seedFromFixture(env, data);
+  putStock(env, 'alpha-hood|Black|M', 10); putStock(env, 'alpha-cap|Black|M', 10);
+  const hidden = ['alpha-hood', 'alpha-cap', 'old-tee'];
+  const leaks = text => [...hidden, 'Alpha Hood', 'Alpha Cap', 'Old Tee'].filter(s => text.includes(s));
+
+  const catalog = await callWithoutData('GET', '/api/catalog', { env });
+  assert.deepEqual(catalog.json.products.map(p => p.id), ['alpha-tee']);
+  assert.deepEqual(catalog.json.eras.map(e => e.slug), ['future', 'alpha']);
+  assert.deepEqual(leaks(catalog.text), []);
+  const eras = await callWithoutData('GET', '/api/eras', { env });
+  assert.deepEqual(eras.json.eras.map(e => [e.slug, e.productCount]), [['future', 0], ['alpha', 1]]);
+  const era = await callWithoutData('GET', '/api/eras/alpha', { env });
+  assert.deepEqual(era.json.products.map(p => p.id), ['alpha-tee']);
+  assert.deepEqual(leaks(era.text), []);
+  assert.equal((await callWithoutData('GET', '/api/eras/old', { env })).status, 404);
+  for (const id of hidden) assert.equal((await callWithoutData('GET', `/api/products/${id}`, { env })).json.error.code, 'unknown-product', id);
+
+  const q = await callWithoutData('POST', '/api/bag/quote', { env, body: { items: hidden.map(id => ({ id, color: 'Black', size: 'M', qty: 1 })) } });
+  assert.deepEqual(q.json.lines.map(l => l.status), ['unknown-item', 'unknown-item', 'unknown-item']);
+  assert.deepEqual(leaks(q.text).filter(s => !hidden.includes(s)), [], 'lines echo the requested ids, never names');
+
+  const page = { 'index.html': '<head><!-- seo --><title>Home</title><!-- /seo --></head>', '404.html': 'not found' };
+  const readFile = async path => { if (!(path in page)) throw Object.assign(new Error('missing'), { code: 'ENOENT' }); return new TextEncoder().encode(page[path]); };
+  const at = path => serveStatic(new Request(`https://shop.test${path}`), { env, readFile, now: new Date(NOW) });
+  assert.equal((await at('/products/alpha-tee')).status, 200);
+  for (const id of hidden) assert.equal((await at(`/products/${id}`)).status, 404, id);
+  const sitemap = await (await at('/sitemap.xml')).text();
+  assert.match(sitemap, /products\/alpha-tee/);
+  assert.deepEqual(leaks(sitemap), []);
 });

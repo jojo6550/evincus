@@ -15,7 +15,7 @@ services:
     # Render issues TLS and adds www.evincus.shop as a redirect to the root.
     domains:
       - evincus.shop
-    # Orders, subscribers, sales and rate limits. Snapshotted daily by Render.
+    # Orders, subscribers, sales, rate limits, the catalog, stock and its photos. Snapshotted daily by Render.
     disk:
       name: kv
       mountPath: /var/data
@@ -23,6 +23,8 @@ services:
     envVars:
       - key: KV_PATH
         value: /var/data/kv.sqlite3
+      - key: MEDIA_PATH
+        value: /var/data/media
       - key: ENVIRONMENT
         value: production
       - key: CSP_MODE
@@ -37,8 +39,9 @@ services:
       - key: API_URL
         value: https://evincus.shop
       # live | maintenance | stocking. Anything but live shows a 503 page on evincus.shop; onrender.com always shows the store.
+      # live needs WIPAY_ACCOUNT_NUMBER and WIPAY_API_KEY set: production refuses to start open without a way to pay.
       - key: STATUS
-        value: stocking
+        value: live
       # Asked for once when the Blueprint is created.
       - key: OWNER_EMAIL
         sync: false
@@ -50,13 +53,24 @@ services:
         sync: false
       - key: ADMIN_TOKEN
         sync: false
+      # 32 random bytes, base64. Keep a copy in a password manager: losing it loses every stored customer detail.
+      - key: CUSTOMER_DATA_KEY
+        sync: false
+      # Payments stay off until both WiPay values are set. Production refuses sandbox settings or the test key.
+      - key: WIPAY_ENVIRONMENT
+        value: live
+      - key: WIPAY_ACCOUNT_NUMBER
+        sync: false
+      - key: WIPAY_API_KEY
+        sync: false
 
   - type: web
     name: evincus-dev
     runtime: docker
     dockerfilePath: ./Dockerfile
     branch: dev
-    # Free: no disk, so KV in /tmp resets on each deploy. KEEPALIVE_URL stops the idle sleep.
+    # Free: no disk, so KV and photos in /tmp reset on each deploy and are seeded again from data/eras.
+    # KEEPALIVE_URL stops the idle sleep.
     plan: free
     region: virginia
     healthCheckPath: /api/health
@@ -64,6 +78,11 @@ services:
     envVars:
       - key: KV_PATH
         value: /tmp/kv.sqlite3
+      - key: MEDIA_PATH
+        value: /tmp/media
+      # Each seeded variant starts with 10 on hand, so the dev store can be bought from. Prod seeds 0.
+      - key: SEED_STOCK
+        value: "10"
       - key: ENVIRONMENT
         value: staging
       - key: CSP_MODE
@@ -96,4 +115,14 @@ services:
       - key: NEWSLETTER_KEY
         sync: false
       - key: ADMIN_TOKEN
+        sync: false
+      # A different key from prod's.
+      - key: CUSTOMER_DATA_KEY
+        sync: false
+      # WiPay's public sandbox: test cards only. WIPAY_API_KEY is the sandbox key 123.
+      - key: WIPAY_ENVIRONMENT
+        value: sandbox
+      - key: WIPAY_ACCOUNT_NUMBER
+        value: "1234567890"
+      - key: WIPAY_API_KEY
         sync: false

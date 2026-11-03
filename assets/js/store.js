@@ -1,8 +1,8 @@
 // The site's copy of the catalog. Loaded once at startup; pages read it synchronously after that.
-// The API is the source of truth. If it can't be reached, the bundled era catalog keeps browsing working,
-// with every product marked unbuyable so checkout stays off.
-import { publicView, findProduct as find } from '../../data/catalog.js';
+// The API is the only source. If it can't be reached, the grids show OFFLINE_NOTE and checkout stays off.
+import { findProduct as find } from '../../data/catalog.js';
 import { api, beaconOnce } from './api.js';
+import { registerImages } from './images.js';
 
 const DEFAULT_SITE = { categories: [], lookbook: [], careNote: '' };
 
@@ -21,15 +21,9 @@ async function fetchJson(file) {
 
 // One request, already in flight from the page's <link rel="preload"> by the time this module runs.
 async function fromApi() {
-  const { now, eras, products, sales } = await api('GET', '/api/catalog');
+  const { now, eras, products, sales, media } = await api('GET', '/api/catalog');
+  registerImages(media ?? {});
   return { eras, products, sales: sales ?? [], skewMs: Date.parse(now) - Date.now() || 0 };
-}
-
-// Loaded only here, so visitors on the normal path never download the era modules.
-async function fromStatic() {
-  const { CATALOG } = await import('../../data/eras/index.js');
-  const view = publicView(CATALOG, new Date());
-  return { eras: view.eras, products: view.products.map(p => ({ ...p, buyable: false })), sales: [] };
 }
 
 export async function loadCatalog() {
@@ -43,8 +37,7 @@ export async function loadCatalog() {
     state = { ...loaded, products: byCategory(loaded.products), site: await sitePromise, live: true };
   } catch {
     beaconOnce('api-unreachable');
-    const loaded = await fromStatic();
-    state = { ...loaded, products: byCategory(loaded.products), site: await sitePromise, live: false };
+    state = { eras: [], products: [], sales: [], skewMs: 0, site: await sitePromise, live: false };
   }
 }
 
@@ -55,5 +48,7 @@ export const sales = () => state.sales;
 // The API's clock, so sale countdowns end when the API says, not when this device does.
 export const serverNow = () => Date.now() + state.skewMs;
 export const isLive = () => state.live;
+// Shown where a product grid would be when the API can't be reached.
+export const OFFLINE_NOTE = `<p class="grid__note mono u-smoke">The store can't load right now. Try again in a minute.</p>`;
 export const findProduct = id => find(state.products, id);
 export const eraName = slug => state.eras.find(e => e.slug === slug)?.name ?? '';

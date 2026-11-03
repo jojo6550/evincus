@@ -263,6 +263,10 @@ form button:hover { background: var(--hazard); color: var(--bone); }
 .legal { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--char); color: var(--smoke); font-size: 11px; letter-spacing: .06em; }
 .legal a { color: var(--smoke); text-decoration: none; transition: color .2s; }
 .legal a:hover { color: var(--hazard); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.currency { max-width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--char); border-radius: 0; color: var(--bone); background: var(--ink); font: inherit; letter-spacing: inherit; }
+.currency:focus-visible { outline: 2px solid var(--hazard); outline-offset: 2px; }
+.currency[hidden] { display: none; }
 @media (min-width: 761px) { .legal { flex-direction: row; justify-content: space-between; } .links { grid-template-columns: repeat(4, auto); justify-content: space-between; } }
 @media (min-width: 761px) { .foot { grid-template-columns: 1.2fr 1fr; } }
 
@@ -423,6 +427,7 @@ main, footer { overflow-x: clip; } /* contain tilted tape + rotated script witho
 
 /* ---------- utilities (replace former inline styles) ---------- */
 .u-smoke { color: var(--smoke); }
+.grid__note { grid-column: 1 / -1; margin: 0; padding-block: 40px; } /* the API is down: one line across the grid */
 .u-hazard { color: var(--hazard); }
 .sr-only { position: absolute; left: -9999px; }
 .pos-62-50 { object-position: 62% 50%; }
@@ -490,10 +495,11 @@ button.btn--line:disabled { background: transparent; color: var(--bone); }
 
 .sum { display: grid; gap: 8px; }
 .sum__row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font: 400 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--smoke); }
-.sum__row span:last-child { color: var(--bone); font-variant-numeric: tabular-nums; }
+.sum__row span:last-child { color: var(--bone); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sum__total { color: var(--bone); padding-top: 10px; border-top: 1px dashed var(--char); }
 .sum__total > span:last-child { font: 900 24px var(--display); font-variation-settings: "wdth" 115; letter-spacing: 0; }
 .sum__total small { font-size: 10px; color: var(--smoke); margin-left: 4px; }
+.sum__est { margin: 0; color: var(--smoke); font-size: 11px; letter-spacing: .06em; text-align: right; }
 .bag__note { margin: 0; color: var(--smoke); font-size: 13px; line-height: 1.45; }
 .bag__go { width: 100%; justify-content: center; }
 .btn--solid.bag__go { box-shadow: 4px 4px 0 var(--hazard); }
@@ -501,8 +507,8 @@ button.btn--line:disabled { background: transparent; color: var(--bone); }
 .bag__empty { display: grid; gap: 20px; justify-items: start; padding-block: 40px; }
 .bag__empty p { margin: 0; font-weight: 900; font-variation-settings: "wdth" 125; text-transform: uppercase; font-size: 26px; line-height: 1; }
 
-/* pay + paid steps */
-.pay, .paid { display: grid; gap: 18px; padding-block: 24px; }
+/* pay step */
+.pay { display: grid; gap: 18px; padding-block: 24px; }
 .pay .sum__total { border-top: 0; padding-top: 0; }
 .pay__copy { margin: 0; color: var(--smoke); }
 .pay-error { margin: 0; padding: 10px 12px; border-left: 3px solid var(--hazard); background: var(--ash); color: var(--bone); font-size: 14px; }
@@ -510,12 +516,13 @@ button.btn--line:disabled { background: transparent; color: var(--bone); }
 .pay-btn { justify-content: center; }
 .pay-btn.is-busy { cursor: progress; }
 .pay-btn__card { width: 26px; height: 19px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
-/* Rubber-stamped onto the confirmation, in the same voice as the hero's .stamp. */
+/* Rubber-stamped onto order.html's confirmation, in the same voice as the hero's .stamp. */
 .paid__stamp {
   display: inline-flex; align-items: center; gap: 10px; margin: 8px 0 6px 6px; padding: 10px 16px 10px 12px;
   border: 3px solid var(--hazard); color: var(--hazard); transform: rotate(-6deg);
   font-family: var(--display); font-weight: 900; font-variation-settings: "wdth" 125; font-size: 15px; letter-spacing: .1em; text-transform: uppercase;
 }
+.paid__stamp[hidden] { display: none; }
 .paid__stamp svg { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: square; }
 @media (prefers-reduced-motion: no-preference) {
   .pay-btn.is-busy .pay-btn__card { animation: card-swipe .8s var(--ease-in-out) infinite; }
@@ -525,12 +532,6 @@ button.btn--line:disabled { background: transparent; color: var(--bone); }
 @keyframes card-swipe { 50% { transform: translateX(6px); } }
 @keyframes stamp-in { from { opacity: 0; transform: rotate(-6deg) scale(1.8); } }
 @keyframes check-draw { to { stroke-dashoffset: 0; } }
-.paid { justify-items: start; }
-.paid__title { margin: 0; font-weight: 900; font-variation-settings: "wdth" 125; text-transform: uppercase; font-size: clamp(30px, 8vw, 44px); line-height: .95; letter-spacing: -.02em; overflow-wrap: anywhere; }
-.paid__title:focus { outline: none; }
-.paid p { margin: 0; color: var(--smoke); }
-.paid a { color: var(--hazard); }
-.paid__ref b { color: var(--bone); font-weight: 500; overflow-wrap: anywhere; }
 
 /* product view */
 .pdp { width: min(1080px, calc(100% - 32px)); max-height: calc(100dvh - 48px); margin: auto; border: 2px solid var(--bone); overflow: hidden; }
@@ -596,6 +597,9 @@ button.btn--line:disabled { background: transparent; color: var(--bone); }
 .checkout-form input, .checkout-form select, .checkout-form textarea { width: 100%; min-width: 0; min-height: 46px; padding: 12px; border: 1px solid var(--smoke); border-radius: 0; color: var(--bone); background: var(--ink); font: inherit; }
 .checkout-form :is(input, select, textarea):focus-visible { outline: 2px solid var(--hazard); outline-offset: 2px; }
 .checkout-form [hidden] { display: none; }
+.checkout-form .checkout-choice { display: flex; align-items: center; gap: 10px; }
+.checkout-form .checkout-choice input { flex: none; width: 20px; min-height: 20px; margin: 0; accent-color: var(--hazard); }
+.checkout-address { display: grid; gap: 16px; }
 .checkout-form :disabled { opacity: .65; }
 .paid__ref { overflow-wrap: anywhere; }
 

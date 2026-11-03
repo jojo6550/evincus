@@ -29,13 +29,30 @@ const statusOf = (data, slug, now) => {
   return era ? eraStatus(era, now) : 'upcoming'; // a product pointing at a missing era is treated as unreleased
 };
 
-const isSoldOut = (p, color, size) =>
-  p.soldOut === true || (p.soldOutVariants ?? []).includes(`${color}|${size}`);
+// Attaches on-hand minus committed per variant; a variant with no stock record has none.
+export function applyStock(data, stock) {
+  const products = data.products.map(p => ({
+    ...p,
+    available: Object.fromEntries(p.colors.flatMap(c => p.sizes.map(size => {
+      const k = lineKey(p.id, c.name, size);
+      const { onHand = 0, committed = 0 } = stock.get(k) ?? {};
+      return [`${c.name}|${size}`, onHand - committed];
+    }))),
+  }));
+  return { ...data, products };
+}
+
+const isSoldOut = (p, color, size) => (p.available?.[`${color}|${size}`] ?? 0) <= 0 && p.continueSelling !== true;
+
+const eraOf = (data, slug) => data.eras.find(e => e.slug === slug);
+
+export const isVisible = (p, data) =>
+  (p.status ?? 'active') === 'active' && !!eraOf(data, p.era) && (eraOf(data, p.era).state ?? 'published') === 'published';
 
 // Status of one bag line. Checks run in this order so nothing leaks about unreleased products.
 export function lineStatus(data, now, { id, color, size }) {
   const p = data.products.find(x => x.id === id);
-  if (!p) return 'unknown-item';
+  if (!p || !isVisible(p, data)) return 'unknown-item';
   const era = statusOf(data, p.era, now);
   if (era === 'upcoming') return 'not-released';
   if (!p.sizes.includes(size) || !p.colors.some(c => c.name === color)) return 'unknown-item';
@@ -46,16 +63,16 @@ export function lineStatus(data, now, { id, color, size }) {
 
 // What a shopper may see at `now`: every era with its status, and products of released eras.
 export function publicView(data, now) {
-  const eras = data.eras.map(e => ({ ...e, status: eraStatus(e, now) }));
+  const eras = data.eras.filter(e => (e.state ?? 'published') === 'published').map(e => ({ ...e, status: eraStatus(e, now) }));
   const status = slug => eras.find(e => e.slug === slug)?.status ?? 'upcoming';
   const products = data.products
-    .filter(p => status(p.era) !== 'upcoming')
-    .map(p => ({
-      ...p,
-      soldOut: p.soldOut === true,
-      soldOutVariants: p.soldOutVariants ?? [],
-      buyable: status(p.era) === 'live' && p.soldOut !== true,
-    }));
+    .filter(p => isVisible(p, data) && status(p.era) !== 'upcoming')
+    .map(({ available, costCents, skus, ...p }) => {
+      const soldOutVariants = p.colors.flatMap(c => p.sizes.map(s => [c.name, s])).map(([c, s]) => `${c}|${s}`)
+        .filter(k => isSoldOut({ ...p, available }, ...k.split('|')));
+      const soldOut = soldOutVariants.length === p.colors.length * p.sizes.length;
+      return { ...p, soldOut, soldOutVariants, buyable: status(p.era) === 'live' && !soldOut };
+    });
   return { eras, products };
 }
 

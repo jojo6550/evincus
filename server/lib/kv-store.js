@@ -96,15 +96,17 @@ export function kvStore(kv, { now = Date.now } = {}) {
   }
 
   // One atomic write. `checks` compare a key's version (from getEntry) with what is stored now; on a mismatch
-  // nothing is written and the result is false. Keys being written are also guarded, so the chunk sets deleted are
-  // always the current ones; a clash on those alone is retried.
+  // nothing is written and the result is false. Written keys whose current value is chunked are also guarded, so the
+  // chunk sets deleted are always the current ones; a clash on those alone is retried. @deno/kv allows 10 checks per
+  // commit, so other written keys get no guard.
   async function commit({ checks = [], puts = [], deletes = [] } = {}) {
     const keys = [...new Set([...puts.map(p => p.key), ...deletes])];
     for (let round = 0; round < ROUNDS; round++) {
       const old = await heads(keys);
       const op = kv.atomic();
       for (const { key, version } of checks) op.check({ key: headKey(key), versionstamp: version ?? null });
-      for (const key of keys) if (!checks.some(ch => ch.key === key)) op.check(old.get(key));
+      // shortcut: a concurrent chunked write between read and commit can orphan its chunks (storage leak only); guard all keys again if large values start racing
+      for (const key of keys) if (old.get(key).value?.n && !checks.some(ch => ch.key === key)) op.check(old.get(key));
       for (const { key, value, opts } of puts) addPut(op, key, value, opts, old.get(key).value);
       for (const key of deletes) { op.delete(headKey(key)); dropChunks(op, key, old.get(key).value); }
       if ((await op.commit()).ok) return true;

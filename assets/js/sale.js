@@ -1,6 +1,7 @@
 // Sale banner and sale prices. Sales come from the API (`npm run discount` starts them); the banner counts down
 // the deepest running sale on the API's clock and reloads the page when it ends so prices go back.
-import { bestSale, money } from '../../data/catalog.js';
+import { bestSale } from '../../data/catalog.js';
+import { formatPrice } from './currency.js';
 import { sales, eraName, serverNow } from './store.js';
 
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -9,8 +10,8 @@ const pad = n => String(n).padStart(2, '0');
 const UNITS = [['d', 'Days', 86_400_000], ['h', 'Hrs', 3_600_000], ['m', 'Min', 60_000], ['s', 'Sec', 1000]];
 
 export const priceHtml = p => p.compareAtCents > p.priceCents
-  ? `<s class="price__was">${money(p.compareAtCents)}</s> <span class="price__now">${money(p.priceCents)}</span>`
-  : money(p.priceCents);
+  ? `<s class="price__was">${formatPrice(p.compareAtCents)}</s> <span class="price__now">${formatPrice(p.priceCents)}</span>`
+  : formatPrice(p.priceCents);
 
 export const saleTag = p => (p.sale ? `−${p.sale.percent}%` : '');
 

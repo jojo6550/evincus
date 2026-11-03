@@ -1,7 +1,8 @@
 # Evincus storefront
 
 One Node app on Render serves the static store and its API (`/api/*`) from the same origin. Vanilla ES modules, with
-no build step. Checkout places orders directly. **No payment service is used and no payment is collected.**
+no build step. Customers pay by card on WiPay's hosted page; an order counts as paid only after the server verifies
+WiPay's response hash.
 
 ## Layout
 
@@ -36,22 +37,21 @@ any value other than `production` also lets other localhost origins through CORS
 
 ## Catalog changes
 
-Each era is a folder in `data/eras/`. Image fields in `era.js` are bare filenames from that era's `img/` folder,
-lowercase-kebab (`core-tee-black-1.jpg`), max 500 KB each.
+The live catalog is in the server's store and is changed in `/inventory` (sign in as an owner). Changes are live on save,
+with no deploy. `data/eras/` is seed data only: it fills an empty store once and editing it changes nothing live.
 
 | Task | How |
 | --- | --- |
-| Add an era | `npm run new-era -- <slug> "<Name>"`, add photos to its `img/`, fill in `era.js`, remove every `TODO` |
-| Schedule a drop | Set `dropsAt` (ISO with offset, e.g. `2026-11-20T18:00:00-05:00`). Until then the API shows only a teaser |
-| Retire an era | Set `endsAt`. Its products stay visible but can't be bought, and old links keep working |
-| Delete an era | Delete its folder and its two lines in `data/eras/index.js` |
-| Add photos | `npm run photos -- <era> <product-id> [--color "<Colour>"] <photo...>`, or `npm run photos -- <era> hero <photo>`. Any size or format in: they're turned upright, fit to 1800 px, saved as webp under 500 KB with the next free name, and added to `era.js` |
-| Add, edit or remove a product | Edit that era's `products` array and add or remove its photos |
-| Move a product to another era | Move its object and its photos to the other folder |
-| Sold out | `soldOut: true` for a whole product, or `soldOutVariants: ['Black\|XL']` for one colour and size |
-| Replace a stand-in photo | Overwrite the file in `img/` with the same name |
+| Add an era | Inventory › Eras › **+ Era**, or `npm run new-era <slug> "<Name>" [local] [url=<base>]` for a draft. Fill it in, set Status to Published, Save |
+| Schedule a drop | Open the era, set **Drops at**, Save. Until then shoppers see only a teaser |
+| Retire an era | Open the era, set **Ends at**, Save. Its products stay visible but can't be bought, and old links keep working |
+| Delete an era | Set its Status to **Archived**. Eras are never deleted, so old orders and links keep working |
+| Add, edit or remove a product | Inventory › **+ Product**, or open the product, edit and Save. To remove one, set its Status to **Archived** (or **Draft** to hide it for now) |
+| Move a product to another era | Open the product, change **Era**, Save. Its photos move with it |
+| Sold out | Open the product and set that size's stock to 0, with **Keep selling when out of stock** off. It shows Sold out by itself |
+| Add or replace a photo | On the product (or era hero) page, add the new photo and remove the old one, then Save. Or `npm run photos -- <era> <product-id> [--color "<Colour>"] <photo...> [local] [url=<base>]` (`npm run photos -- <era> hero <photo>` for a hero); in PowerShell write `color="<Colour>"` instead of `--color`. Needs `ADMIN_TOKEN` |
 
-Then `npm test`, push to `dev`, merge into `main`, then into `prod`. Only `prod` deploys, and only after the tests pass; the tests check folder names, photos and data.
+Code changes still go `npm test`, push to `dev`, merge into `main`, then into `prod`. Only `prod` deploys, and only after the tests pass.
 
 ### Sales
 
@@ -130,6 +130,13 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
    | `OWNER_EMAIL` | where order summaries and alerts go |
    | `POSTAL_ADDRESS` | printed in newsletter footers |
    | Secrets: `RESEND_API_KEY`, `NEWSLETTER_KEY`, `ADMIN_TOKEN` | Use the provider-issued Resend key and distinct random values of at least 32 characters for the other two. `ADMIN_TOKEN` also goes in your local `.env` for `npm run discount` |
+   | `CUSTOMER_DATA_KEY` | 32 random bytes, base64: `node -e "console.log(crypto.randomBytes(32).toString('base64'))"`. Seals customer details in KV; production will not start without it |
+   | `WIPAY_ACCOUNT_NUMBER`, `WIPAY_API_KEY` | From the WiPay business dashboard: the account number, and the API key on the Developer page, Payment API tab. Leave both blank until the account is ready: card payment stays off. `WIPAY_ENVIRONMENT` is already `live` |
+
+   **Store `CUSTOMER_DATA_KEY` in a password manager.** Losing it loses every stored customer detail. Never rotate
+   it by just replacing the value: every sealed order would become unreadable.
+   Orders placed before encryption are sealed by running `npm run encrypt-orders` once in the `evincus` service's
+   Render Shell after the key is set. It is safe to run again.
 
 2. Service `evincus`, Settings, **Deploy Hook**: copy the URL into GitHub, Settings, Secrets and variables, Actions,
    as the secret `RENDER_DEPLOY_HOOK_URL`.
@@ -137,34 +144,67 @@ only outside service (Resend). `render.yaml` sets every fixed value, including `
    Until they resolve, add the GitHub Actions variable `RENDER_URL=https://evincus.onrender.com` so CI checks that
    address, and pass `url=https://evincus.onrender.com` to `npm run discount`. Delete the variable afterwards.
 4. Verify the sending domain in Resend.
-5. Merge `main` into `prod` and push. The Actions run must end green, then place a pickup test order on the live site.
-6. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
+5. **Open the store** only when stock is entered at `/inventory`, owner accounts exist, and `WIPAY_ACCOUNT_NUMBER`,
+   `WIPAY_API_KEY` and `CUSTOMER_DATA_KEY` are set on `evincus`. `render.yaml` sets `STATUS: live`, and production
+   refuses to start with the store open and WiPay unset, so set the WiPay values before that change deploys.
+6. Merge `main` into `prod` and push. The Actions run must end green, then place a pickup test order on the live site.
+7. Once Render serves the domain, delete the old Deno Deploy app so it stops running its own cron and emails.
+
+## Inventory
+
+`/inventory` is the staff page: sign in, then use the Inventory, Orders, Stats, Finances and Logs tabs (Finances and Logs
+are for owners only). It is never linked from the store, carries `noindex`, is disallowed in `robots.txt`, and stays reachable
+while `STATUS` closes the public site.
+
+- **Roles:** `viewer` can look; `owner` can also change things and see Finances and Logs.
+- **Accounts** are made from your own machine, never on the site. They need `ADMIN_TOKEN` in your environment or `.env`:
+  ```bash
+  npm run add-viewer you@example.com owner     # create a login, or reset its password; prints a generated password
+  npm run remove-viewer you@example.com        # delete a login; its sessions stop working
+  npm run list-viewers
+  ```
+  Add `local` to talk to `npm run dev` on localhost, or `url=<base>` for another server.
+- **Live vs local:** the page shows a LOCAL badge when the server runs with `ENVIRONMENT=development`. Local KV is
+  separate from production, so nothing done there touches the live store.
+- **Pull the live catalog:** `npm run inventory:pull` (or `url=<base>` for another source) copies eras, products, stock and photos from the live site into your running `npm run dev`, so `/inventory` has real data to try things on. It needs `PROD_ADMIN_TOKEN` in `.env` (the live `ADMIN_TOKEN`; keep your local `ADMIN_TOKEN` different), never copies orders, accounts, sessions or logs, and the local server refuses the import unless it is a development server reached from your own machine.
+- **Rollout:** stock the shop at `/inventory` while `STATUS=stocking`, then open the store with WiPay (see the deploy checklist).
+- `data/eras/` is seed data. Once the store is live, stock and products are managed in `/inventory`, not by editing those files.
 
 ## Orders and fulfillment
 
-`POST /api/orders` accepts `checkoutToken` (a UUID), `items`, `customer` (`name`, `email`, `phone`),
-`fulfillment`, optional `notes`, and `expectedTotalCents`. The server checks catalog prices, availability,
-variants and quantities; mismatched totals require reviewing the bag. Orders are `PLACED`, with
-`paymentStatus: NOT_COLLECTED`. There is no payment integration: the checkout's Pay button places the order,
-shows "Payment complete" and clears the cart, but charges nothing.
+`POST /api/orders` accepts `checkoutToken` (a UUID), `items`, `customer` (`firstName`, `lastName`, `email`,
+optional `phone`), `fulfillment` (`{ type: 'pickup', locationId }` or `{ type: 'shipping', address }`), optional
+`notes`, and `expectedTotalCents`. The server checks catalog prices, availability, variants and quantities;
+mismatched totals require reviewing the bag. Totals add GCT (15%) and WiPay's processing fee (4.83%), both from
+`data/fees.js`. Orders are placed `AWAITING_PAYMENT`/`UNPAID` with stock held for 15 minutes, and customer details
+are sealed with `CUSTOMER_DATA_KEY` before they reach KV.
 
-Pickup is the only fulfillment option for now and is free. There is no delivery or shipping.
+`POST /api/orders/:id/pay` opens a WiPay session and the browser goes to WiPay. WiPay sends the browser back to
+`/api/payments/wipay/return`, which checks the hash over the total we sent and marks the order `PLACED`/`PAID` once
+per WiPay transaction, then sends the receipt. The return lands on `order.html`, which reads
+`/api/orders/:id/status`. Both keep working while `STATUS` is not `live`, so a customer mid-payment is confirmed.
+With `WIPAY_ACCOUNT_NUMBER` or `WIPAY_API_KEY` unset, card payment is off and checkout says so. Refunds are made by
+hand in the WiPay dashboard.
+
+Customers choose pickup (free) or shipping, to most countries. Shipping is arranged by hand after purchase: the
+owner contacts the customer about cost and timing, and it is paid separately.
 
 `data/fulfillment.js` holds the two pickup locations: Trendy Hats and Vince's store, both in Mandeville,
 Manchester, Jamaica. Their addresses are intentionally empty until confirmed. Fill each `address` there;
 checkout and confirmations use the same settings. Customers are contacted when pickup is ready.
 
-Each checkout token maps to one order, kept for two years. The order, its Jamaica-day index, its confirmation retry
-job and the token's fingerprint are written in one Deno KV atomic commit that only succeeds if the token is new. The
+Each checkout token maps to one order, kept for two years. The order, its Jamaica-day index, its stock hold and the
+token's fingerprint are written in one Deno KV atomic commit that only succeeds if the token is new. The
 same token and payload return the same order, even if catalog availability changes after placement; different
 payloads using the same token are refused. A failed write saves nothing and is safe to retry. The browser keeps an
 uncertain submission in session storage and retries it without creating a new order. Only ordered quantities are
 removed from the bag.
 
-Customers receive a Resend confirmation after placement. The owner receives a daily summary of the previous
-Jamaica calendar day's orders at **08:00 America/Jamaica (13:00 UTC)**, including contact details, line items,
-pickup selections, notes and order totals. Empty days also send a summary. This is order
-value, not collected revenue. Summaries split into parts of 20 orders. The 15-minute cron queues summaries
+Customers receive a Resend receipt once WiPay confirms payment, with the paid time and WiPay transaction ID. The
+owner receives a daily summary of the previous Jamaica calendar day's paid orders at **08:00 America/Jamaica
+(13:00 UTC)**, including contact details, line items, pickup or shipping address, notes, transaction IDs and the
+collected totals, then the orders that reached WiPay that day but are still unpaid, to match against the WiPay
+dashboard. Empty days also send a summary. Saved summary bodies are sealed. Summaries split into parts of 20 orders. The 15-minute cron queues summaries
 after 08:00 and retries failed deliveries with stable Resend idempotency keys and saved email bodies.
 Completed summary markers prevent subsequent sends. A saved cursor catches up after missed cron days.
 Customer confirmations use the existing bounded backoff.

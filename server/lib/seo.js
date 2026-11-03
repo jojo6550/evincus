@@ -22,7 +22,7 @@ const list = words => words.length < 2 ? words.join('') : `${words.slice(0, -1).
 export const productImages = p => [...new Set([...(p.images ?? []), ...p.colors.flatMap(c => c.images ?? [])])];
 
 export const robotsTxt = allowed => allowed
-  ? `User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${SITE}/sitemap.xml\n`
+  ? `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /inventory\n\nSitemap: ${SITE}/sitemap.xml\n`
   : 'User-agent: *\nDisallow: /\n';
 
 export function sitemapXml(data, now) {

@@ -62,3 +62,29 @@ test('an unreachable server says which URL and what to do', async () => {
   const down = async () => { throw new TypeError('fetch failed'); };
   await assert.rejects(readSales(LOCAL_URL, TOKEN, down), /Could not reach http:\/\/localhost:8000/);
 });
+
+test('discount checks era names against the server list', async () => {
+  const { main } = await import('../scripts/discount.mjs');
+  const calls = [];
+  const fetchFn = async (url, init) => {
+    calls.push({ url, method: init.method });
+    if (url.endsWith('/eras')) return new Response(JSON.stringify({ eras: [{ slug: 'alpha', name: 'A', state: 'published' }] }), { status: 200 });
+    if (init.method === 'GET') return new Response(JSON.stringify({ sales: [], version: null }), { status: 200 });
+    return new Response('{}', { status: 200 });
+  };
+  const env = { ADMIN_TOKEN: TOKEN };
+  await assert.rejects(main(['ghost', '1', '10', 'local'], { fetchFn, env, log() {} }), /Unknown era ghost\. Eras: alpha\./);
+  await main(['alpha', '1', '10', 'local'], { fetchFn, env, log() {} });
+  assert.ok(calls.some(c => c.url === 'http://localhost:8000/api/admin/eras'));
+  assert.ok(calls.some(c => c.method === 'PUT'));
+});
+
+test('knownEras explains a malformed reply', async () => {
+  const { knownEras } = await import('../scripts/discount.mjs');
+  await assert.rejects(knownEras(PROD_URL, TOKEN, async () => new Response('{}', { status: 200 })), /eras that are not a list/);
+});
+
+test('knownEras explains a malformed reply', async () => {
+  const { knownEras } = await import('../scripts/discount.mjs');
+  await assert.rejects(knownEras(PROD_URL, TOKEN, async () => new Response('{}', { status: 200 })), /eras that are not a list/);
+});

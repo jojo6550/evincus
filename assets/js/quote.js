@@ -13,7 +13,8 @@ const emit = () => listeners.forEach(fn => fn(state));
 export const current = () => state;
 export const onQuote = fn => { listeners.add(fn); };
 export const isCheckoutReady = () => state.status === 'ready' && state.quote?.checkoutReady === true;
-export const unavailableKeys = () => (state.quote?.lines ?? []).filter(l => !COUNTED.has(l.status)).map(l => l.key);
+// A line short of stock stays: the shopper can lower its quantity instead.
+export const unavailableKeys = () => (state.quote?.lines ?? []).filter(l => !COUNTED.has(l.status) && l.status !== 'insufficient-stock').map(l => l.key);
 
 export async function refreshQuote() {
   clearTimeout(timer);

@@ -1,15 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { charges } from '../data/fees.js';
 import { fork } from 'node:child_process';
 import { request } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { once } from 'node:events';
 import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 
 async function start(t, file) {
-  const child = fork(new URL('../main.js', import.meta.url), [], { silent: true, execArgv: [], env: { ...process.env, PORT: '0', ENVIRONMENT: 'development', KV_PATH: file, EMAIL_DISABLED: 'true', NEWSLETTER_HOUR: '', KEEPALIVE_URL: '', CSP_MODE: 'enforce' } });
+  const child = fork(new URL('../main.js', import.meta.url), [], { silent: true, execArgv: [], env: { ...process.env, PORT: '0', ENVIRONMENT: 'development', KV_PATH: file, MEDIA_PATH: join(dirname(file), 'media'), SEED_STOCK: '10', EMAIL_DISABLED: 'true', NEWSLETTER_HOUR: '', KEEPALIVE_URL: '', CSP_MODE: 'enforce', CUSTOMER_DATA_KEY: Buffer.alloc(32, 3).toString('base64') } });
   t.after(() => { if (child.exitCode === null) child.kill(); });
   let logs = '', errors = '';
   child.stderr.on('data', value => { errors += value; });
@@ -75,10 +76,10 @@ test('real HTTP adapter serves compressed content, conditional requests, streami
     product ??= detail.products.find(p => p.buyable && !p.soldOut && !p.soldOutVariants.length);
   }
   assert.ok(product);
-  const payload = { checkoutToken: crypto.randomUUID(), items: [{ id: product.id, color: product.colors[0].name, size: product.sizes[0], qty: 1 }], customer: { name: 'Test Shopper', email: 'isolated@example.com', phone: '5551234567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: product.priceCents };
+  const payload = { checkoutToken: crypto.randomUUID(), items: [{ id: product.id, color: product.colors[0].name, size: product.sizes[0], qty: 1 }], customer: { firstName: 'Test', lastName: 'Shopper', email: 'isolated@example.com', phone: '5551234567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: charges(product.priceCents).totalCents };
   const submit = base => fetch(base + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const order = await (await submit(app.url)).json();
-  assert.equal(order.paymentStatus, 'NOT_COLLECTED');
+  assert.equal(order.paymentStatus, 'UNPAID');
   await app.stop();
   const restarted = await start(t, file);
   assert.equal((await (await submit(restarted.url)).json()).id, order.id);

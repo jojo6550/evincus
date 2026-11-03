@@ -68,10 +68,10 @@ export function buildIssue(data, sales, since, now) {
     .filter(e => e.status === 'live' && inRange(t(e.dropsAt), from, to))
     .map(e => ({ era: e, products: view.products.filter(p => p.era === e.slug && p.buyable) }));
   const newSales = live.filter(s => inRange(t(s.startsAt), from, to));
-  const soon = data.eras.filter(e => inRange(t(e.dropsAt), Math.max(to, from + 2 * DAY), to + 2 * DAY));
+  const soon = view.eras.filter(e => inRange(t(e.dropsAt), Math.max(to, from + 2 * DAY), to + 2 * DAY)); // published eras only
   const lastCall = live.filter(s => !newSales.includes(s) && inRange(t(s.endsAt), Math.max(to, from + DAY), to + DAY));
   const empty = !drops.length && !newSales.length && !soon.length && !lastCall.length;
-  return { drops, sales: newSales, soon, lastCall, eras: data.eras, empty };
+  return { drops, sales: newSales, soon, lastCall, eras: view.eras, empty };
 }
 
 // ---------- subscribers ----------

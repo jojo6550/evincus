@@ -1,9 +1,10 @@
 // Product view: a native <dialog> opened from the grid, a /products/<id> URL or an old #p-<id> link.
-import { imagesFor, money } from '../../data/catalog.js';
+import { imagesFor } from '../../data/catalog.js';
 import { findProduct, eraName, isLive, site } from './store.js';
 import * as cart from './cart.js';
 import { openBag } from './bag.js';
 import { priceHtml } from './sale.js';
+import { formatPrice, currentCurrency, onCurrencyChange } from './currency.js';
 import { imageAttrs, updateImage } from './images.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -19,7 +20,7 @@ function buttonState(p, color, size) {
   if (!p.buyable) return { text: p.soldOut ? 'Sold out' : 'No longer sold', disabled: true };
   if (!size) return { text: 'Select a size', disabled: true };
   if (p.soldOutVariants.includes(`${color}|${size}`)) return { text: 'Sold out in this size', disabled: true };
-  return { text: `Add to cart, ${money(p.priceCents)}`, disabled: false };
+  return { text: `Add to cart, ${formatPrice(p.priceCents)}`, disabled: false };
 }
 
 function dot(c) {
@@ -53,7 +54,7 @@ function render() {
     <div class="pdp__info">
       <a class="mono u-hazard pdp__era" href="#era-${esc(p.era)}">${esc(eraName(p.era))} collection</a>
       <h2 id="pdpName">${esc(p.name)}</h2>
-      <p class="pdp__price"><span>${priceHtml(p)}</span> <span class="mono u-smoke">USD</span></p>
+      <p class="pdp__price"><span>${priceHtml(p)}</span>${currentCurrency() === 'USD' ? ' <span class="mono u-smoke">USD</span>' : ''}</p>
       ${p.sale ? `<p class="pdp__sale mono">−${p.sale.percent}% off until ${esc(new Date(p.sale.endsAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}</p>` : ''}
 
       <fieldset class="pdp__opt">
@@ -158,6 +159,7 @@ export function initProductView() {
   body.addEventListener('change', onChange);
   body.addEventListener('click', onClick);
   document.getElementById('pdpClose').addEventListener('click', () => dialog.close());
+  onCurrencyChange(() => { if (dialog.open && p) render(); });
   dialog.addEventListener('click', e => {
     if (e.target !== dialog) return;
     const r = dialog.getBoundingClientRect();

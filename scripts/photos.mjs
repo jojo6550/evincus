@@ -1,111 +1,82 @@
-// Adds photos to an era: `npm run photos -- <era> <product-id> [--color "<Colour name>"] <photo...>`
-// or `npm run photos -- <era> hero <photo>`. Each photo is rotated upright, shrunk to fit 1800 px, saved as webp
-// under 500 KB in data/eras/<era>/img/ with the next free kebab name, and added to that product's (or colour's)
-// images in era.js. Nothing is written unless every photo converts and era.js updates cleanly.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+// Uploads photos to the store: `npm run photos -- <era> <product-id> [--color "<Colour name>"] <photo...> [local] [url=<base>]`
+// or `npm run photos -- <era> hero <photo>`. Each photo becomes upright WebP copies at the standard widths (EXIF/GPS
+// stripped), each under 250 KiB, uploaded to the server and attached to the product, colour or era hero.
+import { existsSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
+import { variantWidths, MAX_VARIANT_BYTES } from '../data/photos.js';
+import { parseOptions, apiBase, adminToken, adminFetch, problem } from './lib/admin-cli.mjs';
 
-const MAX_BYTES = 500 * 1024;
-const ARRAY = /images:\s*\[([^\]]*)\]/g;
+export const USAGE = `Usage:
+  npm run photos -- <era> <product-id> [--color "<Colour name>"] <photo...> [local] [url=<base>]
+  npm run photos -- <era> hero <photo> [local] [url=<base>]
+  PowerShell drops the --, so write color="<Colour name>" instead of --color.`;
 
-export const kebab = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const list = inner => JSON.parse(`[${inner.replace(/'/g, '"').replace(/,\s*$/, '')}]`);
-const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
-
-// Next free <base>-<n> in the folder, counting any extension.
-export function nextNames(existing, base, count) {
-  const taken = existing.map(f => new RegExp(`^${esc(base)}-(\\d+)\\.[a-z]+$`).exec(f)?.[1]).filter(Boolean).map(Number);
-  const start = Math.max(0, ...taken) + 1;
-  return Array.from({ length: count }, (_, i) => `${base}-${start + i}.webp`);
-}
-
-// Appends files to the images array that currently holds `current` inside the product's block of era.js source.
-// With no such array (current is undefined), inserts one under the line that names the product or colour.
-export function addToSource(src, { productId, color, current, files }) {
-  const idAt = src.search(new RegExp(`id:\\s*["']${esc(productId)}["']`));
-  if (idAt < 0) throw new Error(`era.js has no product "${productId}".`);
-  const rest = src.slice(idAt + 1).search(/\bid:\s*["']/);
-  const end = rest < 0 ? src.length : idAt + 1 + rest;
-  const block = src.slice(idAt, end);
-
-  if (current) {
-    const hits = [...block.matchAll(ARRAY)].filter(m => same(list(m[1]), current));
-    if (hits.length !== 1) throw new Error(`Couldn't find one images list for ${productId}${color ? ` / ${color}` : ''} in era.js; add the files by hand.`);
-    const m = hits[0];
-    const at = idAt + m.index;
-    return src.slice(0, at) + `images: ${JSON.stringify([...current, ...files]).replace(/","/g, '", "')}` + src.slice(at + m[0].length);
-  }
-  const anchor = color ? new RegExp(`^([ \\t]*)name:\\s*["']${esc(color)}["'],?[^\\n]*\\n`, 'm') : /^([ \t]*)id:[^\n]*\n/m;
-  const m = anchor.exec(block);
-  if (!m) throw new Error(`Couldn't find where to add images for ${productId}${color ? ` / ${color}` : ''} in era.js; add the files by hand.`);
-  const at = idAt + m.index + m[0].length;
-  return src.slice(0, at) + `${m[1]}images: ${JSON.stringify(files).replace(/","/g, '", "')},\n` + src.slice(at);
-}
-
-// Re-encodes until it fits: lower quality first, then a smaller size.
-export async function toWebp(input) {
-  const { default: sharp } = await import('sharp');
-  for (const size of [1800, 1400, 1000]) {
+// One WebP per standard width of the upright photo. sharp drops metadata unless asked to keep it.
+export async function photoVariants(path) {
+  const upright = await sharp(path).rotate().toBuffer({ resolveWithObject: true });
+  const out = [];
+  for (const width of variantWidths(upright.info.width)) {
+    let buf;
     for (let quality = 82; quality >= 50; quality -= 8) {
-      const out = await sharp(input).rotate().resize({ width: size, height: size, fit: 'inside', withoutEnlargement: true })
-        .webp({ quality }).toBuffer();
-      if (out.length <= MAX_BYTES) return out;
+      buf = await sharp(upright.data).resize({ width }).webp({ quality }).toBuffer();
+      if (buf.length <= MAX_VARIANT_BYTES) break;
     }
+    if (buf.length > MAX_VARIANT_BYTES) throw new Error(`${basename(path)} won't fit under ${MAX_VARIANT_BYTES / 1024} KiB at ${width} px.`);
+    out.push(buf);
   }
-  throw new Error(`${input} won't fit under 500 KB.`);
+  return out;
 }
 
-export async function addPhotos({ root, era, target, color, photos }) {
-  const dir = new URL(`${era}/`, root);
-  if (!era || !existsSync(new URL('era.js', dir))) throw new Error(`No era "${era ?? ''}" in data/eras/.`);
+const REASONS = {
+  'unknown-era': ({ era }) => `The store has no era "${era}".`,
+  'unknown-product': ({ era, target }) => `${era} has no product "${target}".`,
+  'invalid-photo': ({ file }) => file ? `${file} was rejected by the server as an image.` : "The server refused those photos or the era/colour combination (hero takes one photo and no --color; a product with per-colour photos needs --color with an exact colour name).",
+};
+
+async function fail(res, ctx) {
+  let code;
+  try { code = (await res.clone().json())?.error?.code; } catch { /* not JSON */ }
+  throw new Error(REASONS[code]?.(ctx) ?? await problem(res));
+}
+
+export async function addPhotos({ base, token, era, target, color, photos, fetchFn = fetch, log = console.log }) {
+  if (!era) throw new Error('Name an era.');
   if (!target) throw new Error('Name a product id, or "hero".');
   if (!photos.length) throw new Error('No photos given.');
+  if (target === 'hero' && (photos.length !== 1 || color)) throw new Error('hero takes exactly one photo and no --color.');
   for (const p of photos) if (!existsSync(p)) throw new Error(`${p} doesn't exist.`);
 
-  const eraUrl = new URL('era.js', dir);
-  const src = readFileSync(eraUrl, 'utf8');
-  const mod = await import(`${eraUrl.href}?t=${Date.now()}`);
-  const imgDir = new URL('img/', dir);
-  const existing = existsSync(imgDir) ? readdirSync(imgDir) : [];
-  let names, next;
-
-  if (target === 'hero') {
-    if (photos.length !== 1 || color) throw new Error('hero takes exactly one photo and no --color.');
-    names = ['hero.webp'];
-    next = src.replace(/hero:\s*(["'])[^"']*\1/, 'hero: "hero.webp"');
-  } else {
-    const product = mod.products.find(p => p.id === target);
-    if (!product) throw new Error(`${era} has no product "${target}". Products: ${mod.products.map(p => p.id).join(', ')}`);
-    const c = color && product.colors.find(c => c.name.toLowerCase() === color.toLowerCase());
-    if (color && !c) throw new Error(`${target} has no colour "${color}". Colours: ${product.colors.map(c => c.name).join(', ')}`);
-    if (!c && product.colors.some(c => c.images)) throw new Error(`${target} has photos per colour; pass --color "<name>".`);
-    names = nextNames(existing, c ? `${target}-${kebab(c.name)}` : target, photos.length);
-    next = addToSource(src, { productId: target, color: c?.name, current: c ? c.images : product.images, files: names });
+  const converted = [];
+  for (const p of photos) converted.push(await photoVariants(p)); // convert everything first: a bad photo must not orphan uploads
+  const refs = [];
+  for (const [i, bufs] of converted.entries()) {
+    const form = new FormData();
+    for (const buf of bufs) form.append('file', new Blob([buf], { type: 'image/webp' }), 'photo.webp');
+    const res = await adminFetch(base, token, '/api/admin/media', { method: 'PUT', body: form }, fetchFn);
+    if (!res.ok) await fail(res, { era, target, file: basename(photos[i]) });
+    refs.push(await res.json());
   }
+  const res = await adminFetch(base, token, '/api/admin/photos', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ era, target, ...(color && { color }), refs }),
+  }, fetchFn);
+  if (!res.ok) await fail(res, { era, target });
 
-  const buffers = await Promise.all(photos.map(toWebp));
-  buffers.forEach((buf, i) => writeFileSync(new URL(names[i], imgDir), buf));
-  writeFileSync(eraUrl, next);
-  return names.map((n, i) => ({ name: n, kb: Math.round(buffers[i].length / 1024) }));
+  const n = refs.length;
+  log(target === 'hero'
+    ? `Set the hero of ${era}. See it at ${base}/inventory#inventory/eras/${era}`
+    : `Added ${n} photo${n === 1 ? '' : 's'} to ${target}${color ? ` / ${color}` : ''}. See it at ${base}/inventory#inventory/${target}`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2);
-  const ci = args.indexOf('--color');
-  const color = ci >= 0 ? args.splice(ci, 2)[1] : undefined;
-  const [era, target, ...photos] = args;
   try {
-    const root = new URL('../data/eras/', import.meta.url);
-    const added = await addPhotos({ root, era, target, color, photos: photos.map(p => resolve(p)) });
-    for (const a of added) console.log(`  data/eras/${era}/img/${a.name}  ${a.kb} KB`);
-    const oldHero = target === 'hero' && readdirSync(new URL(`${era}/img/`, root)).find(f => /^hero\./.test(f) && f !== 'hero.webp');
-    if (oldHero) console.log(`data/eras/${era}/img/${oldHero} is no longer used; delete it if you don't need it.`);
-    console.log('Updated era.js. Check it with npm run dev, then npm test.');
+    const { flags, rest } = parseOptions(process.argv.slice(2), { values: ['color'] });
+    const [era, target, ...photos] = rest;
+    await addPhotos({ base: apiBase(flags), token: adminToken(), era, target, color: flags.color ?? undefined, photos: photos.map(p => resolve(p)) });
   } catch (err) {
     console.error(err.message);
-    console.error('Usage: npm run photos -- <era> <product-id> [--color "<Colour name>"] <photo...>\n       npm run photos -- <era> hero <photo>');
+    console.error(USAGE);
     process.exit(1);
   }
 }

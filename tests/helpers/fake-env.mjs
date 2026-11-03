@@ -1,9 +1,13 @@
 import { createApp } from '../../server/index.js';
-import { FIXTURE, NOW } from './fixture.mjs';
+import { FIXTURE, NOW, fixtureStock } from './fixture.mjs';
+import { applyStock } from '../../data/catalog.js';
+import { MEDIA_NAME } from '../../server/lib/media.js';
+import { REV_KEY, ERA_ORDER_KEY, eraKey, productKey } from '../../server/lib/catalog-store.js';
+import { stockKey, stockDoc } from '../../server/lib/stock.js';
 
 // In-memory stand-in for the ORDERS store (server/lib/kv-store.js has the same surface).
 // Set `failPuts` / `failGets` to a predicate on the key to simulate outages.
-export function fakeKV() {
+export function fakeKV({ pageSize = 1000 } = {}) {
   const store = new Map();
   const versions = new Map();
   let clock = 0;
@@ -33,15 +37,21 @@ export function fakeKV() {
     async delete(key) { remove(key); },
     // All or nothing, with no await between the checks and the writes, like a Deno KV atomic commit.
     async commit({ checks = [], puts = [], deletes = [] } = {}) {
+      // File-backed @deno/kv's limits, so unit tests catch a write that could never commit.
+      if (checks.length > 10) throw new Error('TooManyChecks');
+      if (puts.length + deletes.length > 1000) throw new Error('TooManyMutations');
       for (const { key } of puts) if (this.failPuts?.(key)) throw new Error('KV put failed');
       if (!checks.every(({ key, version }) => versionOf(key) === (version ?? null))) return false;
       for (const { key, value, opts } of puts) write(key, value, opts);
       for (const key of deletes) remove(key);
       return true;
     },
-    async list({ prefix = '' } = {}) {
-      const keys = [...store.keys()].filter(k => k.startsWith(prefix)).sort().map(name => ({ name, ...(store.get(name).opts.metadata && { metadata: store.get(name).opts.metadata }) }));
-      return { keys, list_complete: true };
+    async list({ prefix = '', cursor, limit = pageSize } = {}) {
+      const all = [...store.keys()].filter(k => k.startsWith(prefix)).sort().map(name => ({ name, ...(store.get(name).opts.metadata && { metadata: store.get(name).opts.metadata }) }));
+      const at = Number(cursor ?? 0);
+      const keys = all.slice(at, at + Math.min(limit, pageSize));
+      const end = at + keys.length;
+      return end >= all.length ? { keys, list_complete: true } : { keys, list_complete: false, cursor: String(end) };
     },
   };
 }
@@ -57,6 +67,21 @@ export function fakeLimiter(limit) {
   };
 }
 
+// In-memory stand-in for server/lib/media.js mediaStore.
+export function fakeMedia() {
+  const files = new Map();
+  const touched = new Map(); // mtimeMs of files rewritten after the first write
+  const check = name => { if (!MEDIA_NAME.test(name)) throw new Error('bad media name'); return name; };
+  return {
+    files,
+    async read(name) { return files.get(check(name)) ?? null; },
+    async write(name, bytes) { if (files.has(check(name))) touched.set(name, Date.now()); else files.set(name, new Uint8Array(bytes)); },
+    async has(name) { return files.has(check(name)); },
+    async list() { return [...files.keys()].sort().map(name => ({ name, mtimeMs: touched.get(name) ?? 0, size: files.get(name).length })); },
+    async remove(name) { files.delete(check(name)); },
+  };
+}
+
 export function makeEnv(over = {}) {
   const env = {
     ENVIRONMENT: 'production',
@@ -66,12 +91,31 @@ export function makeEnv(over = {}) {
     OWNER_EMAIL: 'owner@evincus.shop',
     ALLOWED_ORIGINS: 'https://evincus.shop',
     COMMIT_SHA: 'abc1234',
+    CUSTOMER_DATA_KEY: Buffer.alloc(32, 7).toString('base64'),
     ORDERS: fakeKV(),
     BEACON_LIMIT: fakeLimiter(10),
+    LOGIN_IP_LIMIT: fakeLimiter(10),
+    LOGIN_EMAIL_LIMIT: fakeLimiter(5),
+    INVENTORY_LIMIT: fakeLimiter(120),
+    MEDIA: fakeMedia(),
     ...over,
   };
+  for (const [k, v] of fixtureStock()) putStock(env, k, v.onHand, v.committed);
   return env;
 }
+
+// Product ids never hold '|', so a line key splits at its first one into product and '<colour>|<size>'.
+const splitLine = lineKey => [lineKey.slice(0, lineKey.indexOf('|')), lineKey.slice(lineKey.indexOf('|') + 1)];
+const stockDocOf = (env, productId) => JSON.parse(env.ORDERS.store.get(stockKey(productId))?.value ?? '{}');
+
+// Sets one variant in its product's stock document, bumping its version like any write. fakeKV's put writes before
+// its first await, so callers that don't await it still see the change.
+export function putStock(env, lineKey, onHand, committed = 0) {
+  const [id, variant] = splitLine(lineKey);
+  return env.ORDERS.put(stockKey(id), stockDoc({ ...stockDocOf(env, id), [variant]: { onHand, committed } }));
+}
+
+export const stockOf = (env, lineKey) => { const [id, variant] = splitLine(lineKey); return stockDocOf(env, id)[variant]; };
 
 // ctx.waitUntil collector; settle() also drains work queued by queued work. `ip` is the client address the runtime saw.
 export function makeCtx(ip) {
@@ -94,8 +138,7 @@ export function captureLogs() {
 }
 
 // One request through the app, with waitUntil work finished before returning.
-export async function call(method, path, { body, raw, headers = {}, ip, env = makeEnv(), clock = () => NOW, data = FIXTURE } = {}) {
-  const app = createApp({ data, clock });
+async function send(app, method, path, { body, raw, headers = {}, ip, env = makeEnv() } = {}) {
   const ctx = makeCtx(ip);
   const init = { method, headers: { ...headers } };
   if (raw !== undefined) init.body = raw;
@@ -111,10 +154,40 @@ export async function call(method, path, { body, raw, headers = {}, ip, env = ma
   return { res, status: res.status, json, text, env };
 }
 
-// Fake Resend on globalThis.fetch. resend: { fail(body) → boolean }
-export function fakeUpstreams({ resend = {} } = {}) {
+export const call = (method, path, { clock = () => NOW, data = applyStock(FIXTURE, fixtureStock()), ...opts } = {}) =>
+  send(createApp({ data, clock }), method, path, opts);
+
+// As the live server runs: the catalog comes from env.ORDERS.
+export const callWithoutData = (method, path, { clock = () => NOW, ...opts } = {}) => send(createApp({ clock }), method, path, opts);
+
+// Stores a catalog as seedCatalog does: every image becomes a photo ref, eras are published, and products are active
+// with skus, costCents and the stock settings.
+export async function seedFromFixture(env, data = FIXTURE) {
+  const ids = new Map();
+  const ref = src => {
+    if (!ids.has(src)) ids.set(src, String(ids.size + 1).padStart(24, '0'));
+    return { id: ids.get(src), width: 960, height: 1200, widths: [480, 960], ext: 'webp' };
+  };
+  const puts = [
+    ...data.eras.map(e => ({ key: eraKey(e.slug), value: JSON.stringify({ state: 'published', ...e, hero: ref(e.hero) }) })),
+    ...data.products.map((p, position) => ({ key: productKey(p.id), value: JSON.stringify({
+      status: 'active', continueSelling: false, lowStockAt: 3, ...p, ...(p.images && { images: p.images.map(ref) }),
+      colors: p.colors.map(c => (c.images ? { ...c, images: c.images.map(ref) } : c)),
+      skus: {}, costCents: 1200, position,
+    }) })),
+    { key: ERA_ORDER_KEY, value: JSON.stringify(data.eras.map(e => e.slug)) },
+    { key: REV_KEY, value: JSON.stringify({ rev: crypto.randomUUID() }) },
+  ];
+  await env.ORDERS.commit({ puts });
+}
+
+// Fake Resend, WiPay and the exchange-rate source on globalThis.fetch. resend: { fail(body) → boolean };
+// wipay: { reply(body) → { status?, body } } and fx: { reply() → { status?, body } } (either may throw, like a network
+// error). WiPay requests are recorded in `wipay` as { host, headers, body }.
+export function fakeUpstreams({ resend = {}, wipay = {}, fx = {} } = {}) {
   const calls = [];
   const emails = [];
+  const wipayCalls = [];
   const batchKeys = new Set();
   globalThis.fetch = async (input, init = {}) => {
     const u = new URL(typeof input === 'string' ? input : input.url);
@@ -138,7 +211,17 @@ export function fakeUpstreams({ resend = {} } = {}) {
       emails.push({ ...body, idempotencyKey });
       return reply({ id: `em_${emails.length}` });
     }
+    if ((u.host === 'jm.wipayfinancial.com' || u.host === 'jmsb.wipayfinancial.com') && method === 'POST' && u.pathname === '/plugins/payments/request') {
+      const body = JSON.parse(init.body);
+      wipayCalls.push({ host: u.host, headers, body });
+      const out = wipay.reply?.(body) ?? { body: { url: 'https://jmsb.wipayfinancial.com/checkout/payment?x=1', message: 'OK', transaction_id: `SB-12-1-${body.order_id}-20261024120000` } };
+      return reply(out.body, out.status ?? 200);
+    }
+    if (u.host === 'open.er-api.com' && u.pathname === '/v6/latest/USD') {
+      const out = fx.reply?.() ?? { status: 503, body: {} };
+      return reply(out.body, out.status ?? 200);
+    }
     return reply({ name: 'RESOURCE_NOT_FOUND' }, 404);
   };
-  return { calls, emails };
+  return { calls, emails, wipay: wipayCalls };
 }

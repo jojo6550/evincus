@@ -1,13 +1,16 @@
 import { createLogger } from './lib/log.js';
+import { logSink } from './lib/log-store.js';
 import { secureResponse } from './lib/security.js';
-import { CATALOG } from './lib/catalog.js';
+import { liveCatalog } from './lib/catalog.js';
 import { loadSales } from './lib/sales.js';
-import { applySales, publicView } from '../data/catalog.js';
+import { loadStock } from './lib/stock.js';
+import { MEDIA_NAME } from './lib/media.js';
+import { applySales, applyStock, publicView } from '../data/catalog.js';
 import { robotsTxt, sitemapXml, productHead, crawlable } from './lib/seo.js';
 import { siteStatus } from './lib/http.js';
 
-// The public site: root .html pages, /assets/ and /data/. Nothing else in the repo (server code, docs, .env,
-// package files) is ever served. Missing pages get 404.html with a real 404 status.
+// The public site: root .html pages, /assets/, /data/ and catalog photos under /media/ (from env.MEDIA). Nothing
+// else in the repo (server code, docs, .env, package files) is ever served. Missing pages get 404.html with a real 404 status.
 export const ERROR_CODES = [403, 404, 500, 502, 503, 504];
 
 const TYPES = {
@@ -52,7 +55,9 @@ async function productPage(id, { env, readFile, data, now }) {
   return html.replace(/<!-- seo -->[\s\S]*?<!-- \/seo -->/, productHead(p, view.eras.find(e => e.slug === p.era)));
 }
 
-async function staticResponse(req, { env = {}, readFile, statFile, data = CATALOG, now = new Date() }) {
+// `data` replaces the KV catalog (tests). Stock is applied so JSON-LD says OutOfStock exactly when the API says sold out.
+async function staticResponse(req, { env = {}, readFile, statFile, data, now = new Date() }) {
+  const catalog = async () => data ?? applyStock(await liveCatalog(env), await loadStock(env));
   if (req.method !== 'GET' && req.method !== 'HEAD') return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
   const send = (body, path, status = 200, cache = extension(path) === '.html' ? 'no-cache' : 'public, max-age=600') =>
     new Response(req.method === 'HEAD' ? null : body, {
@@ -70,20 +75,30 @@ async function staticResponse(req, { env = {}, readFile, statFile, data = CATALO
     try { path = decodeURIComponent(new URL(req.url).pathname); } catch { return await errorPage(404); }
     if (path === '/') path = '/index.html';
     if (path === '/favicon.ico') path = '/assets/img/favicon.ico';
-    // Assets stay up for the 503 page itself; newsletter.html so unsubscribe links in sent emails keep working.
+    // Staff stock the shop while the public site is closed, so the inventory page ignores STATUS.
+    const staffPage = path === '/inventory' || path === '/inventory.html';
+    if (path === '/inventory') path = '/inventory.html';
+    // Assets stay up for the 503 page itself, /data/ for the inventory app's modules (public when live anyway), media for
+    // sent emails; newsletter.html so unsubscribe links keep working.
     const status = siteStatus(req, env);
-    if (status !== 'live' && !path.startsWith('/assets/') && path !== '/newsletter.html') {
+    if (status !== 'live' && !staffPage && !DIRS.some(dir => path.startsWith(dir)) && !path.startsWith('/media/') && path !== '/newsletter.html' && path !== '/order.html') {
       const page = status === 'stocking' ? 'restocking.html' : '503.html';
       return send(await readFile(page), page, 503, 'no-store');
     }
     if (path.toLowerCase() === '/assets/js/config.js') return send(CONFIG_JS, '/assets/js/config.js', 200, 'no-cache');
     if (path === '/robots.txt') return send(robotsTxt(crawlable(req.headers.get('host'))), path, 200, 'public, max-age=3600');
-    if (path === '/sitemap.xml') return send(sitemapXml(data, now), path, 200, 'public, max-age=3600');
+    if (path === '/sitemap.xml') return send(sitemapXml(await catalog(), now), path, 200, 'public, max-age=3600');
     if (path === '/speculation-rules.json') return send(SPECULATION_RULES, path, 200, 'public, max-age=3600');
     const product = /^\/products\/([a-z0-9-]+)$/.exec(path);
     if (product) {
-      const html = await productPage(product[1], { env, readFile, data, now });
+      const html = await productPage(product[1], { env, readFile, data: await catalog(), now });
       return html ? send(html, '/index.html') : await errorPage(404);
+    }
+    // Content-named, so a name never changes meaning. The name check runs before anything touches the disk.
+    const media = /^\/media\/([^/]+)$/.exec(path);
+    if (media) {
+      const bytes = MEDIA_NAME.test(media[1]) ? await env.MEDIA?.read(media[1]) : null;
+      return bytes ? send(bytes, path, 200, 'public, max-age=31536000, immutable') : await errorPage(404);
     }
     const forced = /^\/__error\/(\d{3})$/.exec(path);
     if (forced && env.ENVIRONMENT === 'development' && ERROR_CODES.includes(Number(forced[1]))) return await errorPage(Number(forced[1]));
@@ -110,7 +125,7 @@ async function staticResponse(req, { env = {}, readFile, statFile, data = CATALO
     }
     return await errorPage(404);
   } catch (err) {
-    createLogger({ route: `${req.method} static` }).error('static.failed', { message: String(err?.message ?? err) });
+    createLogger({ route: `${req.method} static` }, { sink: logSink(env, p => { void p; }) }).error('static.failed', { message: String(err?.message ?? err) });
     try { return await errorPage(500); } catch { return new Response('Server error', { status: 500 }); }
   }
 }

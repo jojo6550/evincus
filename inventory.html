@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="/assets/img/favicon.ico?v=7c5d0efc7a04" sizes="any">
+<title>Inventory | Evincus</title>
+<link rel="preload" href="/assets/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/inventory.css">
+
+<div id="shell" class="shell" hidden>
+  <div class="bar">
+    <b class="bar__brand">EVINCUS</b>
+    <span id="local" class="badge" hidden>Local</span>
+    <span id="who" class="bar__who"></span>
+    <span id="bar-error" class="bar__error" aria-live="polite"></span>
+    <button id="signout" type="button" class="btn btn--line">Sign out</button>
+  </div>
+  <nav id="tabs" class="tabs" aria-label="Sections"></nav>
+  <main id="view" class="view" tabindex="-1"></main>
+</div>
+
+<section id="login" class="login" role="dialog" aria-modal="true" aria-labelledby="login-title" hidden>
+  <form id="login-form" class="login__card">
+    <h1 id="login-title" class="login__title">Inventory</h1>
+    <p id="login-note" class="login__note">Staff sign-in.</p>
+    <label for="login-email">Email</label>
+    <input id="login-email" name="email" type="email" autocomplete="username" required>
+    <label for="login-password">Password</label>
+    <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+    <p id="login-error" class="login__error" aria-live="polite"></p>
+    <button id="login-submit" type="submit" class="btn">Sign in</button>
+  </form>
+</section>
+
+<noscript><p class="login__note">Inventory needs JavaScript.</p></noscript>
+<script type="module" src="/assets/js/inventory.js"></script>
+<script type="module" src="/assets/js/inventory-products.js"></script>
+<script type="module" src="/assets/js/inventory-orders.js"></script>
+<script type="module" src="/assets/js/inventory-stats.js"></script>
+<script type="module" src="/assets/js/inventory-finances.js"></script>
+<script type="module" src="/assets/js/inventory-logs.js"></script>

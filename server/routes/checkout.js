@@ -1,10 +1,12 @@
 import { json, fail, readJson, HttpError } from '../lib/http.js';
-import { CartError, quote } from '../lib/pricing.js';
-import { parseCheckout, directRecord } from '../lib/checkout.js';
-import { sendOrderEmails } from '../lib/delivery.js';
+import { CartError, MAX_PRODUCTS, quote } from '../lib/pricing.js';
+import { parseCheckout, buildOrder } from '../lib/checkout.js';
 import { PICKUP_LOCATIONS } from '../../data/fulfillment.js';
 import { findOrder } from '../lib/orders.js';
 import { submitOrder } from '../lib/submissions.js';
+import { releaseExpiredHolds } from '../lib/holds.js';
+import { loadStock } from '../lib/stock.js';
+import { applyStock } from '../../data/catalog.js';
 
 export function checkoutOptions(req, c) {
   return json({ pickupLocations: PICKUP_LOCATIONS }, 200, { 'Cache-Control': 'no-store' });
@@ -19,6 +21,8 @@ export async function placeOrderRoute(req, c) {
   }
   const details = parseCheckout(body);
   if (!Array.isArray(body.items) || !body.items.every(i => i && typeof i === 'object')) return fail(c, 'invalid-cart', 400);
+  // One stock check per product must fit the commit's check budget.
+  if (new Set(body.items.map(i => i.id)).size > MAX_PRODUCTS) return fail(c, 'too-many-products', 400);
   const bytes = new TextEncoder().encode(JSON.stringify({ items: body.items.map(({ id, color, size, qty }) => ({ id, color, size, qty })), ...details, expectedTotalCents: body.expectedTotalCents }));
   const fingerprint = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
   const id = `EV-${body.checkoutToken.toLowerCase()}`;
@@ -29,16 +33,24 @@ export async function placeOrderRoute(req, c) {
     let q;
     try { q = quote(c.data, c.now, body?.items); }
     catch (err) { if (err instanceof CartError) return fail(c, 'invalid-cart', 400); throw err; }
+    // Short only because of unpaid orders whose hold expired: release those and price again on the freed stock.
+    if (q.lines.some(l => l.status === 'sold-out' || l.status === 'insufficient-stock') && await releaseExpiredHolds(c.env, c.now, { limit: 8 })) {
+      c.data = applyStock(c.data, await loadStock(c.env));
+      q = quote(c.data, c.now, body.items);
+    }
     // Never silently accept a changed price or capped quantity.
     if (!q.checkoutReady || q.lines.some(l => l.status !== 'ok') || body.expectedTotalCents !== q.totalCents) return fail(c, 'bag-changed', 409, { lines: q.lines });
-    result = await submitOrder(c.env, id, fingerprint, directRecord(id, q, details, c.now));
+    result = await submitOrder(c.env, id, fingerprint, await buildOrder(c.env, id, q, details, c.now, c.data.products), { products: c.data.products });
     if (result.conflict) return fail(c, 'checkout-conflict', 409);
+    if (result.short) {
+      const short = new Map(result.short.map(s => [s.key, s]));
+      const status = s => s.status ?? (s.available > 0 ? 'insufficient-stock' : 'sold-out'); // status: a variant gone since the quote
+      return fail(c, 'bag-changed', 409, { lines: q.lines.map(l => (short.has(l.key) ? { ...l, status: status(short.get(l.key)), available: short.get(l.key).available ?? 0 } : l)) });
+    }
     ({ record } = result);
   }
   c.log.info('order.placed', { orderId: id, totalCents: record.totalCents });
-  c.waitUntil((async () => {
-    const latest = await findOrder(c.env, id);
-    await sendOrderEmails(c, latest ?? record);
-  })().catch(err => c.log.error('email.failed', { orderId: id, message: String(err.message) })));
-  return json({ id, status: record.status, paymentStatus: record.paymentStatus, name: record.customer.name, email: record.customer.email, fulfillment: record.fulfillment, totalCents: record.totalCents }, 201, { 'Cache-Control': 'no-store' });
+  // The current order, not the submission copy: a retry after payment must say it is paid.
+  const order = (await findOrder(c.env, id)) ?? record;
+  return json({ id, status: order.status, paymentStatus: order.paymentStatus, fulfillment: { type: order.fulfillment.type }, totalCents: order.totalCents }, 201, { 'Cache-Control': 'no-store' });
 }

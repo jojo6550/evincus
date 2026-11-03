@@ -1,28 +1,189 @@
 import { money } from '../../data/catalog.js';
+import { jamaicaTime, chargeRows, addressLines } from '../emails/html.js';
+import { HttpError } from './http.js';
+import { applyAction, orderSummary } from './order-flow.js';
+import { stockKey, stockDoc, adjKey, listAll } from './stock.js';
+import { isOpId, readOpEntry, opPut } from './ops.js';
+import { MAX_PRODUCTS } from './pricing.js';
+import { unseal } from './crypto.js';
 
 export const ORDER_TTL = 63072000; // 2 years
+export const UNPAID_TTL = 604800; // 7 days: a submission whose order never reached WiPay
+export const HOLD_MS = 900000; // stock is held 15 minutes for payment
 export const orderKey = id => `order:${id}`;
 export const retryKey = id => `email-retry:${id}`;
+// One per refund, on the Jamaica day it was recorded, for Finances. The event time and the action's opId make it
+// unique and stable across a replay. Metadata holds amounts and lines only: the reason (owner text) stays on the order.
+export const refundKey = (day, orderId, at, opId) => `refund:${day}:${orderId}:${at}:${opId}`;
+// Sorted by expiry, so the release job lists only the due ones.
+export const holdKey = (untilMs, orderId) => `hold:${String(untilMs).padStart(13, '0')}:${orderId}`;
+
+// Bumped by every order write, so cached stats know to recompute. ordersRev is per process (single instance by design).
+let rev = 0;
+export const ordersRev = () => rev;
+export const bumpOrders = () => { rev++; };
 
 export const findOrder = (env, id) => env.ORDERS.get(orderKey(id), 'json');
 
-// The Jamaica day an order was placed (UTC-5, no DST).
-export function dayKey(record) {
-  const day = new Date(Date.parse(record.placedAt) - 5 * 3600000).toISOString().slice(0, 10);
-  return `day:${day}:${record.id}`;
+// The order with its customer, address and notes in plaintext, for emails and the owner. Never write the result back.
+// Legacy orders keep plaintext `customer` ({ name, email, phone }); scrubbed ones have neither and come back unchanged.
+export async function revealOrder(env, record) {
+  const { pii, ...rest } = record;
+  if (pii) {
+    const { customer, address, notes } = await unseal(env, pii);
+    return { ...rest, customer: customer && { ...customer, name: `${customer.firstName} ${customer.lastName}` }, address, notes };
+  }
+  if (!record.customer) return rest;
+  const { name = '', email, phone } = record.customer, cut = name.lastIndexOf(' ');
+  return {
+    ...rest, address: null, notes: record.notes ?? '',
+    customer: { firstName: cut < 0 ? name : name.slice(0, cut), lastName: cut < 0 ? '' : name.slice(cut + 1), name, email, phone },
+  };
 }
 
-export const updateOrder = (env, record) =>
-  env.ORDERS.put(orderKey(record.id), JSON.stringify(record), { expirationTtl: ORDER_TTL });
+// The Jamaica day (UTC-5, no DST) of a time in ms, and the one an order was placed.
+export const jamaicaDay = ms => new Date(ms - 5 * 3600000).toISOString().slice(0, 10);
+export const dayKey = record => `day:${jamaicaDay(Date.parse(record.placedAt))}:${record.id}`;
 
-// Label/value rows for the owner's daily summary.
+// The order and its day: entry, whose metadata lets the order list skip reading each record. No TTL: amounts are kept
+// forever (retention.js scrubs the personal fields after 2 years).
+export const orderPuts = record => [
+  { key: orderKey(record.id), value: JSON.stringify(record) },
+  { key: dayKey(record), value: '', opts: { metadata: orderSummary(record) } },
+];
+const ROUNDS = 5;
+const pause = () => new Promise(r => setTimeout(r, 5 + Math.random() * 20));
+
+// Applies `change` to a fresh copy of the stored order and commits it only if the order is unchanged since that read,
+// so a slow writer (email delivery) never puts back a stale record over an owner's action. `change` (may be async,
+// reruns after a lost round) returns the new record, or { record, extraPuts, extraChecks, deletes }, or null to write
+// nothing. -> the record written, or null.
+export async function changeOrder(env, id, change) {
+  for (let round = 0; round < ROUNDS; round++) {
+    if (round) await pause();
+    const { value, version } = await env.ORDERS.getEntry(orderKey(id));
+    if (!value) throw new HttpError('unknown-order', 404);
+    const out = await change(JSON.parse(value));
+    if (out === null) return null;
+    const { record, extraPuts = [], extraChecks = [], deletes = [] } = out.record ? out : { record: out };
+    const checks = [{ key: orderKey(id), version }, ...extraChecks];
+    if (await env.ORDERS.commit({ checks, puts: [...orderPuts(record), ...extraPuts], deletes })) { bumpOrders(); return record; }
+  }
+  throw new HttpError('order-busy', 409);
+}
+
+// Product ids never hold '|', so a line key splits at its first one into product and '<colour>|<size>'.
+const splitLine = key => [key.slice(0, key.indexOf('|')), key.slice(key.indexOf('|') + 1)];
+
+// An owner's action on an order, with its stock movements, in one commit: the order, each moved product's stock
+// document and op:<opId> are checked, so a retry or a racing twin applies it once and a raced stock read retries.
+// `version` is the order version the owner saw; any other is 409 order-changed, also after a lost round, so an
+// action is never re-applied onto an order that changed since. -> { order, version, replayed }.
+export async function orderAction(env, id, { opId, version, action }, { by, now }) {
+  if (!isOpId(opId)) throw new HttpError('invalid-action', 400);
+  const key = orderKey(id);
+  for (let round = 0; round < ROUNDS; round++) {
+    if (round) await pause();
+    const op = await readOpEntry(env, opId, 'order-action'); // first, so a retry replays whatever changed since
+    if (op.result && op.result.id !== id) throw new HttpError('op-reused', 409);
+    if (!op.result) {
+      const cur = await env.ORDERS.getEntry(key);
+      if (!cur.value) throw new HttpError('unknown-order', 404);
+      const current = JSON.parse(cur.value);
+      if (cur.version !== version) throw new HttpError('order-changed', 409, { current, version: cur.version });
+      const { record, movements } = applyAction(current, action, { by, now });
+      // A cancel releases the stock (applyAction moved it), so the hold is over: expiry must not release it again.
+      const holdDeletes = action?.type === 'cancel' && record.holdUntil ? [holdKey(Date.parse(record.holdUntil), id)] : [];
+      if (action?.type === 'cancel') { record.stockCommitted = false; delete record.holdUntil; }
+      const refunded = action?.type === 'refund' && record.events.at(-1);
+      const refundPut = refunded ? [{ key: refundKey(jamaicaDay(Date.parse(refunded.at)), id, refunded.at, opId), value: '', opts: { metadata: { amountCents: refunded.amountCents, taxCents: refunded.taxCents, restock: refunded.restock, lines: refunded.lines } } }] : [];
+      const ids = [...new Set(movements.map(m => splitLine(m.key)[0]))];
+      // One check per moved stock doc plus the order and the op must fit @deno/kv's 10 checks; checkout caps an order at MAX_PRODUCTS.
+      if (ids.length > MAX_PRODUCTS) throw new Error(`Order ${id} moves stock of ${ids.length} products; one commit fits ${MAX_PRODUCTS}`);
+      const entries = new Map(await Promise.all(ids.map(async pid => [pid, await env.ORDERS.getEntry(stockKey(pid))])));
+      const docs = new Map([...entries].map(([pid, e]) => [pid, JSON.parse(e.value ?? '{}')]));
+      const at = now.toISOString();
+      const adjs = movements.map((m, i) => {
+        const [pid, variant] = splitLine(m.key);
+        const doc = docs.get(pid);
+        // The stock document lists every variant, so a missing row was renamed or removed since the order.
+        if (!Object.hasOwn(doc, variant)) throw new HttpError('variant-gone', 409, { key: m.key });
+        const onHand = (doc[variant].onHand ?? 0) + m.onHand, committed = (doc[variant].committed ?? 0) + m.committed;
+        // Committed counts open orders' units, so it can't go below zero unless the data is wrong.
+        if (committed < 0) throw new HttpError('stock-mismatch', 409, { key: m.key });
+        if (onHand < 0) throw new HttpError('stock-short', 409, { key: m.key }); // e.g. an oversold continueSelling product
+        doc[variant] = { ...doc[variant], onHand, committed };
+        return { key: adjKey(pid, at, opId, i), value: JSON.stringify({ key: m.key, onHand: m.onHand, committed: m.committed, reason: m.reason, note: '', by, at, orderId: id }) };
+      });
+      const ok = await env.ORDERS.commit({
+        checks: [{ key, version: cur.version }, ...[...entries].map(([pid, e]) => ({ key: stockKey(pid), version: e.version })), op.check],
+        puts: [...orderPuts(record), ...[...docs].map(([pid, doc]) => ({ key: stockKey(pid), value: stockDoc(doc) })), ...adjs, ...refundPut, opPut(opId, 'order-action', { id })],
+        deletes: holdDeletes,
+      });
+      if (!ok) continue;
+      bumpOrders();
+    }
+    // The commit can't know its own version, so the result is read back, like a product save's.
+    const e = await env.ORDERS.getEntry(orderKey(op.result?.id ?? id));
+    return { order: JSON.parse(e.value), version: e.version, replayed: !!op.result };
+  }
+  throw new HttpError('order-busy', 409);
+}
+
+// Label/value rows for the owner's daily summary, from a revealed order (revealOrder).
 export function recordRows(r) {
+  const loc = r.fulfillment?.location;
+  const status = r.paymentStatus === 'PAID' ? `Paid ${jamaicaTime(r.payment.paidAt)}` : r.paymentStatus === 'NOT_COLLECTED' ? 'Placed — no payment collected' : 'Not paid';
   return [
-    ['Status', 'Placed — no payment collected'], ['Placed at', r.placedAt], ['Phone', r.customer.phone], ['Pickup', r.fulfillment.location ? `${r.fulfillment.location.name}, ${r.fulfillment.location.address ?? r.fulfillment.location.area + ' (address to be confirmed)'}` : ''], ['Notes', r.notes],
+    ['Status', status], ['Placed at', r.placedAt],
+    ['Customer', `${r.customer?.name ?? ''} <${r.customer?.email ?? ''}>`], ['Phone', r.customer?.phone ?? ''],
+    r.fulfillment?.type === 'shipping'
+      ? ['Ship to', r.address ? addressLines(r.address).join(', ') : '']
+      : ['Pickup', loc ? `${loc.name}, ${loc.address ?? loc.area + ' (address to be confirmed)'}` : ''],
+    ['Notes', r.notes ?? ''],
     ['Order', r.id],
-    ['Payer', `${r.payer.name} <${r.payer.email}>`],
+    ...(r.payment ? [['WiPay transaction', r.payment.transactionId]] : []),
+    ...(r.attemptId && r.paymentStatus !== 'PAID' ? [['WiPay attempt', r.attemptId]] : []),
     ...r.lines.map(l => [`${l.qty} × ${l.name}`, `${l.color} / ${l.size} at ${money(l.unitCents)}`]),
-    ['Subtotal', money(r.subtotalCents)],
-    ['Total', `${money(r.totalCents)} USD`],
+    ...chargeRows(r),
   ];
+}
+
+// Order list views, on day: metadata (orderSummary) only.
+export const VIEWS = {
+  open: m => ['PAID', 'NOT_COLLECTED'].includes(m.payment) && ['UNFULFILLED', 'READY'].includes(m.fulfilment),
+  ready: m => m.fulfilment === 'READY',
+  awaiting: m => m.payment === 'UNPAID',
+  fulfilled: m => m.fulfilment === 'FULFILLED',
+  cancelled: m => m.fulfilment === 'CANCELLED',
+  all: () => true,
+};
+const LIST_PAGE = 50;
+const dayBefore = day => new Date(Date.parse(`${day}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+// Newest first, ties by id, so a cursor names one place in the walk.
+const newer = (a, b) => (a.placedAt === b.placedAt ? (a.id > b.id ? -1 : a.id < b.id ? 1 : 0) : a.placedAt > b.placedAt ? -1 : 1);
+
+// One page of orders, newest first: a walk down the Jamaica days from `to` (or the cursor's day) to `from`, reading
+// each day's day: keys whole (every KV page; they sort by id, not time). `keep(summary)` filters on the key metadata;
+// `match(order)`, when set, loads each kept order (product filter, search). `cursor` { placedAt, id } is the last row
+// sent; the walk resumes after it. -> { orders: [{ id, ...summary }], cursor: '<placedAt>|<id>' | null }.
+export async function listOrders(env, { from, to, keep, match, cursor }) {
+  const orders = [];
+  const start = cursor ? jamaicaDay(Date.parse(cursor.placedAt)) : to;
+  for (let day = start < to ? start : to; day >= from; day = dayBefore(day)) {
+    const prefix = `day:${day}:`;
+    const rows = [];
+    for (const { name, metadata } of await listAll(env.ORDERS, prefix)) {
+      const id = name.slice(prefix.length);
+      const m = metadata ?? (await findOrder(env, id).then(o => o && orderSummary(o))); // keys from before metadata
+      if (m && keep(m)) rows.push({ id, ...m });
+    }
+    for (const row of rows.sort(newer)) {
+      if (cursor && newer(row, cursor) <= 0) continue;
+      if (match) { const o = await findOrder(env, row.id); if (!o || !(await match(o))) continue; }
+      orders.push(row);
+      if (orders.length === LIST_PAGE) return { orders, cursor: `${row.placedAt}|${row.id}` };
+    }
+  }
+  return { orders, cursor: null };
 }
