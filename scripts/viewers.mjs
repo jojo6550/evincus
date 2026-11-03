@@ -71,7 +71,7 @@ export async function main(argv, { fetchFn = fetch, env = process.env, log = con
     const saved = await res.json();
     // Printed only after the server confirms, so a failed call never shows a password that does not work.
     log(`Password for ${saved.email} (${saved.role}) on ${where}: ${password}`);
-    return log('Shown once. Send it privately.');
+    return log('Shown once. Send it privately. They pick their own password on first sign-in.');
   }
 
   throw new Error(USAGE);

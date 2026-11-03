@@ -41,6 +41,8 @@ export const MESSAGES = {
   'invalid-account': 'That account is not valid.',
   'signed-out': 'Sign in to continue.',
   'forbidden': "Your account can't do that.",
+  'password-change-required': 'Set your own password to continue.',
+  'weak-password': 'Use a password of 12 to 256 characters.',
   'bad-origin': 'That request came from another site and was refused.',
   'invalid-stock': "Those stock changes can't be saved. Reload and try again.",
   'stock-below-committed': "You can't remove units that are promised to orders. Cancel or refund the order first.",
