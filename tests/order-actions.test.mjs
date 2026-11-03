@@ -54,7 +54,7 @@ test('an email retry landing after an owner action keeps the action', async () =
   // The owner marks the order ready while the retry is sending, after it read the record.
   const send = globalThis.fetch;
   let r;
-  globalThis.fetch = async (...a) => { r ??= await act(env, cookie, id, { type: 'ready' }); return send(...a); };
+  globalThis.fetch = async (...a) => { if (String(a[0]?.url ?? a[0]).includes('resend.com')) r ??= await act(env, cookie, id, { type: 'ready' }); return send(...a); };
   await cron(env, NOW + 15 * MIN);
   assert.equal(r.status, 200);
   const { order: o } = await entry(env, id);

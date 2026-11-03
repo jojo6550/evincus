@@ -181,9 +181,10 @@ export async function seedFromFixture(env, data = FIXTURE) {
   await env.ORDERS.commit({ puts });
 }
 
-// Fake Resend and WiPay on globalThis.fetch. resend: { fail(body) → boolean }; wipay: { reply(body) → { status?, body } }
-// (may throw, like a network error). WiPay requests are recorded in `wipay` as { host, headers, body }.
-export function fakeUpstreams({ resend = {}, wipay = {} } = {}) {
+// Fake Resend, WiPay and the exchange-rate source on globalThis.fetch. resend: { fail(body) → boolean };
+// wipay: { reply(body) → { status?, body } } and fx: { reply() → { status?, body } } (either may throw, like a network
+// error). WiPay requests are recorded in `wipay` as { host, headers, body }.
+export function fakeUpstreams({ resend = {}, wipay = {}, fx = {} } = {}) {
   const calls = [];
   const emails = [];
   const wipayCalls = [];
@@ -214,6 +215,10 @@ export function fakeUpstreams({ resend = {}, wipay = {} } = {}) {
       const body = JSON.parse(init.body);
       wipayCalls.push({ host: u.host, headers, body });
       const out = wipay.reply?.(body) ?? { body: { url: 'https://jmsb.wipayfinancial.com/checkout/payment?x=1', message: 'OK', transaction_id: `SB-12-1-${body.order_id}-20261024120000` } };
+      return reply(out.body, out.status ?? 200);
+    }
+    if (u.host === 'open.er-api.com' && u.pathname === '/v6/latest/USD') {
+      const out = fx.reply?.() ?? { status: 503, body: {} };
       return reply(out.body, out.status ?? 200);
     }
     return reply({ name: 'RESOURCE_NOT_FOUND' }, 404);

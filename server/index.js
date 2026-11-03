@@ -17,6 +17,8 @@ import { quoteRoute } from './routes/quote.js';
 import { beacon } from './routes/beacon.js';
 import { checkoutOptions, placeOrderRoute } from './routes/checkout.js';
 import { payRoute, orderStatusRoute, wipayReturnRoute } from './routes/payments.js';
+import { currenciesRoute } from './routes/currencies.js';
+import { getRates } from './lib/fx.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
@@ -27,6 +29,7 @@ import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, 
 // Health loads its own, so a KV failure still answers 503 with kv: 'error'.
 const ROUTES = [
   ['GET', /^\/api\/checkout\/options$/, checkoutOptions],
+  ['GET', /^\/api\/currencies$/, currenciesRoute],
   ['GET', /^\/api\/health$/, health],
   ['GET', /^\/api\/catalog$/, getCatalog, true],
   ['GET', /^\/api\/eras$/, listEras, true],
@@ -170,6 +173,7 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
         if (done) await env.ORDERS.put(marker, '1', { expirationTtl: 172800 });
         else if (failed) await env.ORDERS.put(attemptKey, String(attempts + 1), { expirationTtl: 172800 });
       })());
+      run(getRates(c)); // fetches when the cached rates are over 12 hours old
       // After every job above has settled, so the health panel's "last run" means the run finished.
       ctx.waitUntil(Promise.all(runs).then(() => env.ORDERS.put('cron:lastRun', c.now.toISOString())).catch(logFailure));
     },
