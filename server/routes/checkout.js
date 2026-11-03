@@ -1,7 +1,6 @@
 import { json, fail, readJson, HttpError } from '../lib/http.js';
 import { CartError, MAX_PRODUCTS, quote } from '../lib/pricing.js';
-import { parseCheckout, directRecord } from '../lib/checkout.js';
-import { sendOrderEmails } from '../lib/delivery.js';
+import { parseCheckout, buildOrder } from '../lib/checkout.js';
 import { PICKUP_LOCATIONS } from '../../data/fulfillment.js';
 import { findOrder } from '../lib/orders.js';
 import { submitOrder } from '../lib/submissions.js';
@@ -33,7 +32,7 @@ export async function placeOrderRoute(req, c) {
     catch (err) { if (err instanceof CartError) return fail(c, 'invalid-cart', 400); throw err; }
     // Never silently accept a changed price or capped quantity.
     if (!q.checkoutReady || q.lines.some(l => l.status !== 'ok') || body.expectedTotalCents !== q.totalCents) return fail(c, 'bag-changed', 409, { lines: q.lines });
-    result = await submitOrder(c.env, id, fingerprint, directRecord(id, q, details, c.now, c.data.products), { products: c.data.products });
+    result = await submitOrder(c.env, id, fingerprint, await buildOrder(c.env, id, q, details, c.now, c.data.products), { products: c.data.products });
     if (result.conflict) return fail(c, 'checkout-conflict', 409);
     if (result.short) {
       const short = new Map(result.short.map(s => [s.key, s]));
@@ -43,9 +42,7 @@ export async function placeOrderRoute(req, c) {
     ({ record } = result);
   }
   c.log.info('order.placed', { orderId: id, totalCents: record.totalCents });
-  c.waitUntil((async () => {
-    const latest = await findOrder(c.env, id);
-    await sendOrderEmails(c, latest ?? record);
-  })().catch(err => c.log.error('email.failed', { orderId: id, message: String(err.message) })));
-  return json({ id, status: record.status, paymentStatus: record.paymentStatus, name: record.customer.name, email: record.customer.email, fulfillment: record.fulfillment, totalCents: record.totalCents }, 201, { 'Cache-Control': 'no-store' });
+  // The current order, not the submission copy: a retry after payment must say it is paid.
+  const order = (await findOrder(c.env, id)) ?? record;
+  return json({ id, status: order.status, paymentStatus: order.paymentStatus, fulfillment: { type: order.fulfillment.type }, totalCents: order.totalCents }, 201, { 'Cache-Control': 'no-store' });
 }

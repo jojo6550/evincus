@@ -5,7 +5,7 @@ import { productKey, loadCatalog } from '../lib/catalog-store.js';
 import { saveProduct, saveEra, setEraOrder, readEraOrder, productHistory } from '../lib/catalog-save.js';
 import { lineKey, imagesFor } from '../../data/catalog.js';
 import { uploadPhoto } from '../lib/media.js';
-import { orderAction, orderKey, findOrder, listOrders, jamaicaDay, VIEWS } from '../lib/orders.js';
+import { orderAction, orderKey, findOrder, revealOrder, listOrders, jamaicaDay, VIEWS } from '../lib/orders.js';
 import { PERSONAL_FIELDS } from '../lib/retention.js';
 import { loadStats } from '../lib/stats.js';
 import { readLogs, healthExtras } from '../lib/log-store.js';
@@ -195,14 +195,22 @@ export async function listOrdersRoute(req, c) {
     || (rawCursor && !(cursorDay >= from && cursorDay <= to))) throw new HttpError('invalid-query', 400);
   if (q && !owner) throw new HttpError('forbidden', 403);
   const needle = q.toLowerCase(), phone = /^ev-/i.test(q) ? '' : digits(q); // an order number is never phone digits
-  const found = o => [o.id, o.customer?.name].some(s => s?.toLowerCase().includes(needle)) || (phone.length >= 3 && digits(o.customer?.phone).includes(phone));
+  const found = async o => {
+    const { customer } = await revealOrder(c.env, o);
+    return [o.id, customer?.name].some(s => s?.toLowerCase().includes(needle)) || (phone.length >= 3 && digits(customer?.phone).includes(phone));
+  };
   const out = await listOrders(c.env, {
     from, to, cursor: cursor && { placedAt: cursor[1], id: cursor[2] },
     keep: m => VIEWS[view](m) && (!location || m.locationId === location) && (!payment || m.payment === payment),
-    match: (product || q) && (o => (!product || o.lines.some(l => l.id === product)) && (!q || found(o))),
+    match: (product || q) && (async o => (!product || o.lines.some(l => l.id === product)) && (!q || found(o))),
   });
   // Owners see who ordered: read only for the rows sent, after the metadata filters.
-  if (owner) await Promise.all(out.orders.map(async row => { row.name = shortName((await findOrder(c.env, row.id))?.customer?.name); }));
+  if (owner) {
+    await Promise.all(out.orders.map(async row => {
+      const o = await findOrder(c.env, row.id);
+      row.name = shortName(o && (await revealOrder(c.env, o)).customer?.name);
+    }));
+  }
   return json(out, 200, noStore);
 }
 
@@ -212,8 +220,9 @@ export async function getOrderRoute(req, c) {
   const owner = (await requireStaff(req, c)).role === 'owner';
   const e = await c.env.ORDERS.getEntry(orderKey(c.params[0]));
   if (!e.value) throw new HttpError('unknown-order', 404);
-  const order = JSON.parse(e.value);
-  if (!owner) {
+  let order = JSON.parse(e.value);
+  if (owner) order = await revealOrder(c.env, order);
+  else {
     for (const f of PERSONAL_FIELDS) delete order[f];
     // Owners may write customer details into notes and refund reasons.
     order.events = (order.events ?? []).filter(ev => ev.type !== 'note').map(({ reason, ...ev }) => ev);

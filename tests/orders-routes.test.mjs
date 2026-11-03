@@ -4,6 +4,7 @@ import { call, makeEnv, fakeKV } from './helpers/fake-env.mjs';
 import { signIn, ADMIN_TOKEN } from './helpers/staff.mjs';
 import { NOW } from './helpers/fixture.mjs';
 import { orderPuts } from '../server/lib/orders.js';
+import { seal } from '../server/lib/crypto.js';
 import { PERSONAL_FIELDS } from '../server/lib/retention.js';
 
 const HOUR = 3600000, DAY = 24 * HOUR;
@@ -135,7 +136,8 @@ test('viewers get no personal data, cost or notes, and 403 on name search', asyn
   for (const pii of ['Ann Lee', 'ann@example.com', '555 123', 'after 5pm', 'called her', '1 Main', 'Hope Rd'])assert.ok(!text.includes(pii), pii);
   const w = await get(env, owner, `/api/inventory/orders/${o.id}`);
   const e = await env.ORDERS.getEntry(`order:${o.id}`);
-  assert.deepEqual(w.json.order, JSON.parse(e.value));
+  assert.deepEqual({ ...w.json.order, customer: undefined, address: undefined }, { ...JSON.parse(e.value), customer: undefined, address: undefined });
+  assert.equal(w.json.order.customer.name, 'Ann Lee');
   assert.equal(w.json.version, e.version);
   assert.equal(v.json.version, e.version);
   assert.equal(w.json.scrubbed, undefined);
@@ -160,6 +162,29 @@ test('viewers get no personal data, cost or notes, and 403 on name search', asyn
   assert.equal(sv.json.scrubbed, true);
   assert.equal(sv.json.order.customer, undefined);
   assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?q=ann')), [o.id], 'scrubbed orders never match a name');
+});
+
+test('owners read sealed orders: row name, search by name or phone, detail; viewers get none of it', async () => {
+  const { env, owner, viewer } = await setup();
+  const { customer, payer, notes, ...rest } = mk();
+  const pii = await seal(env, { customer: { firstName: 'Sam', lastName: 'Reid', email: 'sam@example.com', phone: '876 555 0177' }, address: { line1: '9 Hope Rd', line2: '', city: 'Kingston', region: '', postalCode: '', country: 'JM' }, notes: 'leave at door' });
+  const sealed = { ...rest, fulfillment: { type: 'shipping' }, pii };
+  const legacy = mk({ customer: { name: 'Bo Kim', email: 'b@x.co', phone: '876 555 0199' } });
+  await seed(env, sealed, legacy);
+  const rows = (await get(env, owner, '/api/inventory/orders')).json.orders;
+  assert.equal(rows.find(r => r.id === sealed.id).name, 'Sam R.');
+  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?q=sam')), [sealed.id]);
+  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?q=8765550177')), [sealed.id]);
+  assert.deepEqual(ids(await get(env, owner, '/api/inventory/orders?q=bo')), [legacy.id], 'legacy plaintext still matches');
+  const d = await get(env, owner, `/api/inventory/orders/${sealed.id}`);
+  assert.equal(d.json.order.customer.name, 'Sam Reid');
+  assert.equal(d.json.order.notes, 'leave at door');
+  assert.equal(d.json.order.address.city, 'Kingston');
+  assert.equal('pii' in d.json.order, false);
+  const v = await get(env, viewer, `/api/inventory/orders/${sealed.id}`);
+  const text = JSON.stringify(v.json);
+  for (const s of ['Sam', 'sam@example.com', 'Hope Rd', 'leave at door', '"pii"', '"ct"']) assert.ok(!text.includes(s), s);
+  assert.equal((await get(env, viewer, '/api/inventory/orders?q=sam')).status, 403);
 });
 
 test('the detail page gets a photo per line from the catalog', async () => {

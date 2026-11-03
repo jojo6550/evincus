@@ -124,6 +124,7 @@ function detailsHtml(pg, left) {
   const rows = [
     pg.owner && !pg.scrubbed && o.customer && [row('Name', o.customer.name), row('Phone', o.customer.phone), row('Email', o.customer.email), row('Customer notes', o.notes)].join(''),
     row(o.fulfillment?.type === 'shipping' ? 'Delivery' : 'Pickup', o.fulfillment?.type === 'shipping' ? 'Shipping' : loc && `${loc.name}, ${loc.address ?? loc.area}`),
+    pg.owner && o.address && row('Ship to', [o.address.line1, o.address.line2, o.address.city, o.address.region, o.address.postalCode, o.address.country].filter(Boolean).join(', ')),
     pay && row('WiPay txn', `${pay.transactionId ?? ''} · paid ${whenText(pay.paidAt)}`),
     timer && row('Refund window', timer),
   ].filter(Boolean).join('');

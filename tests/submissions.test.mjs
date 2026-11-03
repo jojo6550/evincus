@@ -5,20 +5,20 @@ import { skip, memoryKv } from './helpers/deno-kv.mjs';
 import { kvStore } from '../server/lib/kv-store.js';
 import { submitOrder } from '../server/lib/submissions.js';
 
-const record = (over = {}) => ({ id: 'EV-1', placedAt: '2026-10-03T12:00:00.000Z', totalCents: 100, lines: [], ...over });
+const record = (over = {}) => ({ id: 'EV-1', placedAt: '2026-10-03T12:00:00.000Z', holdUntil: '2026-10-03T12:15:00.000Z', totalCents: 100, lines: [], ...over });
+const HOLD = `hold:${Date.parse('2026-10-03T12:15:00.000Z')}:EV-1`;
 const SHIRT = 'alpha-tee|Black|S';
 const shirt = (qty = 1) => record({ lines: [{ key: SHIRT, id: 'alpha-tee', color: 'Black', size: 'S', qty }] });
 const env = () => ({ ORDERS: fakeKV() });
 
-test('the first submit writes the submission, order, day index and retry job together', async () => {
+test('the first submit writes the submission, order, day index and hold together, and no email job', async () => {
   const e = env();
   assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', null), { record: null });
   assert.equal(e.ORDERS.store.size, 0);
   assert.deepEqual(await submitOrder(e, 'EV-1', 'fp', record()), { record: record() });
-  assert.deepEqual([...e.ORDERS.store.keys()].sort(), ['day:2026-10-03:EV-1', 'email-retry:EV-1', 'order:EV-1', 'submission:EV-1']);
-  assert.deepEqual(JSON.parse(e.ORDERS.store.get('email-retry:EV-1').value), { retries: 0, nextAt: Date.parse('2026-10-03T12:00:00.000Z') });
+  assert.deepEqual([...e.ORDERS.store.keys()].sort(), ['day:2026-10-03:EV-1', HOLD, 'order:EV-1', 'submission:EV-1']);
   assert.equal(e.ORDERS.store.get('order:EV-1').opts.expirationTtl, undefined); // orders are kept; only the submission expires
-  assert.equal(e.ORDERS.store.get('submission:EV-1').opts.expirationTtl, 63072000);
+  assert.equal(e.ORDERS.store.get('submission:EV-1').opts.expirationTtl, 604800);
 });
 
 test('a replay returns the saved record and a different fingerprint conflicts', async () => {
@@ -37,13 +37,14 @@ test('concurrent submits of one token produce one order', async () => {
   assert.equal(JSON.parse(e.ORDERS.store.get('order:EV-1').value).totalCents, winner);
 });
 
-test('over real Deno KV, concurrent submits of one token produce one order and one retry job', { skip }, async t => {
+test('over real Deno KV, concurrent submits of one token produce one order and one hold', { skip }, async t => {
   const e = { ORDERS: kvStore(await memoryKv(t)) };
   const results = await Promise.all([1, 2, 3, 4, 5].map(n => submitOrder(e, 'EV-1', 'fp', record({ totalCents: n }))));
   const winner = results[0].record.totalCents;
   assert.ok(results.every(r => r.record.totalCents === winner));
   assert.equal(JSON.parse(await e.ORDERS.get('order:EV-1')).totalCents, winner);
-  assert.notEqual(await e.ORDERS.get('email-retry:EV-1'), null);
+  assert.equal(await e.ORDERS.get(HOLD), '');
+  assert.equal(await e.ORDERS.get('email-retry:EV-1'), null);
   assert.equal(await e.ORDERS.get('day:2026-10-03:EV-1'), '');
   assert.deepEqual(await submitOrder(e, 'EV-1', 'other', null), { conflict: true });
 });

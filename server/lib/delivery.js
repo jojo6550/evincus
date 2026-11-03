@@ -1,6 +1,6 @@
 import { sendEmail } from './email.js';
 import { alert } from './alerts.js';
-import { findOrder, changeOrder, retryKey } from './orders.js';
+import { findOrder, changeOrder, retryKey, revealOrder } from './orders.js';
 import { receiptEmail } from '../emails/receipt.js';
 
 export const BACKOFF_MINUTES = [15, 30, 60, 120, 240];
@@ -9,8 +9,9 @@ const MIN = 60_000;
 // Sends the receipt if it isn't sent yet and updates record.email (callers store only that field, never the whole record). True once it is sent. The owner gets the daily summary.
 export async function deliverOrderEmails(c, record) {
   const attempt = record.email.attempts + 1;
+  const shown = await revealOrder(c.env, record);
   const jobs = [
-    ['customer', record.payer.email, () => receiptEmail(record)],
+    ['customer', shown.customer.email, () => receiptEmail(shown)],
   ];
   for (const [recipient, to, build] of jobs) {
     if (record.email[recipient] === 'sent') continue;

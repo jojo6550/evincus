@@ -1,5 +1,5 @@
 import { sendEmail } from './email.js';
-import { findOrder, recordRows, ORDER_TTL } from './orders.js';
+import { findOrder, recordRows, revealOrder, ORDER_TTL } from './orders.js';
 import { esc, layout, table, money } from '../emails/html.js';
 
 async function keys(env, prefix, deadline) {
@@ -34,7 +34,7 @@ export async function dailyOrderSummary(c) {
           const record = await findOrder(c.env, name.slice(`day:${day}:`.length));
           // Missing indexed records indicate a storage outage; never send a partial summary.
           if (!record) throw new Error('Daily summary order unavailable');
-          records.push(record);
+          records.push(await revealOrder(c.env, record));
         }
         const parts = [];
         const chunkSize = 20;

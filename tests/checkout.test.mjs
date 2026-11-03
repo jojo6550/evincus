@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter, putStock, stockOf, captureLogs } from './helpers/fake-env.mjs';
 import { charges } from '../data/fees.js';
 import { createApp } from '../server/index.js';
+import { revealOrder } from '../server/lib/orders.js';
+import { sendOrderEmails } from '../server/lib/delivery.js';
+import { COUNTRIES } from '../data/countries.js';
 import { FIXTURE, NOW, fixtureStock } from './helpers/fixture.mjs';
 
 const envForOrders = makeEnv;
-const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, notes: '<please pack carefully>', expectedTotalCents: 8437 });
+const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { firstName: 'Ann', lastName: 'Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, notes: '<please pack carefully>', expectedTotalCents: 8437 });
 const place = (b, env, data) => call('POST', '/api/orders', { body: b, env, data });
 const oneUnit = () => ({ ...body(), items: [{ ...body().items[0], qty: 1 }], expectedTotalCents: 4218 });
 const SHIRT = 'alpha-tee|Black, white print|S';
@@ -18,28 +21,108 @@ async function cron(env, iso) {
   await ctx.settle();
 }
 
-test('direct pickup stores an unpaid order and confirms by Resend', async () => {
+const ship = (address = {}) => ({ ...body(), fulfillment: { type: 'shipping', address: { line1: '1 Main St', city: 'Toronto', country: 'CA', ...address } } });
+const stored = (env, id) => env.ORDERS.store.get(`order:${id}`).value;
+
+test('a placed order awaits payment, is sealed and held, and sends nothing', async () => {
   const up = fakeUpstreams();
   const env = envForOrders();
   const r = await place(body(), env);
   assert.equal(r.status, 201);
-  assert.equal(r.json.paymentStatus, 'NOT_COLLECTED');
+  assert.deepEqual(r.json, { id: r.json.id, status: 'AWAITING_PAYMENT', paymentStatus: 'UNPAID', fulfillment: { type: 'pickup' }, totalCents: 8437 });
   const record = await env.ORDERS.get(`order:${r.json.id}`, 'json');
-  assert.equal(record.status, 'PLACED');
-  assert.equal(record.totalCents, 8437);
+  assert.equal(record.status, 'AWAITING_PAYMENT');
+  assert.deepEqual([record.subtotalCents, record.taxCents, record.feeCents, record.taxBps, record.feeBps, record.totalCents], [6998, 1050, 389, 1500, 483, 8437]);
   assert.equal(record.fulfillment.location.id, 'trendy-hats');
-  assert.equal(up.emails.length, 1);
-  assert.match(up.emails[0].html, /No payment was collected/);
-  assert.equal(env.ORDERS.store.has(`email-retry:${r.json.id}`), false);
+  assert.equal(record.stockCommitted, true);
+  assert.equal(record.fulfilmentStatus, 'UNFULFILLED');
+  assert.equal(record.holdUntil, new Date(NOW + 900000).toISOString());
+  assert.deepEqual(record.events, [{ at: new Date(NOW).toISOString(), type: 'placed', by: null }]);
+  assert.equal(up.emails.length, 0);
+  const keys = [...env.ORDERS.store.keys()];
+  assert.equal(keys.filter(k => k.startsWith('email-retry:')).length, 0);
+  assert.deepEqual(keys.filter(k => k.startsWith('hold:')), [`hold:${String(NOW + 900000).padStart(13, '0')}:${r.json.id}`]);
+  assert.equal(keys.filter(k => k.startsWith('adj:')).length, 1);
+  assert.equal(stockOf(env, SHIRT).committed, 2);
+  const day = env.ORDERS.store.get(`day:2026-10-03:${r.json.id}`);
+  assert.equal(day.opts.metadata.payment, 'UNPAID');
+  assert.equal(day.opts.expirationTtl, undefined);
+  assert.equal(env.ORDERS.store.get(`order:${r.json.id}`).opts.expirationTtl, undefined);
+  assert.equal(env.ORDERS.store.get(`submission:${r.json.id}`).opts.expirationTtl, 604800);
+});
+
+test('customer details are sealed at rest and revealed for the owner', async () => {
+  fakeUpstreams();
+  const env = envForOrders();
+  const r = await place(body(), env);
+  for (const secret of ['ann@example.com', 'Ann', 'please pack', '555 123']) {
+    assert.ok(!stored(env, r.json.id).includes(secret), secret);
+    assert.ok(!env.ORDERS.store.get(`submission:${r.json.id}`).value.includes(secret), secret);
+  }
+  const record = await env.ORDERS.get(`order:${r.json.id}`, 'json');
+  for (const f of ['customer', 'payer', 'notes']) assert.equal(record[f], undefined);
+  const shown = await revealOrder(env, record);
+  assert.deepEqual(shown.customer, { firstName: 'Ann', lastName: 'Lee', name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' });
+  assert.equal(shown.notes, '<please pack carefully>');
+  assert.equal(shown.address, null);
+});
+
+test('revealOrder reads legacy plaintext orders', async () => {
+  const shown = await revealOrder(envForOrders(), { id: 'EV-1', customer: { name: 'Tanya Marie Brown', email: 't@example.com', phone: '5551234567' }, notes: 'hi' });
+  assert.deepEqual(shown.customer, { firstName: 'Tanya Marie', lastName: 'Brown', name: 'Tanya Marie Brown', email: 't@example.com', phone: '5551234567' });
+  assert.equal(shown.notes, 'hi');
+});
+
+test('checkout field rules', async () => {
+  fakeUpstreams();
+  const ok = async b => (await place(b, envForOrders())).status;
+  const bad = async b => (await place(b, envForOrders())).json?.error?.code;
+  const local = n => 'a'.repeat(n - '@example.com'.length) + '@example.com';
+  const withCustomer = over => { const b = body(); Object.assign(b.customer, over); return b; };
+  assert.equal(await ok(withCustomer({ phone: undefined })), 201);
+  assert.equal(await bad(withCustomer({ phone: 'abc' })), 'invalid-checkout');
+  assert.equal(await ok(withCustomer({ email: local(50) })), 201);
+  const long = await place(withCustomer({ email: local(51) }), envForOrders());
+  assert.equal(long.json.error.code, 'invalid-checkout');
+  assert.match(long.json.error.message, /50 characters max/);
+  assert.equal(await bad(withCustomer({ firstName: 'a'.repeat(31) })), 'invalid-checkout');
+  assert.equal(await bad(withCustomer({ lastName: '' })), 'invalid-checkout');
+  assert.equal(await bad(withCustomer({ lastName: 'Le\u0007e' })), 'invalid-checkout');
+  assert.equal(await bad({ ...body(), notes: 'a\u0000b' }), 'invalid-checkout');
+  assert.equal(await bad({ ...body(), fulfillment: { type: 'pickup', locationId: 'trendy-hats', address: { line1: '1 Main St' } } }), 'invalid-checkout');
+  assert.equal(await bad({ ...body(), fulfillment: { type: 'pickup' } }), 'invalid-checkout');
+  assert.equal(await bad(ship({ line1: '' })), 'invalid-checkout');
+  assert.equal(await bad(ship({ city: undefined })), 'invalid-checkout');
+  assert.equal(await bad(ship({ country: 'XX' })), 'invalid-checkout');
+  assert.equal(await bad(ship({ line2: 'x'.repeat(101) })), 'invalid-checkout');
+  assert.equal(await bad(ship({ postalCode: 'x'.repeat(21) })), 'invalid-checkout');
+});
+
+test('a shipping order keeps its address only in the sealed details', async () => {
+  fakeUpstreams();
+  const env = envForOrders();
+  const r = await place(ship({ region: 'Ontario', postalCode: 'M5V 2T6' }), env);
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.json.fulfillment, { type: 'shipping' });
+  const record = await env.ORDERS.get(`order:${r.json.id}`, 'json');
+  assert.deepEqual(record.fulfillment, { type: 'shipping' });
+  assert.ok(!stored(env, r.json.id).includes('Main St'));
+  assert.deepEqual((await revealOrder(env, record)).address, { line1: '1 Main St', line2: '', city: 'Toronto', region: 'Ontario', postalCode: 'M5V 2T6', country: 'CA' });
+});
+
+test('COUNTRIES maps every ISO 3166-1 code to a currency', () => {
+  assert.equal(Object.keys(COUNTRIES).length, 249);
+  assert.equal(COUNTRIES.JM, 'JMD'); assert.equal(COUNTRIES.US, 'USD'); assert.equal(COUNTRIES.DE, 'EUR');
+  assert.ok(Object.entries(COUNTRIES).every(([k, v]) => /^[A-Z]{2}$/.test(k) && /^[A-Z]{3}$/.test(v)));
 });
 
 test('customer markup is escaped in receipts and daily summaries', async () => {
   const up = fakeUpstreams();
   const env = envForOrders();
-  const b = body(); b.customer.name = '<img src=x onerror=alert(1)>'; b.notes = '<script>alert(1)</script>';
+  const b = body(); b.customer.firstName = '<img src=x onerror=alert(1)>'; b.notes = '<script>alert(1)</script>';
   assert.equal((await place(b, env)).status, 201);
   await cron(env, '2026-10-04T13:00:00Z');
-  assert.ok(up.emails.length >= 2);
+  assert.ok(up.emails.length >= 1);
   for (const email of up.emails) {
     assert.doesNotMatch(email.html, /<script>|<img src=x/);
     assert.match(email.html, /&lt;/);
@@ -113,15 +196,16 @@ test('storage failure never acknowledges an order and retry repairs its index', 
   assert.ok(env.ORDERS.store.has(`day:2026-10-03:${r.json.id}`));
 });
 
-test('failed confirmation is queued and retried without losing the order', async () => {
+test('a failed receipt is queued and retried without losing the order', async () => {
   let fail = true;
   const up = fakeUpstreams({ resend: { fail: () => fail } });
   const env = envForOrders(); const r = await place(body(), env);
-  assert.equal(r.status, 201);
+  const quiet = { info() {}, warn() {}, error() {} };
+  await sendOrderEmails({ env, now: new Date(NOW), log: quiet }, await env.ORDERS.get(`order:${r.json.id}`, 'json'));
   assert.ok(env.ORDERS.store.has(`email-retry:${r.json.id}`));
   fail = false;
   await cron(env, '2026-10-03T12:15:00Z');
-  assert.equal(up.emails.length, 1);
+  assert.equal(up.emails.filter(e => e.to[0] === 'ann@example.com').length, 1);
   assert.equal(env.ORDERS.store.has(`email-retry:${r.json.id}`), false);
 });
 
@@ -129,7 +213,7 @@ test('daily digest waits for 8am Jamaica, includes orders, escapes notes, and se
   const up = fakeUpstreams(); const env = envForOrders();
   await place(body(), env);
   await cron(env, '2026-10-04T12:45:00Z');
-  assert.equal(up.emails.length, 1);
+  assert.equal(up.emails.length, 0);
   await cron(env, '2026-10-04T13:00:00Z');
   const digest = up.emails.find(e => e.to[0] === env.OWNER_EMAIL);
   assert.match(digest.subject, /2026-10-03 \(1 orders\)/);
@@ -138,7 +222,7 @@ test('daily digest waits for 8am Jamaica, includes orders, escapes notes, and se
   assert.ok(!digest.html.includes('<please pack carefully>'));
   assert.ok(digest.html.includes('no payment collected'));
   await cron(env, '2026-10-04T13:15:00Z');
-  assert.equal(up.emails.length, 2);
+  assert.equal(up.emails.length, 1);
 });
 
 test('daily digest failures retry with stable content and idempotency key', async () => {
@@ -150,8 +234,8 @@ test('daily digest failures retry with stable content and idempotency key', asyn
   assert.equal(job.parts[0].sent, false);
   fail = false;
   await cron(env, '2026-10-04T13:15:00Z');
-  assert.equal(up.emails[1].html, job.parts[0].html);
-  assert.equal(up.emails[1].idempotencyKey, 'daily-orders-2026-10-03-0');
+  assert.equal(up.emails[0].html, job.parts[0].html);
+  assert.equal(up.emails[0].idempotencyKey, 'daily-orders-2026-10-03-0');
   assert.equal(await env.ORDERS.get('digest-pending:2026-10-03'), null);
 });
 

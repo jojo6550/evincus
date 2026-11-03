@@ -3,12 +3,19 @@ import assert from 'node:assert/strict';
 import { call, makeEnv, makeCtx, fakeUpstreams, captureLogs } from './helpers/fake-env.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 import { createApp } from '../server/index.js';
+import { sendOrderEmails } from '../server/lib/delivery.js';
+import { createLogger } from '../server/lib/log.js';
 
 const MIN = 60_000;
 const item = { id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 };
 
-const order = () => ({ checkoutToken: crypto.randomUUID(), items: [item], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 8437 });
-const buy = async env => (await call('POST', '/api/orders', { body: order(), env })).json.id;
+const order = () => ({ checkoutToken: crypto.randomUUID(), items: [item], customer: { firstName: 'Ann', lastName: 'Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 8437 });
+// Places an order, then sends its receipt as a confirmed payment does.
+const buy = async env => {
+  const id = (await call('POST', '/api/orders', { body: order(), env })).json.id;
+  await sendOrderEmails({ env, now: new Date(NOW), log: createLogger() }, JSON.parse(env.ORDERS.store.get(`order:${id}`).value));
+  return id;
+};
 
 async function cron(env, at) {
   const app = createApp({ data: FIXTURE, clock: () => at });
@@ -23,7 +30,7 @@ const retryState = (env, id) => {
   return v && JSON.parse(v.value);
 };
 
-test('after placing an order the customer gets a receipt and the owner waits for the daily summary', async () => {
+test('the receipt goes to the customer and the owner waits for the daily summary', async () => {
   const up = fakeUpstreams();
   const env = makeEnv();
   const id = await buy(env);
@@ -101,7 +108,7 @@ test('a full purchase with emails writes no PII to logs', async () => {
   for (const pii of ['ann@example.com', 'Ann Lee', '+1 555 123 4567']) assert.ok(!all.includes(pii), pii);
 });
 
-test('a failed record update after placement still queues the email retry', async () => {
+test('a failed record update after sending still queues the email retry', async () => {
   fakeUpstreams({ resend: { fail: b => b.to[0] === 'ann@example.com' } });
   const env = makeEnv();
   let orderPuts = 0;

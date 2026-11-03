@@ -4,12 +4,13 @@ import { call, makeEnv, makeCtx, fakeUpstreams, captureLogs, putStock, stockOf }
 import { signIn, post, ADMIN_TOKEN } from './helpers/staff.mjs';
 import { FIXTURE, NOW } from './helpers/fixture.mjs';
 import { createApp } from '../server/index.js';
+import { sendOrderEmails } from '../server/lib/delivery.js';
 import { orderSummary } from '../server/lib/order-flow.js';
 
 const MIN = 60_000;
 const KEY = 'alpha-tee|Black, white print|S';
 const item = { id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 };
-const order = () => ({ checkoutToken: crypto.randomUUID(), items: [item], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 8437 });
+const order = () => ({ checkoutToken: crypto.randomUUID(), items: [item], customer: { firstName: 'Ann', lastName: 'Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 8437 });
 
 async function setup(resend) {
   fakeUpstreams({ resend });
@@ -46,6 +47,8 @@ function beforeActionCommit(env, before) {
 test('an email retry landing after an owner action keeps the action', async () => {
   let failing = true;
   const { env, cookie, id } = await setup({ fail: () => failing });
+  const quiet = { info() {}, warn() {}, error() {} };
+  await sendOrderEmails({ env, now: new Date(NOW), log: quiet }, (await entry(env, id)).order);
   assert.equal((await entry(env, id)).order.email.customer, 'failed');
   failing = false;
   // The owner marks the order ready while the retry is sending, after it read the record.

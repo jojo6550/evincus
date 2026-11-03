@@ -1,6 +1,6 @@
 import { changeOrder, findOrder } from './orders.js';
 
-export const PERSONAL_FIELDS = ['customer', 'payer', 'notes', 'shipto', 'shipping', 'personal'];
+export const PERSONAL_FIELDS = ['customer', 'payer', 'notes', 'shipto', 'shipping', 'personal', 'pii'];
 const KEEP_MS = 730 * 86400000; // exactly 730 days, no calendar arithmetic
 const PAGE = 100;
 const quiet = { error() {} };

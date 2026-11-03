@@ -4,10 +4,15 @@ import { applyAction, orderSummary } from './order-flow.js';
 import { stockKey, stockDoc, adjKey, listAll } from './stock.js';
 import { isOpId, readOpEntry, opPut } from './ops.js';
 import { MAX_PRODUCTS } from './pricing.js';
+import { unseal } from './crypto.js';
 
 export const ORDER_TTL = 63072000; // 2 years
+export const UNPAID_TTL = 604800; // 7 days: a submission whose order never reached WiPay
+export const HOLD_MS = 900000; // stock is held 15 minutes for payment
 export const orderKey = id => `order:${id}`;
 export const retryKey = id => `email-retry:${id}`;
+// Sorted by expiry, so the release job lists only the due ones.
+export const holdKey = (untilMs, orderId) => `hold:${String(untilMs).padStart(13, '0')}:${orderId}`;
 
 // Bumped by every order write, so cached stats know to recompute. ordersRev is per process (single instance by design).
 let rev = 0;
@@ -15,6 +20,22 @@ export const ordersRev = () => rev;
 export const bumpOrders = () => { rev++; };
 
 export const findOrder = (env, id) => env.ORDERS.get(orderKey(id), 'json');
+
+// The order with its customer, address and notes in plaintext, for emails and the owner. Never write the result back.
+// Legacy orders keep plaintext `customer` ({ name, email, phone }); scrubbed ones have neither and come back unchanged.
+export async function revealOrder(env, record) {
+  const { pii, ...rest } = record;
+  if (pii) {
+    const { customer, address, notes } = await unseal(env, pii);
+    return { ...rest, customer: { ...customer, name: `${customer.firstName} ${customer.lastName}` }, address, notes };
+  }
+  if (!record.customer) return rest;
+  const { name = '', email, phone } = record.customer, cut = name.lastIndexOf(' ');
+  return {
+    ...rest, address: null, notes: record.notes ?? '',
+    customer: { firstName: cut < 0 ? name : name.slice(0, cut), lastName: cut < 0 ? '' : name.slice(cut + 1), name, email, phone },
+  };
+}
 
 // The Jamaica day (UTC-5, no DST) of a time in ms, and the one an order was placed.
 export const jamaicaDay = ms => new Date(ms - 5 * 3600000).toISOString().slice(0, 10);
@@ -96,12 +117,12 @@ export async function orderAction(env, id, { opId, version, action }, { by, now 
   throw new HttpError('order-busy', 409);
 }
 
-// Label/value rows for the owner's daily summary.
+// Label/value rows for the owner's daily summary, from a revealed order (revealOrder).
 export function recordRows(r) {
   return [
     ['Status', 'Placed — no payment collected'], ['Placed at', r.placedAt], ['Phone', r.customer.phone], ['Pickup', r.fulfillment.location ? `${r.fulfillment.location.name}, ${r.fulfillment.location.address ?? r.fulfillment.location.area + ' (address to be confirmed)'}` : ''], ['Notes', r.notes],
     ['Order', r.id],
-    ['Payer', `${r.payer.name} <${r.payer.email}>`],
+    ['Customer', `${r.customer.name} <${r.customer.email}>`],
     ...r.lines.map(l => [`${l.qty} × ${l.name}`, `${l.color} / ${l.size} at ${money(l.unitCents)}`]),
     ['Subtotal', money(r.subtotalCents)],
     ['Total', `${money(r.totalCents)} USD`],
@@ -139,7 +160,7 @@ export async function listOrders(env, { from, to, keep, match, cursor }) {
     }
     for (const row of rows.sort(newer)) {
       if (cursor && newer(row, cursor) <= 0) continue;
-      if (match) { const o = await findOrder(env, row.id); if (!o || !match(o)) continue; }
+      if (match) { const o = await findOrder(env, row.id); if (!o || !(await match(o))) continue; }
       orders.push(row);
       if (orders.length === LIST_PAGE) return { orders, cursor: `${row.placedAt}|${row.id}` };
     }

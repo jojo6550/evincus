@@ -60,7 +60,7 @@ test('only a 500 request line is saved: closed-store, health and busy 503s are n
   assert.deepEqual(logKeys(env), []);
   const busy = env0();
   busy.ORDERS.commit = async () => false;
-  const order = { checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 8437 };
+  const order = { checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { firstName: 'Ann', lastName: 'Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 8437 };
   const r = await call('POST', '/api/orders', { env: busy, body: order });
   assert.deepEqual([r.status, r.json.error.code], [503, 'busy']);
   assert.deepEqual(logKeys(busy), []);

@@ -9,7 +9,7 @@ export class HttpError extends Error {
 
 // Shopper-facing messages. Say what happened and what to do next.
 export const MESSAGES = {
-  'invalid-checkout': 'Check your name, email, phone and pickup details, then try again.',
+  'invalid-checkout': 'Check your name, email (50 characters max), phone, pickup or shipping details, then try again.',
   'checkout-conflict': 'This checkout was already submitted with different details. Reopen your cart to start a new checkout.',
   'invalid-photo': "That photo can't be used. Upload a JPEG or WebP photo and try again.",
   'not-found': "There's nothing at this address.",
