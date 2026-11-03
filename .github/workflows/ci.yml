@@ -49,7 +49,7 @@ jobs:
       group: render-production
       cancel-in-progress: true
     env:
-      SITE: ${{ vars.RENDER_URL || 'https://evincus.shop' }}
+      SITE: ${{ vars.RENDER_URL || 'https://www.evincus.shop' }} # the bare domain 301s to www, and these curls don't follow redirects
     steps:
       - name: Deploy this commit
         env:
