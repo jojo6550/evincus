@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<link rel="icon" href="assets/img/favicon.ico?v=7c5d0efc7a04" sizes="any">
+<link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png?v=7c5d0efc7a04">
+<title>Your order | Evincus Streetwear</title>
+<link rel="preload" href="/assets/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/index.css">
+<link rel="stylesheet" href="assets/css/pages.css">
+
+<div class="tape" aria-hidden="true">
+  <div class="tape__track">
+    <span>What's new</span><span>Evincus</span><span>Peace in chaos</span><span>What's new</span>
+    <span>What's new</span><span>Evincus</span><span>Peace in chaos</span><span>What's new</span>
+  </div>
+</div>
+
+<header>
+  <nav class="nav wrap">
+    <a class="brand" href="index.html" aria-label="Evincus Streetwear home"><img width="44" height="44" src="assets/img/logo-nav.webp" alt=""><b>EVINCUS</b></a>
+  </nav>
+</header>
+
+<main>
+  <section class="wrap nl order" id="orderPage">
+    <span class="mono u-hazard">Your order</span>
+    <div class="paid__stamp" id="orderStamp" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5"/></svg>Paid</div>
+    <h1 class="nl__title is-loading" id="orderTitle">Checking your payment…</h1>
+    <p class="nl__text" id="orderText" aria-live="polite"></p>
+    <dl class="order__details mono" id="orderDetails" hidden>
+      <div><dt>Order reference</dt><dd id="orderRef"></dd></div>
+      <div><dt>WiPay transaction</dt><dd id="orderTxn"></dd></div>
+      <div><dt>Paid</dt><dd id="orderPaid"></dd></div>
+    </dl>
+    <p class="nl__text" id="orderRefund" hidden>You can ask for a refund within 24 hours of payment. See the <a href="/policies.html#refund">refund policy</a>.</p>
+    <a class="btn btn--solid nl__action" id="orderShop" href="/" hidden>Keep shopping</a>
+    <a class="btn btn--solid nl__action" id="orderCart" href="/#cart" hidden>Back to cart</a>
+  </section>
+</main>
+
+<script type="module" src="assets/js/order-page.js"></script>

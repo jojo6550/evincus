@@ -2,7 +2,7 @@ import { imagesFor } from '../../data/catalog.js';
 import { loadCatalog, products, eras, eraName, isLive, OFFLINE_NOTE } from './store.js';
 import * as cart from './cart.js';
 import { refreshQuote } from './quote.js';
-import { initBag } from './bag.js';
+import { initBag, openBag } from './bag.js';
 import { initProductView, openProduct } from './product-view.js';
 import { initSale, priceHtml, saleTag } from './sale.js';
 import { initSignup } from './signup.js';
@@ -83,4 +83,6 @@ const fromHash = () => {
 };
 fromHash();
 window.addEventListener('hashchange', fromHash);
+// order.html's "Back to cart" after a payment that didn't go through.
+if (location.hash === '#cart') { history.replaceState(null, '', location.pathname); openBag(); }
 initSignup();

@@ -247,7 +247,7 @@ test('pages name the speculation rules, which prefetch site links but never API 
 });
 
 test('STATUS closes the public domain with a 503 page, never the onrender.com dev link', async () => {
-  const pages = { ...FILES, 'newsletter.html': 'nl', 'restocking.html': 'restocking' };
+  const pages = { ...FILES, 'newsletter.html': 'nl', 'order.html': 'order', 'restocking.html': 'restocking' };
   const at = (STATUS, host, path) => serveStatic(new Request(`https://${host}${path}`, { headers: { host } }), { env: { STATUS }, readFile: async p => new TextEncoder().encode(pages[p]) });
   for (const path of ['/', '/eras.html', '/products/x', '/robots.txt']) {
     const r = await at('stocking', 'WWW.Evincus.shop:443', path);
@@ -260,6 +260,8 @@ test('STATUS closes the public domain with a 503 page, never the onrender.com de
   assert.equal(await (await at('live', 'evincus.shop', '/')).text(), 'home');
   assert.equal((await at('stocking', 'evincus.shop', '/assets/css/index.css')).status, 200);
   assert.equal((await at('stocking', 'evincus.shop', '/newsletter.html')).status, 200);
+  assert.equal((await at('stocking', 'evincus.shop', '/order.html')).status, 200, 'a customer back from WiPay sees their order');
+  assert.equal((await at('stocking', 'evincus.shop', '/index.html')).status, 503);
   const dev = await at('stocking', 'evincus-dev.onrender.com', '/');
   assert.equal(dev.status, 200);
   assert.equal(await dev.text(), 'home');

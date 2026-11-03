@@ -75,3 +75,13 @@
 @media (min-width: 720px) {
   .nl__action { width: auto; }
 }
+
+/* order.html: payment confirmation */
+.order__details { display: grid; gap: 12px; width: 100%; margin: 0; font-size: 12px; }
+.order__details[hidden] { display: none; }
+.order__details div { display: grid; gap: 4px; }
+.order__details dt { color: var(--smoke); letter-spacing: .14em; text-transform: uppercase; }
+.order__details dd { margin: 0; color: var(--bone); overflow-wrap: anywhere; }
+@media (min-width: 768px) {
+  .order__details div { grid-template-columns: 200px 1fr; }
+}
