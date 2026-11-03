@@ -12,6 +12,9 @@ export const UNPAID_TTL = 604800; // 7 days: a submission whose order never reac
 export const HOLD_MS = 900000; // stock is held 15 minutes for payment
 export const orderKey = id => `order:${id}`;
 export const retryKey = id => `email-retry:${id}`;
+// One per refund, on the Jamaica day it was recorded, for Finances. The event time and the action's opId make it
+// unique and stable across a replay. Metadata holds amounts and lines only: the reason (owner text) stays on the order.
+export const refundKey = (day, orderId, at, opId) => `refund:${day}:${orderId}:${at}:${opId}`;
 // Sorted by expiry, so the release job lists only the due ones.
 export const holdKey = (untilMs, orderId) => `hold:${String(untilMs).padStart(13, '0')}:${orderId}`;
 
@@ -92,6 +95,8 @@ export async function orderAction(env, id, { opId, version, action }, { by, now 
       // A cancel releases the stock (applyAction moved it), so the hold is over: expiry must not release it again.
       const holdDeletes = action?.type === 'cancel' && record.holdUntil ? [holdKey(Date.parse(record.holdUntil), id)] : [];
       if (action?.type === 'cancel') { record.stockCommitted = false; delete record.holdUntil; }
+      const refunded = action?.type === 'refund' && record.events.at(-1);
+      const refundPut = refunded ? [{ key: refundKey(jamaicaDay(Date.parse(refunded.at)), id, refunded.at, opId), value: '', opts: { metadata: { amountCents: refunded.amountCents, taxCents: refunded.taxCents, restock: refunded.restock, lines: refunded.lines } } }] : [];
       const ids = [...new Set(movements.map(m => splitLine(m.key)[0]))];
       // One check per moved stock doc plus the order and the op must fit @deno/kv's 10 checks; checkout caps an order at MAX_PRODUCTS.
       if (ids.length > MAX_PRODUCTS) throw new Error(`Order ${id} moves stock of ${ids.length} products; one commit fits ${MAX_PRODUCTS}`);
@@ -112,7 +117,7 @@ export async function orderAction(env, id, { opId, version, action }, { by, now 
       });
       const ok = await env.ORDERS.commit({
         checks: [{ key, version: cur.version }, ...[...entries].map(([pid, e]) => ({ key: stockKey(pid), version: e.version })), op.check],
-        puts: [...orderPuts(record), ...[...docs].map(([pid, doc]) => ({ key: stockKey(pid), value: stockDoc(doc) })), ...adjs, opPut(opId, 'order-action', { id })],
+        puts: [...orderPuts(record), ...[...docs].map(([pid, doc]) => ({ key: stockKey(pid), value: stockDoc(doc) })), ...adjs, ...refundPut, opPut(opId, 'order-action', { id })],
         deletes: holdDeletes,
       });
       if (!ok) continue;
