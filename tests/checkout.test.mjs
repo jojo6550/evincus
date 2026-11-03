@@ -55,7 +55,7 @@ test('customer details are sealed at rest and revealed for the owner', async () 
   fakeUpstreams();
   const env = envForOrders();
   const r = await place(body(), env);
-  for (const secret of ['ann@example.com', 'Ann', 'please pack', '555 123']) {
+  for (const secret of ['ann@example.com', '"firstName"', 'please pack', '555 123']) { // none can occur in base64
     assert.ok(!stored(env, r.json.id).includes(secret), secret);
     assert.ok(!env.ORDERS.store.get(`submission:${r.json.id}`).value.includes(secret), secret);
   }
