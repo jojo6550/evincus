@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import { isolatedServer } from './lib/local-server.mjs';
+import { charges } from '../data/fees.js';
 
 const server = await isolatedServer();
 try {
@@ -29,7 +30,7 @@ try {
       if (!res.ok) failures.push({ path, status: res.status });
     }
   }));
-  const order = { checkoutToken: crypto.randomUUID(), items: [item], customer: { name: 'Load Test', email: 'isolated@example.com', phone: '5551234567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: product.priceCents };
+  const order = { checkoutToken: crypto.randomUUID(), items: [item], customer: { firstName: 'Load', lastName: 'Test', email: 'isolated@example.com', phone: '5551234567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: charges(product.priceCents).totalCents };
   const orders = await Promise.all(Array.from({ length: 5 }, async () => {
     const res = await fetch(server.url + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(order), signal: AbortSignal.timeout(10000) });
     assert.equal(res.status, 201); return res.json();
