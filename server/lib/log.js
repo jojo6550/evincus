@@ -1,7 +1,7 @@
 // One JSON object per line, readable in the Render logs. PII never reaches a log.
 // PII_KEYS covers customers. `account` is staff-only (filled from stored staff accounts), so it is not in PII_KEYS
 // and createLogger keeps a top-level `account` string whole, email included; every other field is fully redacted.
-export const PII_KEYS = new Set(['payer', 'shipto', 'email', 'name', 'address', 'phone', 'customer', 'fulfillment', 'notes', 'authorization', 'cookie', 'setcookie', 'token', 'checkouttoken', 'password', 'secret', 'apikey', 'resendapikey', 'admintoken', 'orderhmackey', 'newsletterkey', 'body']);
+export const PII_KEYS = new Set(['payer', 'shipto', 'email', 'name', 'address', 'phone', 'customer', 'fulfillment', 'notes', 'authorization', 'cookie', 'setcookie', 'token', 'checkouttoken', 'password', 'secret', 'apikey', 'resendapikey', 'admintoken', 'orderhmackey', 'newsletterkey', 'wipayapikey', 'customerdatakey', 'pii', 'hash', 'body']);
 
 export function redact(value) {
   if (Array.isArray(value)) return value.map(redact);

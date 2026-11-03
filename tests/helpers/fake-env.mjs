@@ -91,6 +91,7 @@ export function makeEnv(over = {}) {
     OWNER_EMAIL: 'owner@evincus.shop',
     ALLOWED_ORIGINS: 'https://evincus.shop',
     COMMIT_SHA: 'abc1234',
+    CUSTOMER_DATA_KEY: Buffer.alloc(32, 7).toString('base64'),
     ORDERS: fakeKV(),
     BEACON_LIMIT: fakeLimiter(10),
     LOGIN_IP_LIMIT: fakeLimiter(10),
