@@ -34,7 +34,7 @@ test('login sets an HttpOnly SameSite=Strict cookie and me returns the role', as
   const viaProxy = h => createApp({ clock: () => NOW }).fetch(new Request('http://localhost/api/inventory/login', { method: 'POST', headers: { 'content-type': 'application/json', ...h }, body: JSON.stringify({ email: 'boss@evincus.shop', password: PW }) }), env, { waitUntil() {} });
   assert.match((await viaProxy({ 'x-forwarded-proto': 'https' })).headers.get('set-cookie'), /; Secure/);
   assert.ok(!/Secure/.test((await viaProxy({})).headers.get('set-cookie')));
-  assert.deepEqual((await me(env, cookieOf(r))).json, { email: 'boss@evincus.shop', role: 'owner', local: false });
+  assert.deepEqual((await me(env, cookieOf(r))).json, { email: 'boss@evincus.shop', role: 'owner', mustChange: true, local: false });
   assert.equal((await call('GET', '/api/inventory/me', { env })).status, 401);
 });
 
@@ -189,8 +189,8 @@ test('requireStaff checks expiry against c.now', async () => {
   await putAcct(env);
   const t = await startSession(env, stored(env), 1000);
   const req = new Request('https://api.test/x', { headers: { cookie: `evincus_inv=${t}` } });
-  assert.ok(await requireStaff(req, { env, now: new Date(1000 + 604799000) }));
-  await assert.rejects(requireStaff(req, { env, now: new Date(1000 + 604800000) }), { code: 'signed-out' });
+  assert.ok(await requireStaff(req, { env, now: new Date(1000 + 604799000) }, { pending: true }));
+  await assert.rejects(requireStaff(req, { env, now: new Date(1000 + 604800000) }, { pending: true }), { code: 'signed-out' });
 });
 
 test('PUT /api/admin/accounts validates input', async () => {
@@ -233,4 +233,31 @@ test('inventory and admin APIs answer while STATUS=stocking on evincus.shop', as
   assert.equal((await call('GET', '/api/inventory/me', { env, headers })).status, 401);
   assert.equal((await call('GET', '/api/admin/accounts', { env, headers: { ...headers, ...auth } })).status, 200);
   assert.equal((await call('GET', '/api/catalog', { env, headers })).status, 503);
+});
+
+test('an add-viewer password must be replaced before anything else, and the new one is the login', async () => {
+  const env = env0();
+  await putAcct(env);
+  assert.equal(stored(env).mustChange, true);
+  const cookie = cookieOf(await login(env));
+  assert.deepEqual((await me(env, cookie)).json, { email: 'boss@evincus.shop', role: 'viewer', mustChange: true, local: false });
+  const blocked = await call('GET', '/api/inventory/products', { env, headers: { cookie } });
+  assert.deepEqual([blocked.status, blocked.json.error.code], [403, 'password-change-required']);
+  const change = (password, c = cookie, origin = 'https://api.test') => call('POST', '/api/inventory/password', { env, headers: { cookie: c, origin }, body: { password } });
+  assert.equal((await change('my new password', cookie, 'https://evil.test')).json.error.code, 'bad-origin');
+  assert.equal((await change('short')).json.error.code, 'weak-password');
+  assert.equal((await change('x'.repeat(257))).status, 400);
+  const ok = await change('my new password');
+  assert.deepEqual([ok.status, ok.json], [200, { email: 'boss@evincus.shop', role: 'viewer' }]);
+  assert.equal(stored(env).mustChange, undefined);
+  assert.equal((await me(env, cookie)).status, 401); // the old session is gone
+  const fresh = cookieOf(ok);
+  assert.deepEqual((await me(env, fresh)).json, { email: 'boss@evincus.shop', role: 'viewer', local: false });
+  assert.equal((await call('GET', '/api/inventory/products', { env, headers: { cookie: fresh } })).status, 200);
+  assert.equal((await change('another new password', fresh)).json.error.code, 'forbidden'); // only once
+  assert.equal((await login(env, 'boss@evincus.shop', PW, '2.2.2.2')).status, 401);
+  assert.equal((await login(env, 'boss@evincus.shop', 'my new password', '2.2.2.2')).status, 200);
+  // A reset from the CLI makes it temporary again.
+  await putAcct(env);
+  assert.equal(stored(env).mustChange, true);
 });

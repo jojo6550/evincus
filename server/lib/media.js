@@ -89,8 +89,11 @@ export async function storePhoto(media, files) {
 
 const MAX_UPLOAD = 1024 * 1024;
 
-// Stores the `file` parts of a multipart body as one photo; 400 invalid-photo for anything else.
-export async function uploadPhoto(req, media) {
+// Stores the `file` parts of a multipart body as one photo; 400 invalid-photo for anything else. Photos share the
+// disk with the order database, so a low disk refuses them before the body is read.
+export async function uploadPhoto(req, env) {
+  if (env.OPERATIONS?.().disk === 'low') throw new HttpError('disk-full', 507);
+  const media = env.MEDIA;
   const type = req.headers.get('content-type') ?? '';
   const bytes = await readBytes(req, MAX_UPLOAD);
   let form;

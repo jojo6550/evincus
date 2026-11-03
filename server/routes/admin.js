@@ -59,6 +59,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // PUT /api/admin/accounts { email, role?, salt, hash, iterations }: creates an account or replaces its password
 // (a new epoch signs its sessions out; epochs are ms timestamps so delete + re-add never revives one). The CLI hashes the password, so it never reaches the server.
+// The password is temporary: mustChange holds the account to the password change on its next sign-in.
 export async function putAccountRoute(req, c) {
   const refused = await denied(req, c);
   if (refused) return refused;
@@ -72,8 +73,8 @@ export async function putAccountRoute(req, c) {
   const { value, version } = await c.env.ORDERS.getEntry(key);
   const old = value ? JSON.parse(value) : null;
   const next = old
-    ? { ...old, email: mail, role: role ?? old.role, salt, hash, iterations, epoch: Math.max(old.epoch + 1, +c.now) }
-    : { email: mail, role: role ?? 'viewer', salt, hash, iterations, epoch: +c.now, createdAt: c.now.toISOString() };
+    ? { ...old, email: mail, role: role ?? old.role, salt, hash, iterations, epoch: Math.max(old.epoch + 1, +c.now), mustChange: true }
+    : { email: mail, role: role ?? 'viewer', salt, hash, iterations, epoch: +c.now, createdAt: c.now.toISOString(), mustChange: true };
   if (!(await c.env.ORDERS.commit({ checks: [{ key, version }], puts: [{ key, value: JSON.stringify(next) }] }))) return fail(c, 'account-changed', 409);
   c.log.info('account.added', { account: mail, created: !old });
   return json({ email: mail, role: next.role, created: !old }, 200, noStore);
@@ -132,7 +133,7 @@ export async function deleteAccountRoute(req, c) {
 export async function uploadMediaAdminRoute(req, c) {
   const refused = await denied(req, c);
   if (refused) return refused;
-  const ref = await uploadPhoto(req, c.env.MEDIA);
+  const ref = await uploadPhoto(req, c.env);
   c.log.info('media.uploaded', { photo: ref.id });
   return json(ref, 200, noStore);
 }

@@ -78,6 +78,7 @@ function showLogin(note) {
   if (!$('login').hidden) { if (note) $('login-error').textContent = note; return; }
   returnFocus = document.activeElement;
   $('shell').inert = true;
+  $('password').hidden = true; // signing in again decides whether it is still needed
   $('login').hidden = false;
   $('login-error').textContent = note ?? '';
   $('login-password').value = '';
@@ -101,7 +102,15 @@ function showShell() {
 async function loadMe() {
   me = await api('GET', '/api/inventory/me');
   lastEmail = me.email;
-  showShell();
+  if (!me.mustChange) showShell();
+}
+
+// An account fresh from npm run add-viewer must pick its own password before anything else.
+function showPassword() {
+  $('shell').inert = true;
+  $('password').hidden = false;
+  $('password-error').textContent = '';
+  $('password-new').focus();
 }
 
 async function boot() {
@@ -112,6 +121,7 @@ async function boot() {
     return;
   }
   hideLogin();
+  if (me.mustChange) return showPassword();
   lastHash = location.hash;
   route();
 }
@@ -138,9 +148,39 @@ $('login-form').addEventListener('submit', async e => {
     button.disabled = false;
   }
   hideLogin();
+  if (me.mustChange) return showPassword();
   lastHash = location.hash;
   route(); // same route as before; a fresh sign-in as someone else must not inherit the old tab
   if (!wasIn) $('view').focus();
+});
+
+$('password-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const password = $('password-new').value;
+  if (password !== $('password-confirm').value) {
+    $('password-error').textContent = "Those passwords don't match.";
+    $('password-confirm').focus();
+    return;
+  }
+  const button = $('password-submit');
+  button.disabled = true;
+  $('password-error').textContent = '';
+  try {
+    await api('POST', '/api/inventory/password', { password });
+    $('password-form').reset();
+    await loadMe();
+  } catch (err) {
+    // signed-out: onSignedOut already swapped this form for the login form.
+    if (err.code !== 'signed-out') $('password-error').textContent = err.message;
+    return;
+  } finally {
+    button.disabled = false;
+  }
+  $('password').hidden = true;
+  $('shell').inert = false;
+  lastHash = location.hash;
+  route();
+  $('view').focus();
 });
 
 $('signout').addEventListener('click', async () => {

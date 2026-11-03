@@ -64,7 +64,7 @@ export async function staffFrom(req, env, now = Date.now()) {
   if (!session || session.expiresAt <= +now) return null;
   const account = await env.ORDERS.get(accountKey(session.email), 'json');
   if (!account || account.epoch !== session.epoch || !ROLES.includes(account.role)) return null;
-  return { email: account.email, role: account.role, sessionKey };
+  return { email: account.email, role: account.role, sessionKey, ...(account.mustChange && { mustChange: true }) };
 }
 
 function sameOrigin(req, env) {
@@ -76,10 +76,12 @@ function sameOrigin(req, env) {
   try { return origin.host === new URL(origin.protocol + '//' + (req.headers.get('host') || new URL(req.url).host)).host; } catch { return false; }
 }
 
-export async function requireStaff(req, c, { role = 'viewer', write = false } = {}) {
+// pending: lets an account that still has its add-viewer password through (only me and the password change).
+export async function requireStaff(req, c, { role = 'viewer', write = false, pending = false } = {}) {
   const staff = await staffFrom(req, c.env, c.now); // c.now may be undefined: staffFrom then defaults to the clock
   if (!staff) throw new HttpError('signed-out', 401);
+  if (staff.mustChange && !pending) throw new HttpError('password-change-required', 403);
   if (role === 'owner' && staff.role !== 'owner') throw new HttpError('forbidden', 403);
   if (write && !sameOrigin(req, c.env)) throw new HttpError('bad-origin', 403);
-  return { email: staff.email, role: staff.role };
+  return { email: staff.email, role: staff.role, ...(staff.mustChange && { mustChange: true }) };
 }

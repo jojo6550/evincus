@@ -1,5 +1,5 @@
 import { HttpError, json, fail, readJson } from '../lib/http.js';
-import { accountKey, verifyLogin, startSession, sessionCookie, clearCookie, staffFrom, requireStaff, isHttps } from '../lib/accounts.js';
+import { ITERATIONS, accountKey, hashPassword, verifyLogin, startSession, sessionCookie, clearCookie, staffFrom, requireStaff, isHttps } from '../lib/accounts.js';
 import { adjustStock, stockKey, listAll } from '../lib/stock.js';
 import { productKey, loadCatalog } from '../lib/catalog-store.js';
 import { saveProduct, saveEra, setEraOrder, readEraOrder, productHistory } from '../lib/catalog-save.js';
@@ -70,6 +70,28 @@ export async function loginRoute(req, c) {
   await touch(c.env, key, c.now);
   c.log.info('login.ok', { account: who });
   return json({ email: found.email, role: found.role }, 200, { ...noStore, 'Set-Cookie': sessionCookie(token, isHttps(req)) });
+}
+
+// POST /api/inventory/password { password } → { email, role } + a new session cookie. Only while the add-viewer password is
+// pending; the new epoch signs every other session out.
+export async function changePasswordRoute(req, c) {
+  const { email, role, mustChange } = await requireStaff(req, c, { write: true, pending: true });
+  if (!mustChange) throw new HttpError('forbidden', 403);
+  const { password } = await objectBody(req, 2048, 'weak-password');
+  if (typeof password !== 'string' || password.length < 12 || password.length > 256) throw new HttpError('weak-password', 400);
+  const salt = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+  const hash = await hashPassword(password, salt);
+  const key = accountKey(email);
+  const { value, version } = await c.env.ORDERS.getEntry(key);
+  const old = value ? JSON.parse(value) : null;
+  // Reset or removed while hashing: that already ended this session.
+  if (!old?.mustChange) throw new HttpError('signed-out', 401);
+  const { mustChange: _, ...kept } = old;
+  const next = { ...kept, salt, hash, iterations: ITERATIONS, epoch: Math.max(old.epoch + 1, +c.now) };
+  if (!(await c.env.ORDERS.commit({ checks: [{ key, version }], puts: [{ key, value: JSON.stringify(next) }] }))) throw new HttpError('signed-out', 401);
+  const token = await startSession(c.env, next, c.now);
+  c.log.info('account.password_changed', { account: email });
+  return json({ email, role }, 200, { ...noStore, 'Set-Cookie': sessionCookie(token, isHttps(req)) });
 }
 
 // POST /api/inventory/logout: always 204 with the cookie cleared, signed in or not.
@@ -276,14 +298,14 @@ export async function healthDetailRoute(req, c) {
 
 // GET /api/inventory/me → { email, role, local }.
 export async function meRoute(req, c) {
-  const staff = await requireStaff(req, c);
+  const staff = await requireStaff(req, c, { pending: true });
   return json({ ...staff, local: c.env.ENVIRONMENT === 'development' }, 200, noStore);
 }
 
 // PUT /api/inventory/media (multipart, one `file` per variant) → the photo ref. Content-named, so repeating it is a no-op.
 export async function uploadMediaRoute(req, c) {
   const { email } = await requireStaff(req, c, { role: 'owner', write: true });
-  const ref = await uploadPhoto(req, c.env.MEDIA);
+  const ref = await uploadPhoto(req, c.env);
   c.log.info('media.uploaded', { account: email, photo: ref.id });
   return json(ref, 200, noStore);
 }

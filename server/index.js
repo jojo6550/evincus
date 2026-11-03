@@ -25,7 +25,7 @@ import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
 import { getSalesRoute, putSalesRoute, listAccountsRoute, putAccountRoute, deleteAccountRoute, listErasAdminRoute, newEraRoute, uploadMediaAdminRoute, attachPhotosRoute, exportCatalogRoute, importCatalogRoute, putMediaFileRoute, skipsAdminLimit } from './routes/admin.js';
-import { loginRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute, uploadMediaRoute, orderActionRoute, listOrdersRoute, getOrderRoute, statsRoute, logsRoute, healthDetailRoute } from './routes/inventory.js';
+import { loginRoute, changePasswordRoute, logoutRoute, meRoute, adjustStockRoute, listProductsRoute, getProductRoute, productHistoryRoute, saveProductRoute, listErasRoute, saveEraRoute, eraOrderRoute, uploadMediaRoute, orderActionRoute, listOrdersRoute, getOrderRoute, statsRoute, logsRoute, healthDetailRoute } from './routes/inventory.js';
 
 // The fourth field marks routes that read the catalog: only they load it, with running sales and stock applied.
 // Health loads its own, so a KV failure still answers 503 with kv: 'error'.
@@ -60,6 +60,7 @@ const ROUTES = [
   ['PUT', /^\/api\/admin\/media\/([^/]+)$/, putMediaFileRoute],
   ['PUT', /^\/api\/inventory\/media$/, uploadMediaRoute],
   ['POST', /^\/api\/inventory\/login$/, loginRoute],
+  ['POST', /^\/api\/inventory\/password$/, changePasswordRoute],
   ['POST', /^\/api\/inventory\/logout$/, logoutRoute],
   ['GET', /^\/api\/inventory\/me$/, meRoute],
   ['POST', /^\/api\/inventory\/stock$/, adjustStockRoute, true],
