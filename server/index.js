@@ -18,6 +18,7 @@ import { beacon } from './routes/beacon.js';
 import { checkoutOptions, placeOrderRoute } from './routes/checkout.js';
 import { payRoute, orderStatusRoute, wipayReturnRoute } from './routes/payments.js';
 import { currenciesRoute } from './routes/currencies.js';
+import { financesRoute, financesCsvRoute } from './routes/finances.js';
 import { getRates } from './lib/fx.js';
 import { releaseExpiredHolds, sweepUnpaid, redriveLate } from './lib/holds.js';
 import { dailyOrderSummary } from './lib/digest.js';
@@ -71,6 +72,8 @@ const ROUTES = [
   ['PUT', /^\/api\/inventory\/era-order$/, eraOrderRoute],
   ['GET', /^\/api\/inventory\/orders$/, listOrdersRoute],
   ['GET', /^\/api\/inventory\/stats$/, statsRoute, true],
+  ['GET', /^\/api\/inventory\/finances$/, financesRoute],
+  ['GET', /^\/api\/inventory\/finances\.csv$/, financesCsvRoute],
   ['GET', /^\/api\/inventory\/orders\/([A-Za-z0-9-]+)$/, getOrderRoute, true],
   ['POST', /^\/api\/inventory\/orders\/([A-Za-z0-9-]+)\/actions$/, orderActionRoute],
   ['GET', /^\/api\/inventory\/logs$/, logsRoute],
