@@ -22,6 +22,8 @@ function appFetch(env) {
 
 test('apiBase picks production, local, or a given URL without a trailing slash', () => {
   assert.equal(apiBase({ local: false, url: null }), PROD_URL);
+  // evincus.shop redirects to www, and fetch drops Authorization on that cross-origin redirect.
+  assert.equal(PROD_URL, 'https://www.evincus.shop');
   assert.equal(apiBase({ local: true, url: null }), LOCAL_URL);
   assert.equal(apiBase({ local: false, url: 'https://evincus.onrender.com/' }), 'https://evincus.onrender.com');
 });

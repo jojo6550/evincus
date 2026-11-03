@@ -8,7 +8,7 @@ import { clientIp } from '../server/lib/client-ip.js';
 import { main } from '../scripts/inventory-pull.mjs';
 import { LOCAL_URL } from '../scripts/lib/admin-cli.mjs';
 
-const PROD = 'https://evincus.shop';
+const PROD = 'https://www.evincus.shop';
 const PROD_TOKEN = 'prod-token';
 const LOCAL_TOKEN = 'local-token';
 const app = createApp({});
