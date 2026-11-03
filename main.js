@@ -42,6 +42,7 @@ const env = {
   LOGIN_EMAIL_LIMIT: kvLimiter(kv, 'login-email', { limit: 5, period: 900 }),
   INVENTORY_LIMIT: kvLimiter(kv, 'inventory', { limit: 120, period: 60 }),
   LINK_LIMIT: kvLimiter(kv, 'link', { limit: 30, period: 60 }),
+  PAY_LIMIT: kvLimiter(kv, 'pay', { limit: 10, period: 60 }),
 };
 // MEDIA_PATH puts catalog photos next to KV on the persistent disk. Unset (dev), .media/ in the working directory.
 env.MEDIA = mediaStore(process.env.MEDIA_PATH ?? '.media');

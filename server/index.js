@@ -16,6 +16,7 @@ import { getProduct } from './routes/products.js';
 import { quoteRoute } from './routes/quote.js';
 import { beacon } from './routes/beacon.js';
 import { checkoutOptions, placeOrderRoute } from './routes/checkout.js';
+import { payRoute, orderStatusRoute, wipayReturnRoute } from './routes/payments.js';
 import { dailyOrderSummary } from './lib/digest.js';
 import { newsletter } from './lib/newsletter.js';
 import { subscribeRoute, confirmRoute, unsubscribeRoute } from './routes/newsletter.js';
@@ -33,6 +34,9 @@ const ROUTES = [
   ['GET', /^\/api\/products\/([a-z0-9-]+)$/, getProduct, true],
   ['POST', /^\/api\/bag\/quote$/, quoteRoute, true],
   ['POST', /^\/api\/orders$/, placeOrderRoute, true],
+  ['POST', /^\/api\/orders\/(EV-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/pay$/, payRoute],
+  ['GET', /^\/api\/orders\/(EV-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/status$/, orderStatusRoute],
+  ['GET', /^\/api\/payments\/wipay\/return$/, wipayReturnRoute, true],
   ['POST', /^\/api\/beacon$/, beacon],
   ['POST', /^\/api\/newsletter\/subscribe$/, subscribeRoute],
   ['POST', /^\/api\/newsletter\/confirm$/, confirmRoute],
@@ -89,9 +93,10 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
 
       let res;
       try {
-        // No orders while the store is down; health, newsletter.html's confirm/unsubscribe, and the staff APIs (/api/inventory/*, /api/admin/*) keep working.
+        // No orders while the store is down; health, newsletter.html's confirm/unsubscribe, the staff APIs (/api/inventory/*, /api/admin/*)
+        // and a payment already under way (WiPay's return, order.html's status) keep working.
         const status = siteStatus(req, env);
-        if (status !== 'live' && !/^\/api\/(health|newsletter\/(confirm|unsubscribe)|(inventory|admin)\/.*)$/.test(url.pathname)) {
+        if (status !== 'live' && !/^\/api\/(health|newsletter\/(confirm|unsubscribe)|payments\/wipay\/return|orders\/[^/]+\/status|(inventory|admin)\/.*)$/.test(url.pathname)) {
           res = fail(c, status, 503);
         } else if (req.method === 'OPTIONS') {
           res = new Response(null, { status: 204 });
@@ -104,7 +109,8 @@ export function createApp({ data, clock = () => Date.now() } = {}) {
             if (url.pathname.startsWith('/api/admin/') && !skipsAdminLimit(hit[2], c)) await enforceLimit(c, env.ADMIN_LIMIT);
             if (url.pathname.startsWith('/api/inventory/')) await enforceLimit(c, env.INVENTORY_LIMIT);
             if (url.pathname === '/api/bag/quote') await enforceLimit(c, env.QUOTE_LIMIT);
-            if (url.pathname === '/api/newsletter/confirm' || url.pathname === '/api/newsletter/unsubscribe') await enforceLimit(c, env.LINK_LIMIT);
+            if (url.pathname === '/api/newsletter/confirm' || url.pathname === '/api/newsletter/unsubscribe' || hit[2] === orderStatusRoute) await enforceLimit(c, env.LINK_LIMIT);
+            if (hit[2] === payRoute) await enforceLimit(c, env.PAY_LIMIT);
             c.params = url.pathname.match(hit[1]).slice(1);
             if (hit[3]) {
               const [catalog, sales, stock] = await Promise.all([data === undefined ? liveCatalog(env) : data, loadSales(env, log), loadStock(env)]);

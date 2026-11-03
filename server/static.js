@@ -81,7 +81,7 @@ async function staticResponse(req, { env = {}, readFile, statFile, data, now = n
     // Assets stay up for the 503 page itself, /data/ for the inventory app's modules (public when live anyway), media for
     // sent emails; newsletter.html so unsubscribe links keep working.
     const status = siteStatus(req, env);
-    if (status !== 'live' && !staffPage && !DIRS.some(dir => path.startsWith(dir)) && !path.startsWith('/media/') && path !== '/newsletter.html') {
+    if (status !== 'live' && !staffPage && !DIRS.some(dir => path.startsWith(dir)) && !path.startsWith('/media/') && path !== '/newsletter.html' && path !== '/order.html') {
       const page = status === 'stocking' ? 'restocking.html' : '503.html';
       return send(await readFile(page), page, 503, 'no-store');
     }

@@ -51,16 +51,19 @@ const ROUNDS = 5;
 const pause = () => new Promise(r => setTimeout(r, 5 + Math.random() * 20));
 
 // Applies `change` to a fresh copy of the stored order and commits it only if the order is unchanged since that read,
-// so a slow writer (email delivery) never puts back a stale record over an owner's action. `change` returns the new
-// record, or { record, extraPuts }. -> the record written.
+// so a slow writer (email delivery) never puts back a stale record over an owner's action. `change` (may be async,
+// reruns after a lost round) returns the new record, or { record, extraPuts, extraChecks, deletes }, or null to write
+// nothing. -> the record written, or null.
 export async function changeOrder(env, id, change) {
   for (let round = 0; round < ROUNDS; round++) {
     if (round) await pause();
     const { value, version } = await env.ORDERS.getEntry(orderKey(id));
     if (!value) throw new HttpError('unknown-order', 404);
-    const out = change(JSON.parse(value));
-    const { record, extraPuts = [] } = out.record ? out : { record: out };
-    if (await env.ORDERS.commit({ checks: [{ key: orderKey(id), version }], puts: [...orderPuts(record), ...extraPuts] })) { bumpOrders(); return record; }
+    const out = await change(JSON.parse(value));
+    if (out === null) return null;
+    const { record, extraPuts = [], extraChecks = [], deletes = [] } = out.record ? out : { record: out };
+    const checks = [{ key: orderKey(id), version }, ...extraChecks];
+    if (await env.ORDERS.commit({ checks, puts: [...orderPuts(record), ...extraPuts], deletes })) { bumpOrders(); return record; }
   }
   throw new HttpError('order-busy', 409);
 }

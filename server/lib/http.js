@@ -31,6 +31,7 @@ export const MESSAGES = {
   'busy': 'Lots of people are checking out right now. Your cart is safe — try again in a moment.',
   'payment-unavailable': "Card payment couldn't start. Try again in a minute.",
   'payments-unavailable': "Card payment isn't available yet. Check back soon.",
+  'order-cancelled': 'This order was cancelled, so it can no longer be paid. Place a new order from your cart.',
   'unauthorized': 'That admin token is missing or wrong.',
   'invalid-sales': 'That sales list is not valid.',
   'login-failed': "That email and password don't match an account.",
