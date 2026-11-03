@@ -283,7 +283,7 @@ export async function meRoute(req, c) {
 // PUT /api/inventory/media (multipart, one `file` per variant) → the photo ref. Content-named, so repeating it is a no-op.
 export async function uploadMediaRoute(req, c) {
   const { email } = await requireStaff(req, c, { role: 'owner', write: true });
-  const ref = await uploadPhoto(req, c.env.MEDIA);
+  const ref = await uploadPhoto(req, c.env);
   c.log.info('media.uploaded', { account: email, photo: ref.id });
   return json(ref, 200, noStore);
 }

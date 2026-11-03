@@ -51,6 +51,16 @@ test('upload stores a variant set and returns its ref; a second identical upload
   assert.deepEqual(c.json, a.json);
 });
 
+test('upload refuses a photo while the disk is low, on both routes', async () => {
+  const { env, cookie } = await setup();
+  env.OPERATIONS = () => ({ disk: 'low', scheduler: 'ok' });
+  const a = await put(env, cookie, await variants());
+  assert.deepEqual([a.status, a.json.error.code], [507, 'disk-full']);
+  const b = await adminPut(env, await variants());
+  assert.deepEqual([b.status, b.json.error.code], [507, 'disk-full']);
+  assert.equal(env.MEDIA.files.size, 0);
+});
+
 test('upload refuses > 1 MB, non-multipart, a PNG, a missing body and a viewer', async () => {
   const { env, cookie } = await setup();
   const big = await put(env, cookie, [new Uint8Array(1024 * 1024 + 1)]);

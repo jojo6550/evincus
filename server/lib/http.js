@@ -12,6 +12,7 @@ export const MESSAGES = {
   'invalid-checkout': 'Check your name, email (50 characters max), phone, pickup or shipping details, then try again.',
   'checkout-conflict': 'This checkout was already submitted with different details. Reopen your cart to start a new checkout.',
   'invalid-photo': "That photo can't be used. Upload a JPEG or WebP photo and try again.",
+  'disk-full': "The server is nearly out of disk space, so photos can't be uploaded right now. Tell the site's developer.",
   'not-found': "There's nothing at this address.",
   'method-not-allowed': "This address doesn't accept that kind of request.",
   'too-large': 'That request is too large to process.',

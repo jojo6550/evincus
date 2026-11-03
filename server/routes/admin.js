@@ -132,7 +132,7 @@ export async function deleteAccountRoute(req, c) {
 export async function uploadMediaAdminRoute(req, c) {
   const refused = await denied(req, c);
   if (refused) return refused;
-  const ref = await uploadPhoto(req, c.env.MEDIA);
+  const ref = await uploadPhoto(req, c.env);
   c.log.info('media.uploaded', { photo: ref.id });
   return json(ref, 200, noStore);
 }
