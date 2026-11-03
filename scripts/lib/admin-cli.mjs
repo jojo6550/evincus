@@ -1,7 +1,7 @@
 // Shared by the admin scripts (discount, viewers): option parsing, token lookup, authenticated fetch.
 import { readFileSync } from 'node:fs';
 
-export const PROD_URL = 'https://evincus.shop';
+export const PROD_URL = 'https://www.evincus.shop'; // the bare domain redirects here, and fetch drops Authorization on that hop
 export const LOCAL_URL = 'http://localhost:8000';
 
 // Options also work as plain words (local, dry-run, label=..., url=...). npm never sees those,
