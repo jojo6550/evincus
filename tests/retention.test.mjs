@@ -113,7 +113,7 @@ test('new orders are stored without a TTL; submissions keep theirs', async () =>
   fakeUpstreams();
   const env = makeEnv();
   const item = { id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 1 };
-  const res = await call('POST', '/api/orders', { env, body: { checkoutToken: crypto.randomUUID(), items: [item], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 3499 } });
+  const res = await call('POST', '/api/orders', { env, body: { checkoutToken: crypto.randomUUID(), items: [item], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 4218 } });
   assert.equal(res.status, 201, res.text);
   const ttl = prefix => [...env.ORDERS.store].filter(([k]) => k.startsWith(prefix)).map(([, v]) => v.opts.expirationTtl);
   assert.deepEqual(ttl('order:'), [undefined]);

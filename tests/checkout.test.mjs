@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { call, makeEnv, fakeUpstreams, makeCtx, fakeLimiter, putStock, stockOf, captureLogs } from './helpers/fake-env.mjs';
+import { charges } from '../data/fees.js';
 import { createApp } from '../server/index.js';
 import { FIXTURE, NOW, fixtureStock } from './helpers/fixture.mjs';
 
 const envForOrders = makeEnv;
-const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, notes: '<please pack carefully>', expectedTotalCents: 6998 });
+const body = () => ({ checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, notes: '<please pack carefully>', expectedTotalCents: 8437 });
 const place = (b, env, data) => call('POST', '/api/orders', { body: b, env, data });
-const oneUnit = () => ({ ...body(), items: [{ ...body().items[0], qty: 1 }], expectedTotalCents: 3499 });
+const oneUnit = () => ({ ...body(), items: [{ ...body().items[0], qty: 1 }], expectedTotalCents: 4218 });
 const SHIRT = 'alpha-tee|Black, white print|S';
 // The fixture catalog with alpha-tee changed; the app applies stock from env.ORDERS on top.
 const withTee = over => ({ ...FIXTURE, products: FIXTURE.products.map(p => (p.id === 'alpha-tee' ? { ...p, ...over } : p)) });
@@ -25,7 +26,7 @@ test('direct pickup stores an unpaid order and confirms by Resend', async () => 
   assert.equal(r.json.paymentStatus, 'NOT_COLLECTED');
   const record = await env.ORDERS.get(`order:${r.json.id}`, 'json');
   assert.equal(record.status, 'PLACED');
-  assert.equal(record.totalCents, 6998);
+  assert.equal(record.totalCents, 8437);
   assert.equal(record.fulfillment.location.id, 'trendy-hats');
   assert.equal(up.emails.length, 1);
   assert.match(up.emails[0].html, /No payment was collected/);
@@ -79,6 +80,13 @@ test('server rejects tampered totals and unavailable or excessive quantities', a
     const b = body(); modify(b);
     assert.equal((await place(b, envForOrders())).status, 409);
   }
+});
+
+test('a pre-fee total (subtotal only) is bag-changed', async () => {
+  fakeUpstreams();
+  const r = await place({ ...body(), expectedTotalCents: 6998 }, envForOrders());
+  assert.equal(r.status, 409);
+  assert.equal(r.json.error.code, 'bag-changed');
 });
 
 test('concurrent submissions and later retries create one order and preserve its original time', async () => {
@@ -259,7 +267,7 @@ test('a cart over 8 products gets 400 too-many-products, not bag-changed; 8 prod
   // Nine buyable copies of alpha-tee, each in stock, so only the product limit can refuse the cart.
   const data = { ...FIXTURE, products: [...FIXTURE.products, ...Array.from({ length: 9 }, (_, i) => ({ ...FIXTURE.products[0], id: `tee-${i}` }))] };
   for (let i = 0; i < 9; i++) await putStock(env, `tee-${i}|Black, white print|S`, 10);
-  const cart = n => ({ ...body(), items: Array.from({ length: n }, (_, i) => ({ id: `tee-${i}`, color: 'Black, white print', size: 'S', qty: 1 })), expectedTotalCents: n * 3499 });
+  const cart = n => ({ ...body(), items: Array.from({ length: n }, (_, i) => ({ id: `tee-${i}`, color: 'Black, white print', size: 'S', qty: 1 })), expectedTotalCents: charges(n * 3499).totalCents });
   const r = await place(cart(9), env, data);
   assert.equal(r.status, 400);
   assert.equal(r.json.error.code, 'too-many-products');

@@ -47,6 +47,13 @@ function lineHtml(l) {
 }
 
 const row = (label, value, cls = '') => `<div class="sum__row${cls}"><span>${label}</span><span>${value}</span></div>`;
+const pct = bps => `${bps / 100}%`;
+// Rates come from the quote, so a rate change in data/fees.js needs no client edit.
+export const breakdownHtml = q => `
+    ${row('Subtotal', money(q.subtotalCents))}
+    ${row(`${esc(q.tax.label)} (${pct(q.tax.bps)})`, money(q.taxCents))}
+    ${row(`${esc(q.fee.label)} (${pct(q.fee.bps)}, non-refundable)`, money(q.feeCents))}
+    ${row('Total', `${money(q.totalCents)} <small class="mono">USD</small>`, ' sum__total')}`;
 const checkout = enabled => `<button type="button" class="btn btn--solid bag__go" data-act="checkout"${enabled ? '' : ' disabled'}>Check out</button>`;
 
 function footHtml(s) {
@@ -71,8 +78,7 @@ function footHtml(s) {
       ${checkout(false)}`;
   }
   return `
-    ${row('Subtotal', money(q.subtotalCents))}
-    ${row('Total', `${money(q.totalCents)} <small class="mono">USD</small>`, ' sum__total')}
+    ${breakdownHtml(q)}
     ${checkout(true)}`;
 }
 

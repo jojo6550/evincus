@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { charges } from '../data/fees.js';
 import { fork } from 'node:child_process';
 import { request } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -75,7 +76,7 @@ test('real HTTP adapter serves compressed content, conditional requests, streami
     product ??= detail.products.find(p => p.buyable && !p.soldOut && !p.soldOutVariants.length);
   }
   assert.ok(product);
-  const payload = { checkoutToken: crypto.randomUUID(), items: [{ id: product.id, color: product.colors[0].name, size: product.sizes[0], qty: 1 }], customer: { name: 'Test Shopper', email: 'isolated@example.com', phone: '5551234567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: product.priceCents };
+  const payload = { checkoutToken: crypto.randomUUID(), items: [{ id: product.id, color: product.colors[0].name, size: product.sizes[0], qty: 1 }], customer: { name: 'Test Shopper', email: 'isolated@example.com', phone: '5551234567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: charges(product.priceCents).totalCents };
   const submit = base => fetch(base + '/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const order = await (await submit(app.url)).json();
   assert.equal(order.paymentStatus, 'NOT_COLLECTED');

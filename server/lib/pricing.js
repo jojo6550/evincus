@@ -1,4 +1,5 @@
 import { MAX_QTY, lineKey, lineStatus, imagesFor } from '../../data/catalog.js';
+import { charges, TAX, PROCESSING_FEE } from '../../data/fees.js';
 
 export const MAX_LINES = 50;
 export const MAX_PRODUCTS = 8; // a checkout checks one stock document per product, plus its submission: 9 of @deno/kv's 10
@@ -44,7 +45,9 @@ export function quote(data, now, items) {
   return {
     lines,
     subtotalCents,
-    totalCents: subtotalCents,
+    ...charges(subtotalCents),
+    tax: TAX,
+    fee: PROCESSING_FEE,
     checkoutReady: !tooMany && lines.length > 0 && lines.every(l => COUNTED.has(l.status)),
     ...(tooMany && { problem: 'too-many-products' }),
   };

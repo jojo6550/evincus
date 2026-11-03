@@ -7,7 +7,7 @@ import { createApp } from '../server/index.js';
 const MIN = 60_000;
 const item = { id: 'alpha-tee', color: 'Black, white print', size: 'S', qty: 2 };
 
-const order = () => ({ checkoutToken: crypto.randomUUID(), items: [item], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 6998 });
+const order = () => ({ checkoutToken: crypto.randomUUID(), items: [item], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 8437 });
 const buy = async env => (await call('POST', '/api/orders', { body: order(), env })).json.id;
 
 async function cron(env, at) {

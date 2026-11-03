@@ -148,7 +148,7 @@ test("a rename committed between an adjustment's catalog load and its stock read
 test("a rename committed between a checkout's catalog load and its stock read is bag-changed, and nothing is written", async () => {
   const { env } = await setup();
   midRequest(env, () => renameWhite(env));
-  const order = { checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'White', size: 'S', qty: 1 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 3499 };
+  const order = { checkoutToken: crypto.randomUUID(), items: [{ id: 'alpha-tee', color: 'White', size: 'S', qty: 1 }], customer: { name: 'Ann Lee', email: 'ann@example.com', phone: '+1 555 123 4567' }, fulfillment: { type: 'pickup', locationId: 'trendy-hats' }, expectedTotalCents: 4218 };
   const r = await callWithoutData('POST', '/api/orders', { env, body: order });
   assert.deepEqual([r.status, r.json.error.code, r.json.error.lines.map(l => l.status)], [409, 'bag-changed', ['unknown-item']]);
   assert.equal([...env.ORDERS.store.keys()].some(k => /^(order|submission|day|email-retry):/.test(k)), false);
