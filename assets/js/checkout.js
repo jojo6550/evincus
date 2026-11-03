@@ -126,7 +126,8 @@ export async function mountCheckout(container, { q, breakdown, onBagChanged }) {
       else throw new ApiError(0, null);
     } catch (err) {
       // Before an order exists, a refused form can be fixed and resent as a new one. After, it stays this order.
-      if (!placed && err.status >= 400 && err.status < 500 && !['rate-limited', 'checkout-conflict'].includes(err.code)) {
+      // hold-expired: that order can't be paid any more, so the next submit starts a new one (stock checked again).
+      if (err.code === 'hold-expired' || (!placed && err.status >= 400 && err.status < 500 && !['rate-limited', 'checkout-conflict'].includes(err.code))) {
         remember(null);
         controls.forEach(el => { el.disabled = false; });
         sync();

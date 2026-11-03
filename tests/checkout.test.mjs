@@ -250,7 +250,9 @@ test('the summary lists orders that reached WiPay but are unpaid, with contact a
 
 test('an order placed on one day and paid the next is in the paid day\'s summary only', async () => {
   const up = fakeUpstreams(); const env = envForOrders();
-  await placePaid(env, body(), () => NOW + 86400000);
+  // Placed at 23:55 Jamaica time on the 3rd, paid ten minutes later on the 4th, inside the hold.
+  const placed = await call('POST', '/api/orders', { body: body(), env, clock: () => Date.parse('2026-10-04T04:55:00Z') });
+  await payOrder(env, placed.json.id, { clock: () => Date.parse('2026-10-04T05:05:00Z') });
   await cron(env, '2026-10-04T13:00:00Z');
   await cron(env, '2026-10-05T13:00:00Z');
   const [day3, day4] = ['2026-10-03', '2026-10-04'].map(d => ownerMails(up).find(e => e.subject.includes(d)));

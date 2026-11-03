@@ -34,6 +34,8 @@ export async function startPayment(c, orderId) {
   if (seen.fulfilmentStatus === 'CANCELLED') throw new HttpError('order-cancelled', 409);
   const open = await freshAttempt(c, seen.attemptId);
   if (open) return { url: open.url };
+  // The stock may be sold since: a new payment needs a new checkout, which checks stock again.
+  if (seen.stockCommitted !== true || !(Date.parse(seen.holdUntil) > +c.now)) throw new HttpError('hold-expired', 409);
 
   const attemptId = newAttemptId();
   const { customer, address } = await revealOrder(c.env, seen);

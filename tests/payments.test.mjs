@@ -290,3 +290,18 @@ test('a cancelled order cannot start a payment', async () => {
   assert.equal(r.json.error.code, 'order-cancelled');
   assert.equal(up.wipay.length, 0);
 });
+
+test('pay after the hold expired is 409 hold-expired and calls nobody; an open session is still returned', async () => {
+  const { up, env, id } = await setup();
+  const late = await pay(env, id, { clock: at(NOW + 16 * 60000) });
+  assert.equal(late.status, 409);
+  assert.equal(late.json.error.code, 'hold-expired');
+  assert.equal(up.wipay.length, 0);
+  const { releaseHold } = await import('../server/lib/holds.js');
+  await releaseHold(env, id, { now: new Date(NOW + 16 * 60000) });
+  assert.equal((await pay(env, id, { clock: at(NOW + 17 * 60000) })).json.error.code, 'hold-expired');
+  const fresh = await setup();
+  const a = await pay(fresh.env, fresh.id, { clock: at(NOW + 14 * 60000) });
+  const b = await pay(fresh.env, fresh.id, { clock: at(NOW + 15.5 * 60000) });
+  assert.equal(b.json.url, a.json.url, 'a session started inside the hold is reused');
+});
