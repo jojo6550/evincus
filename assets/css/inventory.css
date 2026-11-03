@@ -376,3 +376,14 @@ main:focus { outline: 0; }
 @media (min-width: 768px) {
   .lgx__filters { max-width: 420px; }
 }
+
+/* Finances tab: tiles one column on phones, the profit tile across; grid from the tabs' 768px breakpoint. */
+.fin__tiles { grid-template-columns: 1fr; }
+.fin__profit { border-color: var(--hazard); }
+.fin__profit b { color: var(--hazard); }
+.fin__csv { justify-self: start; }
+.fin .stx__table { overflow-x: auto; }
+@media (min-width: 768px) {
+  .fin__tiles { grid-template-columns: repeat(3, 1fr); }
+  .fin__profit { grid-column: 1 / -1; }
+}

@@ -5,6 +5,7 @@ const TABS = [
   { name: 'inventory', label: 'Inventory' },
   { name: 'orders', label: 'Orders' },
   { name: 'stats', label: 'Stats' },
+  { name: 'finances', label: 'Finances', ownerOnly: true },
   { name: 'logs', label: 'Logs', ownerOnly: true },
 ];
 const registry = new Map();

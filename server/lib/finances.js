@@ -40,7 +40,7 @@ async function compute(env, { from, to }) {
   const empty = !(await env.ORDERS.list({ prefix: 'paid:', limit: 1 })).keys.length;
 
   const months = new Map();
-  const month = day => months.get(day.slice(0, 7)) ?? months.set(day.slice(0, 7), { month: day.slice(0, 7), revenueCents: 0, refundsCents: 0, taxCents: 0, refundedTaxCents: 0, feesCents: 0, cogsCents: 0 }).get(day.slice(0, 7));
+  const month = day => months.get(day.slice(0, 7)) ?? months.set(day.slice(0, 7), { month: day.slice(0, 7), orders: 0, revenueCents: 0, refundsCents: 0, taxCents: 0, refundedTaxCents: 0, feesCents: 0, cogsCents: 0 }).get(day.slice(0, 7));
   const products = new Map();
   const rows = [];
   let costMissing = 0;
@@ -56,7 +56,7 @@ async function compute(env, { from, to }) {
       const item = products.get(l.id) ?? products.set(l.id, { id: l.id, name: l.name, units: 0, revenueCents: 0, costCents: 0 }).get(l.id);
       item.units += sold; item.revenueCents += l.unitCents * sold; item.costCents += (l.costCents ?? 0) * sold;
     }
-    Object.assign(bucket, { revenueCents: bucket.revenueCents + totalCents, taxCents: bucket.taxCents + taxCents, feesCents: bucket.feesCents + fee(totalCents), cogsCents: bucket.cogsCents + cogsCents });
+    Object.assign(bucket, { orders: bucket.orders + 1, revenueCents: bucket.revenueCents + totalCents, taxCents: bucket.taxCents + taxCents, feesCents: bucket.feesCents + fee(totalCents), cogsCents: bucket.cogsCents + cogsCents });
     rows.push({ id, paidAt: p.m.paidAt ?? o?.payment?.paidAt ?? '', subtotalCents: o?.subtotalCents ?? 0, taxCents, feeCents: fee(totalCents), totalCents, cogsCents, refundedCents: o?.refundedCents ?? 0 });
   }
   const refundList = [];
@@ -83,7 +83,7 @@ async function compute(env, { from, to }) {
       empty, revenueCents: sum('revenueCents'), refundsCents: sum('refundsCents'), netCents, gctOwedCents: sum('gctOwedCents'),
       feesCents: sum('feesCents'), cogsCents: sum('cogsCents'), costMissing, profitCents, marginBps: netCents ? Math.round(profitCents * 10000 / netCents) : 0,
       bestSellers, refunds: refundList.sort((a, b) => b.at.localeCompare(a.at)).map(({ taxCents, restock, ...r }) => r),
-      months: shaped.map(({ month, revenueCents, gctOwedCents, profitCents }) => ({ month, revenueCents, gctOwedCents, profitCents })),
+      months: shaped.map(({ month, orders, revenueCents, gctOwedCents, profitCents }) => ({ month, orders, revenueCents, gctOwedCents, profitCents })),
     },
     rows, refundRows: refundList,
   };
