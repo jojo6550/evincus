@@ -183,8 +183,8 @@ per WiPay transaction, then sends the receipt. The return lands on `order.html`,
 With `WIPAY_ACCOUNT_NUMBER` or `WIPAY_API_KEY` unset, card payment is off and checkout says so. Refunds are made by
 hand in the WiPay dashboard.
 
-Customers choose pickup (free) or shipping. Shipping is arranged by hand after purchase: the owner contacts the
-customer about cost and timing.
+Customers choose pickup (free) or shipping, to most countries. Shipping is arranged by hand after purchase: the
+owner contacts the customer about cost and timing, and it is paid separately.
 
 `data/fulfillment.js` holds the two pickup locations: Trendy Hats and Vince's store, both in Mandeville,
 Manchester, Jamaica. Their addresses are intentionally empty until confirmed. Fill each `address` there;
