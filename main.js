@@ -20,12 +20,11 @@ import { fileAccess } from './server/lib/files.js';
 import { clientIp } from './server/lib/client-ip.js';
 import { HTTP_OPTIONS, requestBody, sendResponse } from './server/lib/runtime.js';
 import { secureResponse } from './server/lib/security.js';
+import { productionConfigErrors } from './server/lib/startup.js';
 
 if (process.env.ENVIRONMENT === 'production') {
-  const keys = ['ADMIN_TOKEN', 'NEWSLETTER_KEY'];
-  if (keys.some(key => !process.env[key] || process.env[key].length < 32 || /local-dev-only|example/i.test(process.env[key])) || new Set(keys.map(key => process.env[key])).size !== keys.length) {
-    throw new Error('Production requires distinct ADMIN_TOKEN and NEWSLETTER_KEY secrets of at least 32 characters');
-  }
+  const errors = productionConfigErrors(process.env);
+  if (errors.length) throw new Error(errors.join('; '));
 }
 
 // KV_PATH puts KV in a SQLite file on Render's persistent disk. Unset (dev), a local file kept across --watch restarts.

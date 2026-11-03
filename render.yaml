@@ -52,6 +52,16 @@ services:
         sync: false
       - key: ADMIN_TOKEN
         sync: false
+      # 32 random bytes, base64. Keep a copy in a password manager: losing it loses every stored customer detail.
+      - key: CUSTOMER_DATA_KEY
+        sync: false
+      # Payments stay off until both WiPay values are set. Production refuses sandbox settings or the test key.
+      - key: WIPAY_ENVIRONMENT
+        value: live
+      - key: WIPAY_ACCOUNT_NUMBER
+        sync: false
+      - key: WIPAY_API_KEY
+        sync: false
 
   - type: web
     name: evincus-dev
@@ -104,4 +114,14 @@ services:
       - key: NEWSLETTER_KEY
         sync: false
       - key: ADMIN_TOKEN
+        sync: false
+      # A different key from prod's.
+      - key: CUSTOMER_DATA_KEY
+        sync: false
+      # WiPay's public sandbox: test cards only. WIPAY_API_KEY is the sandbox key 123.
+      - key: WIPAY_ENVIRONMENT
+        value: sandbox
+      - key: WIPAY_ACCOUNT_NUMBER
+        value: "1234567890"
+      - key: WIPAY_API_KEY
         sync: false
