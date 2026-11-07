@@ -44,6 +44,8 @@ await writeFile(new URL('favicon.ico', directory), favicon);
 await writeFile(new URL('apple-touch-icon.png', directory), await icon(180));
 // The nav mark is drawn at 44px and scaled about 1.9x; 192px stays sharp on 2x screens without the full-size original.
 await sharp(fileURLToPath(new URL('logo.png', directory))).resize(192, 192, { fit: 'cover' }).webp({ quality: 90 }).toFile(fileURLToPath(new URL('logo-nav.webp', directory)));
+// Email clients ignore the nav's CSS invert, so emails get a pre-inverted (light on transparent) PNG, 2x its 72px slot.
+await sharp(logo).negate({ alpha: false }).resize(144, 144, { fit: 'contain', background: '#00000000' }).png().toFile(fileURLToPath(new URL('logo-email.png', directory)));
 
 // A content version makes browsers request the new artwork after a logo update.
 const version = createHash('sha256').update(favicon).digest('hex').slice(0, 12);
