@@ -38,7 +38,7 @@ export const shell = ({ title, kicker, preview, body, site = DEFAULT_SITE, foote
   <tr><td style="padding:28px 24px 24px;border-bottom:1px solid ${C.char}">
     <a href="${esc(site)}" style="text-decoration:none">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-        <td width="72" valign="middle" style="padding:0"><img src="${esc(abs(site, '/assets/img/logo-email.png'))}" width="72" height="72" alt="Evincus" style="display:block;width:72px;height:72px;border:0"></td>
+        <td width="72" valign="middle" style="padding:0"><img src="${esc(abs(site, '/assets/img/logo-email.png?v=ccbf3946cf1a'))}" width="72" height="64" alt="Evincus" style="display:block;width:72px;height:64px;border:0"></td>
         <td valign="middle" style="padding:0 0 0 12px">
           <div style="font-family:${DISPLAY};font-size:32px;line-height:.9;letter-spacing:4px;color:${C.bone}">EVINCUS</div>
           <div style="font-family:${DISPLAY};font-size:32px;line-height:.9;letter-spacing:4px;color:${C.ink};-webkit-text-stroke:1px ${C.smoke}">EVINCUS</div>
@@ -51,7 +51,7 @@ export const shell = ({ title, kicker, preview, body, site = DEFAULT_SITE, foote
   ${tape('//// &nbsp;Made for chaos&nbsp; ////', C.hazard)}
   <tr><td style="padding:28px 24px 34px;background:${C.ash}">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td width="40" valign="middle" style="padding:0"><img src="${esc(abs(site, '/assets/img/logo-email.png'))}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border:0"></td>
+      <td width="40" valign="middle" style="padding:0"><img src="${esc(abs(site, '/assets/img/logo-email.png?v=ccbf3946cf1a'))}" width="40" height="36" alt="" style="display:block;width:40px;height:36px;border:0"></td>
       <td valign="middle" style="padding:0 0 0 10px">
         <div style="font-family:${DISPLAY};font-size:15px;letter-spacing:4px;color:${C.bone}">EVINCUS</div>
         <div style="padding-top:2px;font-family:${MARKER};font-size:16px;color:${C.hazard}">peace in chaos</div>

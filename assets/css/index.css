@@ -55,7 +55,7 @@ img { display: block; max-width: 100%; }
 header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in srgb, var(--ink) 86%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--char); }
 .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 12px; }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-.brand img { width: 44px; height: 44px; object-fit: cover; filter: invert(1); mix-blend-mode: screen; transform: scale(1.9); }
+.brand img { width: 42px; height: 38px; object-fit: contain; }
 .brand b { font-weight: 900; font-variation-settings: "wdth" 125; font-size: 15px; letter-spacing: .32em; }
 .nav ul { display: flex; gap: clamp(14px, 3vw, 36px); list-style: none; margin: 0; padding: 0; }
 .nav ul a { text-decoration: none; color: var(--smoke); transition: color .2s; }
@@ -301,7 +301,7 @@ main, footer { overflow-x: clip; } /* contain tilted tape + rotated script witho
 
   /* header: brand + bag on top, section links as a swipe strip below */
   .nav { flex-wrap: wrap; gap: 0 12px; padding-block: 8px 0; }
-  .brand img { width: 38px; height: 38px; }
+  .brand img { width: 36px; height: 32px; }
   .brand b { font-size: 13px; letter-spacing: .28em; }
   .cart { min-height: 40px; padding: 6px 12px; }
   .nav ul {
