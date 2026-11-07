@@ -59,7 +59,10 @@ export async function mountCheckout(container, { q, breakdown, onBagChanged }) {
       </div>
     </fieldset>
     <label>Order notes (optional)<textarea name="notes" maxlength="1000" rows="3"></textarea></label>
-    <div class="sum">${breakdown(q)}</div>
+    <div class="sum">
+      <ul class="sum__items">${q.lines.map(l => `<li class="sum__row"><span>${esc(l.name)} × ${l.qty}<small>${esc(l.color)}, size ${esc(l.size)}</small></span><span>${formatPrice(l.totalCents)}</span></li>`).join('')}</ul>
+      ${breakdown(q)}
+    </div>
     <p class="bag__note">You'll be charged ${money(total)} USD${currentCurrency() === 'USD' ? '' : ` (${formatPrice(total)})`}. Other currencies are estimates; your bank sets the final rate.</p>
     <p class="pay-error" role="alert" hidden></p>
     <button type="submit" class="btn btn--solid bag__go pay-btn">${CARD_ICON}<span data-label>${payLabel}</span></button>
