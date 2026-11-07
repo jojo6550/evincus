@@ -16,16 +16,29 @@ for (let y = 0; y < info.height; y++) {
 }
 if (right < left) throw new Error('The logo is fully transparent');
 const logo = await sharp(data, { raw: info }).extract({ left, top, width: right - left + 1, height: bottom - top + 1 }).png().toBuffer();
-const icon = async size => {
-  const padding = Math.max(1, Math.round(size * 0.06));
-  return sharp(logo).resize(size - padding * 2, size - padding * 2, { fit: 'contain', background: '#00000000' })
-    .extend({ top: padding, bottom: padding, left: padding, right: padding, background: '#00000000' }).png().toBuffer();
+// The artwork is dark ink on light. Every derivative draws it in bone for the near-black brand: ink darkness becomes
+// opacity, so strokes are solid bone and the pale ghost letter stays a faint trace instead of a dark smudge.
+const BONE = [0xf3, 0xef, 0xe8];
+const ink = await sharp(logo).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+const lum = i => 0.2126 * ink.data[i] + 0.7152 * ink.data[i + 1] + 0.0722 * ink.data[i + 2];
+let darkest = 255;
+for (let i = 0; i < ink.data.length; i += 4) if (ink.data[i + 3] > 200) darkest = Math.min(darkest, lum(i));
+const bone = Buffer.alloc(ink.data.length);
+for (let i = 0; i < ink.data.length; i += 4) {
+  bone.set(BONE, i);
+  bone[i + 3] = Math.round(ink.data[i + 3] * Math.min(1, (255 - lum(i)) / (255 - darkest)));
+}
+const light = await sharp(bone, { raw: ink.info }).png().toBuffer();
+// Bone mark on an ink tile: tabs and home screens can be dark or light, and iOS fills transparency with black.
+const tile = async (size, pad) => {
+  const padding = Math.max(1, Math.round(size * pad));
+  const mark = await sharp(light).resize(size - padding * 2, size - padding * 2, { fit: 'contain', background: '#00000000' }).png().toBuffer();
+  return sharp({ create: { width: size, height: size, channels: 4, background: '#0d0c0f' } }).composite([{ input: mark }]).png().toBuffer();
 };
 
 const sizes = [16, 32, 48, 64, 128, 256];
-// Use the full tab width without clipping the mark; home-screen icons keep their padding.
-const frames = await Promise.all(sizes.map(size =>
-  sharp(logo).resize(size, size, { fit: 'contain', background: '#00000000' }).png().toBuffer()));
+// Tight padding for tabs; home-screen icons get more, since iOS rounds the corners.
+const frames = await Promise.all(sizes.map(size => tile(size, 0.06)));
 const header = Buffer.alloc(6 + sizes.length * 16);
 header.writeUInt16LE(1, 2);
 header.writeUInt16LE(sizes.length, 4);
@@ -41,20 +54,18 @@ for (let i = 0; i < sizes.length; i++) {
 }
 const favicon = Buffer.concat([header, ...frames]);
 await writeFile(new URL('favicon.ico', directory), favicon);
-await writeFile(new URL('apple-touch-icon.png', directory), await icon(180));
-// The nav mark is drawn at 44px and scaled about 1.9x; 192px stays sharp on 2x screens without the full-size original.
-await sharp(fileURLToPath(new URL('logo.png', directory))).resize(192, 192, { fit: 'cover' }).webp({ quality: 90 }).toFile(fileURLToPath(new URL('logo-nav.webp', directory)));
-// Email clients ignore the nav's CSS invert, so emails get a pre-inverted (light on transparent) PNG, 2x its 72px slot.
-await sharp(logo).negate({ alpha: false }).resize(144, 144, { fit: 'contain', background: '#00000000' }).png().toFile(fileURLToPath(new URL('logo-email.png', directory)));
+await writeFile(new URL('apple-touch-icon.png', directory), await tile(180, 0.14));
+// Nav (drawn ~42px wide) and emails (72px) get the cropped mark at full source resolution: sharp on 3x screens.
+await sharp(light).webp({ quality: 90, alphaQuality: 90 }).toFile(fileURLToPath(new URL('logo-nav.webp', directory)));
+await writeFile(new URL('logo-email.png', directory), await sharp(light).png({ palette: true, colours: 64, compressionLevel: 9 }).toBuffer());
 
-// A content version makes browsers request the new artwork after a logo update.
+// A content version makes browsers (and mail image proxies, which cache by URL) request the new artwork after a logo update.
 const version = createHash('sha256').update(favicon).digest('hex').slice(0, 12);
 const root = new URL('../', import.meta.url);
-for (const filename of await readdir(root)) {
-  if (!filename.endsWith('.html')) continue;
-  const file = new URL(filename, root);
+const pages = (await readdir(root)).filter(f => f.endsWith('.html')).map(f => new URL(f, root));
+for (const file of [...pages, new URL('server/emails/brand.js', root)]) {
   const html = await readFile(file, 'utf8');
-  const updated = html.replace(/assets\/img\/(favicon\.ico|apple-touch-icon\.png)(?:\?v=[a-f0-9]+)?(?=")/g,
+  const updated = html.replace(/assets\/img\/(favicon\.ico|apple-touch-icon\.png|logo-nav\.webp|logo-email\.png)(?:\?v=[a-f0-9]+)?(?=["'])/g,
     (_, name) => `assets/img/${name}?v=${version}`);
   if (updated !== html) await writeFile(file, updated);
 }
