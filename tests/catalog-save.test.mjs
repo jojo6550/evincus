@@ -436,3 +436,19 @@ test('an era cannot take the slug new, the address of the create page', async ()
   const r = await req(env, cookie, 'PUT', '/api/inventory/eras/new', { opId: crypto.randomUUID(), era, version: null });
   assert.deepEqual(errorsOf(r), [400, 'invalid-era', ['slug-invalid']]);
 });
+
+test('a sale price must be under the price; saved, it reprices the store with the original struck through', async () => {
+  const { env, cookie } = await setup();
+  const { product, version } = await load(env, cookie);
+  for (const bad of [3499, 4000, 0, 12.5, 'x']) {
+    const r = await save(env, cookie, { ...product, salePriceCents: bad }, version);
+    assert.deepEqual([r.status, r.json.error.errors], [400, ['sale-price-invalid']], String(bad));
+  }
+  const r = await save(env, cookie, { ...product, salePriceCents: 2500 }, version);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.product.salePriceCents, 2500);
+  const tee = (await callWithoutData('GET', '/api/products/alpha-tee', { env })).json;
+  assert.deepEqual([tee.priceCents, tee.compareAtCents, tee.salePriceCents], [2500, 3499, undefined]);
+  const cleared = await save(env, cookie, { ...r.json.product, salePriceCents: null }, r.json.version);
+  assert.equal(Object.hasOwn(cleared.json.product, 'salePriceCents'), false);
+});

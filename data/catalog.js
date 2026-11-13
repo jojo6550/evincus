@@ -123,13 +123,17 @@ export function bestSale(sales, slug, now) {
     .sort((a, b) => b.percent - a.percent || time(b.endsAt) - time(a.endsAt))[0] ?? null;
 }
 
-// Re-prices products under active sales. priceCents becomes the sale price; compareAtCents keeps the original.
+// Re-prices products under active sales and their own salePriceCents, whichever is lower. priceCents becomes the
+// sale price; compareAtCents keeps the original.
 export function applySales(data, sales, now) {
   const pending = pendingSales(sales, now);
-  const products = data.products.map(p => {
+  const products = data.products.map(({ salePriceCents: own, ...p }) => {
     const s = bestSale(pending, p.era, now);
-    if (!s) return p;
-    return { ...p, priceCents: salePrice(p.priceCents, s.percent), compareAtCents: p.priceCents, sale: { id: s.id, percent: s.percent, endsAt: s.endsAt } };
+    const era = s ? salePrice(p.priceCents, s.percent) : Infinity;
+    const fixed = Number.isSafeInteger(own) && own > 0 && own < p.priceCents ? own : Infinity;
+    if (era === Infinity && fixed === Infinity) return p;
+    if (fixed < era) return { ...p, priceCents: fixed, compareAtCents: p.priceCents };
+    return { ...p, priceCents: era, compareAtCents: p.priceCents, sale: { id: s.id, percent: s.percent, endsAt: s.endsAt } };
   });
   return { ...data, products, sales: pending };
 }

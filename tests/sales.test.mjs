@@ -135,3 +135,13 @@ test('addSale and endSale drop ended sales; endSale refuses unknown ids', () => 
   assert.deepEqual(endSale(list, 'all', NOW), []);
   assert.throws(() => endSale(list, 'zzz', NOW), /No running or scheduled sale/);
 });
+
+test('a product sale price applies on its own, and the lower of it and an era sale wins', () => {
+  const own = c => ({ ...FIXTURE, products: FIXTURE.products.map(p => (p.id === 'alpha-tee' ? { ...p, salePriceCents: c } : p)) });
+  const tee = (data, sales) => applySales(data, sales, NOW).products.find(p => p.id === 'alpha-tee');
+  assert.deepEqual([tee(own(2500), []).priceCents, tee(own(2500), []).compareAtCents, tee(own(2500), []).sale], [2500, 3499, undefined]);
+  assert.equal(tee(own(2500), [sale()]).priceCents, 2500, 'own 2500 beats 20% off (2799)');
+  assert.equal(tee(own(3000), [sale()]).sale.id, 's1', '20% off (2799) beats own 3000');
+  assert.equal(tee(own(3499), []).compareAtCents, undefined, 'a sale price not under the price is ignored');
+  assert.equal(Object.hasOwn(tee(own(2500), []), 'salePriceCents'), false);
+});

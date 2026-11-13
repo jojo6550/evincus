@@ -48,6 +48,7 @@ export function validateProduct(p, { eras = [], products = [], stock = {}, curre
   check(!isText(p.fabric, 300), 'fabric-invalid');
   check(!isText(p.category, 60), 'category-invalid');
   check(p.priceCents !== null && !(Number.isSafeInteger(p.priceCents) && p.priceCents > 0), 'price-invalid');
+  check(p.salePriceCents != null && !(Number.isSafeInteger(p.salePriceCents) && p.salePriceCents > 0 && p.salePriceCents < p.priceCents), 'sale-price-invalid');
   check(!(Number.isSafeInteger(p.costCents) && p.costCents >= 0), 'cost-invalid');
   check(typeof p.continueSelling !== 'boolean', 'continue-selling-invalid');
   check(!(Number.isSafeInteger(p.lowStockAt) && p.lowStockAt >= 0), 'low-stock-invalid');
@@ -102,7 +103,8 @@ function productDoc(p, { current, catalog, source, at }) {
   const last = Math.max(-1, ...catalog.products.filter(o => o.era === p.era && o.id !== p.id).map(o => o.position ?? -1));
   return {
     id: p.id, era: p.era, status: p.status, name: p.name, ...(p.description !== undefined && { description: p.description }),
-    fabric: p.fabric, category: p.category, priceCents: p.priceCents, costCents: p.costCents, sizes: p.sizes,
+    fabric: p.fabric, category: p.category, priceCents: p.priceCents,
+    ...(p.salePriceCents != null && { salePriceCents: p.salePriceCents }), costCents: p.costCents, sizes: p.sizes,
     colors: p.colors.map(c => ({ name: c.name, hex: c.hex, ...(c.ring !== undefined && { ring: c.ring }), ...(c.images !== undefined && { images: c.images.map(ref) }) })),
     ...(p.images !== undefined && { images: p.images.map(ref) }),
     skus, continueSelling: p.continueSelling, lowStockAt: p.lowStockAt,
@@ -116,7 +118,7 @@ const quoted = v => `"${v ?? ''}"`;
 const listed = a => a.join(', ') || '—';
 const EDITS = [ // field, label, how a value reads (none: "<label> edited")
   ['name', 'Name', quoted], ['status', 'Status', String], ['era', 'Era', String], ['category', 'Category', String],
-  ['fabric', 'Fabric', quoted], ['description', 'Description'], ['priceCents', 'Price', cents], ['costCents', 'Cost', cents],
+  ['fabric', 'Fabric', quoted], ['description', 'Description'], ['priceCents', 'Price', cents], ['salePriceCents', 'Sale price', cents], ['costCents', 'Cost', cents],
   ['sizes', 'Sizes', listed], ['continueSelling', 'Keep selling when out of stock', v => (v ? 'on' : 'off')], ['lowStockAt', 'Low stock at', String],
 ];
 // One { field, summary } per changed field, for history.
