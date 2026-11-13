@@ -29,6 +29,7 @@ export const products = [
       }
     ],
     images: ["catastrophe-zip-hoodie-1.jpg", "catastrophe-zip-hoodie-2.jpg", "catastrophe-zip-hoodie-3.jpg", "catastrophe-zip-hoodie-4.jpg"],
+    stock: 30,
     soldOut: false,
     soldOutVariants: []
   },
@@ -50,6 +51,7 @@ export const products = [
       }
     ],
     images: ["catastrophe-sweatpants-1.jpg", "catastrophe-sweatpants-2.jpg", "catastrophe-sweatpants-3.jpg", "catastrophe-sweatpants-4.jpg"],
+    stock: 30,
     soldOut: false,
     soldOutVariants: []
   },
@@ -80,6 +82,7 @@ export const products = [
         images: ["disaster-zone-tee-black-purple-print-1.webp", "disaster-zone-tee-black-purple-print-2.webp"]
       }
     ],
+    stock: 30,
     soldOut: false,
     soldOutVariants: []
   },
@@ -105,6 +108,7 @@ export const products = [
       }
     ],
     images: ["made-for-chaos-tee-1.jpg", "made-for-chaos-tee-2.jpg", "made-for-chaos-tee-3.webp", "made-for-chaos-tee-4.jpg", "made-for-chaos-tee-5.jpg", "made-for-chaos-tee-6.jpg"],
+    stock: 30,
     soldOut: false,
     soldOutVariants: []
   }

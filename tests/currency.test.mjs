@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectCurrency, formatIn, formatPrice, initCurrency, onCurrencyChange, currentCurrency } from '../assets/js/currency.js';
+import { detectCurrency, formatIn, formatPrice, initCurrency, productPrice, onCurrencyChange, currentCurrency } from '../assets/js/currency.js';
 
 const RATES = { USD: 1, JMD: 157.2, EUR: 0.92 };
 // Stand-ins for the footer <select> and the attribution link.
@@ -56,4 +56,14 @@ test('init works with storage blocked, and a failed rates request leaves USD and
   assert.equal(formatPrice(1000), '$10.00');
   assert.equal(s2.hidden, true);
   assert.equal(c2.hidden, true);
+});
+
+test('a product with fixed JMD prices shows them exactly in JMD, and estimates everywhere else', async () => {
+  await initCurrency(null, null, { load: async () => ({ base: 'USD', rates: RATES }), storage: memoryStorage(), languages: ['en-US'] });
+  const p = { priceCents: 5000, compareAtCents: 6300, jmd: { priceCents: 800000, compareAtCents: 1000000 } };
+  assert.equal(productPrice(p, 'priceCents', 'JMD'), 'JMD 8,000.00');
+  assert.equal(productPrice(p, 'compareAtCents', 'JMD'), 'JMD 10,000.00');
+  assert.equal(productPrice(p, 'priceCents', 'USD'), formatIn(5000, 'USD', RATES));
+  assert.equal(productPrice(p, 'priceCents', 'EUR'), formatIn(5000, 'EUR', RATES));
+  assert.equal(productPrice({ priceCents: 5000 }, 'priceCents', 'JMD'), formatIn(5000, 'JMD', RATES));
 });

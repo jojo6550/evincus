@@ -128,3 +128,23 @@ test('loadCatalog orders eras by catalog:era-order, falling back to catalog:rev 
   await env.ORDERS.put(REV_KEY, JSON.stringify({ rev: 'next', eraOrder: [...slugs].reverse() }));
   assert.deepEqual((await loadCatalog(env)).eras.map(e => e.slug), slugs);
 });
+
+test('a product\'s stock total is split evenly over its variants, the first taking the remainder', async () => {
+  const base = ERAS.find(m => m.era.slug === 'core');
+  const tee = base.products[0]; // 2 colours × 5 sizes
+  const env = fresh();
+  await seedCatalog(env, { modules: [{ era: base.era, products: [{ ...tee, stock: 32 }] }], manifest, root, seedStock: 7 });
+  const doc = await env.ORDERS.get(stockKey(tee.id), 'json');
+  const counts = tee.colors.flatMap(c => tee.sizes.map(s => doc[`${c.name}|${s}`].onHand));
+  assert.deepEqual(counts, [4, 4, 3, 3, 3, 3, 3, 3, 3, 3]);
+  assert.ok(!('stock' in (await loadCatalog(env)).products[0]));
+});
+
+test('the era files seed 30 per product outside core, and 50 of the signature piece', async () => {
+  const env = fresh();
+  await seedCatalog(env, { modules: ERAS, manifest, root, seedStock: 0 });
+  const stock = await loadStock(env);
+  const total = p => p.colors.flatMap(c => p.sizes.map(s => stock.get(`${p.id}|${c.name}|${s}`).onHand)).reduce((a, b) => a + b, 0);
+  for (const p of ERAS.filter(m => m.era.slug !== 'core').flatMap(m => m.products)) assert.equal(total(p), 30, p.id);
+  assert.equal(total(ERAS.find(m => m.era.slug === 'core').products.find(p => p.id === 'evincus-signature-piece')), 50);
+});

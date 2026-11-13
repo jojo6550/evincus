@@ -9,7 +9,7 @@ import * as eras from './inventory-eras.js';
 // Product fields the page edits, in save-bar order, with their save-bar names.
 const LABELS = {
   id: 'ID', status: 'status', name: 'name', description: 'description', fabric: 'fabric', era: 'era', category: 'category',
-  priceCents: 'price', costCents: 'cost', sizes: 'sizes', colors: 'colours', skus: 'SKUs', images: 'photos', continueSelling: 'keep selling', lowStockAt: 'low stock',
+  priceCents: 'price', salePriceCents: 'sale price', jmdPriceCents: 'JMD price', jmdSalePriceCents: 'JMD sale price', costCents: 'cost', sizes: 'sizes', colors: 'colours', skus: 'SKUs', images: 'photos', continueSelling: 'keep selling', lowStockAt: 'low stock',
 };
 const CHIPS = {
   all: p => p.status !== 'archived', low: p => p.status !== 'archived' && p.low, out: p => p.status !== 'archived' && p.out > 0,
@@ -317,7 +317,7 @@ function refreshBar() {
 const toCents = v => (v === '' ? null : Math.round(Number(v) * 100));
 const PARSE = {
   name: v => v, description: v => v, fabric: v => v, category: v => v, era: v => v, status: v => v,
-  priceCents: toCents, costCents: toCents, lowStockAt: v => (v === '' ? null : Number(v)), continueSelling: (v, t) => t.checked,
+  priceCents: toCents, salePriceCents: toCents, jmdPriceCents: toCents, jmdSalePriceCents: toCents, costCents: toCents, lowStockAt: v => (v === '' ? null : Number(v)), continueSelling: (v, t) => t.checked,
 };
 
 function onInput(e) {

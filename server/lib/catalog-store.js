@@ -71,7 +71,9 @@ export async function loadCatalog(env) {
   return out;
 }
 
-// Imports the era files once. Returns false when the catalog already exists.
+// Imports the era files once. Returns false when the catalog already exists. A product's `stock` is its total units,
+// split evenly over its variants (the first ones take any remainder); without it every variant gets seedStock.
+// shortcut: remainder goes in colour-then-size order, not by demand; set exact counts in inventory if that matters
 export async function seedCatalog(env, { modules, manifest, root, seedStock }) {
   const kv = env.ORDERS;
   if ((await kv.getEntry(REV_KEY)).version !== null) return false;
@@ -90,14 +92,17 @@ export async function seedCatalog(env, { modules, manifest, root, seedStock }) {
   const taken = new Set();
   for (const { era, products } of modules) {
     puts.push({ key: eraKey(era.slug), value: JSON.stringify({ ...era, hero: await photo(era.slug, era.hero), state: 'published' }) });
-    for (const [position, { id, soldOut, soldOutVariants = [], ...p }] of products.entries()) {
+    for (const [position, { id, soldOut, soldOutVariants = [], stock: total, ...p }] of products.entries()) {
       const skus = {};
       const stock = {};
+      const n = p.colors.length * p.sizes.length;
+      let i = 0;
       for (const c of p.colors) for (const size of p.sizes) {
         const variant = `${c.name}|${size}`;
         skus[variant] = defaultSku(id, c.name, size, taken);
         taken.add(skus[variant]);
-        stock[variant] = { onHand: soldOut || soldOutVariants.includes(variant) ? 0 : seedStock, committed: 0 };
+        const units = total === undefined ? seedStock : Math.floor(total / n) + (i++ < total % n ? 1 : 0);
+        stock[variant] = { onHand: soldOut || soldOutVariants.includes(variant) ? 0 : units, committed: 0 };
       }
       puts.push({ key: stockKey(id), value: stockDoc(stock) });
       const rec = {

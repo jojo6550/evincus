@@ -4,7 +4,7 @@ import { findProduct, eraName, isLive, site } from './store.js';
 import * as cart from './cart.js';
 import { openBag } from './bag.js';
 import { priceHtml } from './sale.js';
-import { formatPrice, currentCurrency, onCurrencyChange } from './currency.js';
+import { productPrice, currentCurrency, onCurrencyChange } from './currency.js';
 import { imageAttrs, updateImage } from './images.js';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -20,7 +20,7 @@ function buttonState(p, color, size) {
   if (!p.buyable) return { text: p.soldOut ? 'Sold out' : 'No longer sold', disabled: true };
   if (!size) return { text: 'Select a size', disabled: true };
   if (p.soldOutVariants.includes(`${color}|${size}`)) return { text: 'Sold out in this size', disabled: true };
-  return { text: `Add to cart, ${formatPrice(p.priceCents)}`, disabled: false };
+  return { text: `Add to cart, ${productPrice(p, 'priceCents')}`, disabled: false };
 }
 
 function dot(c) {

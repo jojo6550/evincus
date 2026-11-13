@@ -68,6 +68,9 @@ export const ERRORS = {
   'description-invalid': ['f-description', 'The description is too long.'], 'fabric-invalid': ['f-fabric', 'The fabric is too long.'],
   'category-invalid': ['f-category', 'The category is too long.'], 'era-unknown': ['f-era', 'Pick an era.'],
   'price-required': ['f-price', 'Add a price before making it Active.'], 'price-invalid': ['f-price', 'The price must be more than 0.'],
+  'sale-price-invalid': ['f-sale', 'The sale price must be more than 0 and less than the price.'],
+  'jmd-price-invalid': ['f-jmd', 'The JMD price must be more than 0.'],
+  'jmd-sale-price-invalid': ['f-jmd-sale', 'The JMD sale price must be more than 0 and less than the JMD price.'],
   'cost-invalid': ['f-cost', 'Cost per item must be 0 or more.'], 'low-stock-invalid': ['f-low', 'Low stock at must be a whole number, 0 or more.'],
   'sizes-required': ['s-new', 'Add a size before making it Active.'], 'size-invalid': ['s-new', 'Size names need 1 to 100 characters and no "|".'],
   'size-duplicate': ['s-new', 'Two sizes have the same name.'], 'size-has-stock': [null, 'A size with stock can’t be removed. Bring its stock to 0 first.'],
@@ -211,6 +214,9 @@ export function pageHtml(pg, { conflict, eraName, photos }) {
         <section class="card" aria-labelledby="h-pricing"><h2 class="card__title" id="h-pricing">Pricing</h2>
           <div class="two">
             ${field('Price (USD)', 'f-price', `<input id="f-price" name="priceCents" type="number" inputmode="decimal" min="0.01" step="0.01" value="${cents(e.priceCents)}"${off}>`)}
+            ${field('Sale price (USD) <small>blank for none</small>', 'f-sale', `<input id="f-sale" name="salePriceCents" type="number" inputmode="decimal" min="0.01" step="0.01" value="${cents(e.salePriceCents)}"${off}>`)}
+            ${field('JMD price <small>exact, shown instead of the estimate</small>', 'f-jmd', `<input id="f-jmd" name="jmdPriceCents" type="number" inputmode="decimal" min="0.01" step="0.01" value="${cents(e.jmdPriceCents)}"${off}>`)}
+            ${field('JMD sale price', 'f-jmd-sale', `<input id="f-jmd-sale" name="jmdSalePriceCents" type="number" inputmode="decimal" min="0.01" step="0.01" value="${cents(e.jmdSalePriceCents)}"${off}>`)}
             ${owner ? field('Cost per item', 'f-cost', `<input id="f-cost" name="costCents" type="number" inputmode="decimal" min="0" step="0.01" value="${cents(e.costCents)}">`) : ''}
           </div>
           ${owner ? `<p class="margin" id="margin">${esc(marginText(e))}</p>` : ''}

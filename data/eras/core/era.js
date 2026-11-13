@@ -91,5 +91,26 @@ export const products = [
     images: ["worldwide-tee-1.webp", "worldwide-tee-2.webp", "worldwide-tee-3.jpg", "worldwide-tee-4.jpg", "worldwide-tee-5.jpg", "worldwide-tee-6.jpg", "worldwide-tee-7.jpg", "worldwide-tee-8.jpg"],
     soldOut: false,
     soldOutVariants: []
+  },
+  {
+    id: "evincus-signature-piece",
+    name: "Evincus (Signature Piece)",
+    category: "tees",
+    priceCents: 6300,
+    salePriceCents: 5000,
+    jmdPriceCents: 1000000,
+    jmdSalePriceCents: 800000,
+    fabric: "Cropped boxy long sleeve, layered striped sleeves, all-over print",
+    sizes: ["S", "M", "L", "XL", "2XL"],
+    colors: [
+      {
+        name: "White",
+        hex: "#F4F4F2"
+      }
+    ],
+    images: ["evincus-signature-piece-1.jpg", "evincus-signature-piece-2.jpg"],
+    stock: 50,
+    soldOut: false,
+    soldOutVariants: []
   }
 ];
