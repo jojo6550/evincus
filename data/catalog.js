@@ -124,16 +124,23 @@ export function bestSale(sales, slug, now) {
 }
 
 // Re-prices products under active sales and their own salePriceCents, whichever is lower. priceCents becomes the
-// sale price; compareAtCents keeps the original.
+// sale price; compareAtCents keeps the original. A product with jmdPriceCents also gets `jmd`, the fixed JMD prices
+// shown instead of an estimate (display only: charges stay USD); its own sale needs jmdSalePriceCents for that.
+const under = (v, max) => (Number.isSafeInteger(v) && v > 0 && v < max ? v : Infinity);
 export function applySales(data, sales, now) {
   const pending = pendingSales(sales, now);
-  const products = data.products.map(({ salePriceCents: own, ...p }) => {
+  const products = data.products.map(({ salePriceCents: own, jmdPriceCents, jmdSalePriceCents, ...p }) => {
     const s = bestSale(pending, p.era, now);
     const era = s ? salePrice(p.priceCents, s.percent) : Infinity;
-    const fixed = Number.isSafeInteger(own) && own > 0 && own < p.priceCents ? own : Infinity;
-    if (era === Infinity && fixed === Infinity) return p;
-    if (fixed < era) return { ...p, priceCents: fixed, compareAtCents: p.priceCents };
-    return { ...p, priceCents: era, compareAtCents: p.priceCents, sale: { id: s.id, percent: s.percent, endsAt: s.endsAt } };
+    const fixed = under(own, p.priceCents);
+    const jmd = under(jmdPriceCents, Infinity);
+    if (era === Infinity && fixed === Infinity) return jmd === Infinity ? p : { ...p, jmd: { priceCents: jmd } };
+    if (fixed < era) {
+      const jmdSale = under(jmdSalePriceCents, jmd);
+      return { ...p, priceCents: fixed, compareAtCents: p.priceCents, ...(jmdSale !== Infinity && { jmd: { priceCents: jmdSale, compareAtCents: jmd } }) };
+    }
+    return { ...p, priceCents: era, compareAtCents: p.priceCents, sale: { id: s.id, percent: s.percent, endsAt: s.endsAt },
+      ...(jmd !== Infinity && { jmd: { priceCents: salePrice(jmd, s.percent), compareAtCents: jmd } }) };
   });
   return { ...data, products, sales: pending };
 }

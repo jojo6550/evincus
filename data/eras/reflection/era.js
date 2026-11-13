@@ -33,6 +33,7 @@ export const products = [
       }
     ],
     images: ["reflection-track-jacket-1.jpg", "reflection-track-jacket-2.jpg", "reflection-track-jacket-3.jpg", "reflection-track-jacket-4.jpg", "reflection-track-jacket-5.jpg", "reflection-track-jacket-6.jpg"],
+    stock: 30,
     soldOut: false,
     soldOutVariants: []
   },
@@ -58,6 +59,7 @@ export const products = [
       }
     ],
     images: ["reflection-track-pants-1.jpg", "reflection-track-pants-2.jpg", "reflection-track-pants-3.jpg", "reflection-track-pants-4.jpg", "reflection-track-pants-5.jpg", "reflection-track-pants-6.jpg"],
+    stock: 30,
     soldOut: false,
     soldOutVariants: []
   }

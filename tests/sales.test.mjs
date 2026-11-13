@@ -145,3 +145,13 @@ test('a product sale price applies on its own, and the lower of it and an era sa
   assert.equal(tee(own(3499), []).compareAtCents, undefined, 'a sale price not under the price is ignored');
   assert.equal(Object.hasOwn(tee(own(2500), []), 'salePriceCents'), false);
 });
+
+test('fixed JMD prices follow the product sale, an era sale\'s percent, or stand alone', () => {
+  const tee = (over, sales) => applySales({ ...FIXTURE, products: FIXTURE.products.map(p => (p.id === 'alpha-tee' ? { ...p, ...over } : p)) }, sales, NOW).products.find(p => p.id === 'alpha-tee');
+  assert.deepEqual(tee({ jmdPriceCents: 550000 }, []).jmd, { priceCents: 550000 });
+  assert.deepEqual(tee({ jmdPriceCents: 550000, jmdSalePriceCents: 400000, salePriceCents: 2500 }, []).jmd, { priceCents: 400000, compareAtCents: 550000 });
+  assert.equal(tee({ jmdPriceCents: 550000, salePriceCents: 2500 }, []).jmd, undefined, 'own sale without a JMD sale price: estimate');
+  assert.deepEqual(tee({ jmdPriceCents: 550000 }, [sale()]).jmd, { priceCents: 440000, compareAtCents: 550000 });
+  const plain = tee({ jmdPriceCents: 550000, jmdSalePriceCents: 400000 }, []);
+  assert.ok(!('jmdPriceCents' in plain) && !('jmdSalePriceCents' in plain));
+});

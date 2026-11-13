@@ -9,7 +9,7 @@ const withPaths = (slug, files) => files.map(f => imgPath(slug, f));
 export function merge(modules) {
   const eras = modules.map(({ era }) => ({ ...era, hero: imgPath(era.slug, era.hero) }));
   const products = modules.flatMap(({ era, products }) =>
-    products.map(({ id, ...p }) => ({
+    products.map(({ id, stock, ...p }) => ({
       id,
       era: era.slug,
       ...p,

@@ -452,3 +452,16 @@ test('a sale price must be under the price; saved, it reprices the store with th
   const cleared = await save(env, cookie, { ...r.json.product, salePriceCents: null }, r.json.version);
   assert.equal(Object.hasOwn(cleared.json.product, 'salePriceCents'), false);
 });
+
+test('JMD prices must be above 0, the JMD sale under the JMD price; saved, the store shows them', async () => {
+  const { env, cookie } = await setup();
+  const { product, version } = await load(env, cookie);
+  for (const [over, code] of [[{ jmdPriceCents: 0 }, 'jmd-price-invalid'], [{ jmdPriceCents: 1.5 }, 'jmd-price-invalid'],
+    [{ jmdPriceCents: 500000, jmdSalePriceCents: 500000 }, 'jmd-sale-price-invalid'], [{ jmdSalePriceCents: 400000 }, 'jmd-sale-price-invalid']]) {
+    const r = await save(env, cookie, { ...product, ...over }, version);
+    assert.deepEqual([r.status, r.json.error.errors], [400, [code]], JSON.stringify(over));
+  }
+  const r = await save(env, cookie, { ...product, jmdPriceCents: 550000 }, version);
+  assert.equal(r.status, 200);
+  assert.deepEqual((await callWithoutData('GET', '/api/products/alpha-tee', { env })).json.jmd, { priceCents: 550000 });
+});

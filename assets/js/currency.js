@@ -29,6 +29,13 @@ export function formatIn(cents, c, r, locale = 'en') {
 }
 
 export const formatPrice = cents => formatIn(cents, code, rates);
+// A product price (`field` priceCents or compareAtCents): its fixed JMD price when it has one, else the estimate.
+export function productPrice(p, field, c = code, locale = 'en') {
+  const fixed = c === 'JMD' ? p.jmd?.[field] : undefined;
+  if (!Number.isSafeInteger(fixed)) return formatIn(p[field], c, rates, locale);
+  const d = digits(c);
+  return `${c} ${new Intl.NumberFormat(locale, { minimumFractionDigits: d, maximumFractionDigits: d }).format(fixed / 100)}`;
+}
 export const currentCurrency = () => code;
 export const onCurrencyChange = fn => { listeners.add(fn); };
 const choose = c => { code = c; listeners.forEach(fn => fn(c)); };

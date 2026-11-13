@@ -98,6 +98,8 @@ export const products = [
     category: "tees",
     priceCents: 6300,
     salePriceCents: 5000,
+    jmdPriceCents: 1000000,
+    jmdSalePriceCents: 800000,
     fabric: "Cropped boxy long sleeve, layered striped sleeves, all-over print",
     sizes: ["S", "M", "L", "XL", "2XL"],
     colors: [
@@ -107,6 +109,7 @@ export const products = [
       }
     ],
     images: ["evincus-signature-piece-1.jpg", "evincus-signature-piece-2.jpg"],
+    stock: 50,
     soldOut: false,
     soldOutVariants: []
   }
